@@ -18,6 +18,7 @@ import {
 import { SearchOutlined, MoreOutlined, EditOutlined, StopOutlined } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
 import { usersApi } from '../../api/users'
+import { permissionsApi, type PermissionCatalogRow } from '../../api/permissions'
 import type { User } from '../../types/auth'
 import type { SectionPermission, RoleOption } from '../../api/users'
 import { PrintExport } from '../../components/common/PrintExport'
@@ -50,6 +51,37 @@ export const UserList = () => {
   const [roles, setRoles] = useState<RoleOption[]>([])
   const [form] = Form.useForm()
   const [saving, setSaving] = useState(false)
+  const isKpiPermissionRow = (key: string) =>
+    key === 'dashboard_kpi' || key.startsWith('dashboard_kpi_person_')
+
+  const [permissionRows, setPermissionRows] = useState<PermissionCatalogRow[]>(() =>
+    PERMISSION_SECTION_KEYS.map((key) => ({
+      key,
+      label: SECTION_LABELS[key] || key,
+      group: isKpiPermissionRow(key) ? 'dashboard_kpi' : 'app',
+    })),
+  )
+
+  const permissionSectionKeys = permissionRows.map((r) => r.key)
+
+  useEffect(() => {
+    if (!isMasterAdmin) return
+    let cancelled = false
+    void permissionsApi
+      .getSectionCatalog()
+      .then((catalog) => {
+        if (cancelled || !catalog.rows?.length) return
+        setPermissionRows(
+          catalog.rows.filter(
+            (r) => r.group !== 'dashboard_kpi' || isKpiPermissionRow(r.key),
+          ),
+        )
+      })
+      .catch((e) => console.error('Failed to load permission catalog', e))
+    return () => {
+      cancelled = true
+    }
+  }, [isMasterAdmin])
 
   useEffect(() => {
     usersRef.current = users
@@ -156,12 +188,22 @@ export const UserList = () => {
       role_id: userWithExtra.role_id,
     })
     try {
-      const [rolesData, perms] = await Promise.all([
+      const [rolesData, perms, catalog] = await Promise.all([
         usersApi.listRoles(),
         usersApi.getSectionPermissions(user.id),
+        permissionsApi.getSectionCatalog().catch(() => null),
       ])
       if (rolesData.length) setRoles(rolesData)
-      const permissionsInitial = PERMISSION_SECTION_KEYS.map((key) => {
+      const keys =
+        catalog?.section_keys?.length ? catalog.section_keys : permissionSectionKeys
+      if (catalog?.rows?.length) {
+        setPermissionRows(
+          catalog.rows.filter(
+            (r) => r.group !== 'dashboard_kpi' || isKpiPermissionRow(r.key),
+          ),
+        )
+      }
+      const permissionsInitial = keys.map((key) => {
         const p = perms.find((x: SectionPermission) => x.section_key === key)
         return {
           section_key: key,
@@ -184,7 +226,7 @@ export const UserList = () => {
         if (rolesData) setRoles(rolesData)
       }
       form.setFieldsValue({
-        permissions: PERMISSION_SECTION_KEYS.map((key) => ({
+        permissions: permissionSectionKeys.map((key) => ({
           section_key: key,
           can_view: false,
           can_edit: false,
@@ -212,7 +254,8 @@ export const UserList = () => {
       })
       if (isMasterAdmin) {
         const rows = Array.isArray(permissions) ? permissions : []
-        const normalized = PERMISSION_SECTION_KEYS.map((key, idx) => {
+        const keys = permissionRows.map((r) => r.key)
+        const normalized = keys.map((key, idx) => {
           const row = rows.find((r: SectionPermission) => r?.section_key === key) ?? rows[idx]
           return {
             section_key: key,
@@ -409,8 +452,9 @@ export const UserList = () => {
         onCancel={() => { setEditModalOpen(false); setSelectedUser(null) }}
         onOk={handleEditSave}
         confirmLoading={saving}
-        width={560}
+        width={680}
         destroyOnClose
+        styles={{ body: { maxHeight: '70vh', overflowY: 'auto' } }}
       >
         {selectedUser && (
           <Form form={form} layout="vertical">
@@ -440,36 +484,52 @@ export const UserList = () => {
                 <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
                   Section permissions (View / Edit)
                 </Typography.Text>
-                {PERMISSION_SECTION_KEYS.map((key, idx) => (
-                  <div
-                    key={key}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 16,
-                      marginBottom: 8,
-                    }}
-                  >
-                    <span style={{ width: 200 }}>{SECTION_LABELS[key] || key}</span>
-                    <Form.Item
-                      name={['permissions', idx, 'can_view']}
-                      valuePropName="checked"
-                      noStyle
-                    >
-                      <Checkbox>View</Checkbox>
-                    </Form.Item>
-                    <Form.Item
-                      name={['permissions', idx, 'can_edit']}
-                      valuePropName="checked"
-                      noStyle
-                    >
-                      <Checkbox>Edit</Checkbox>
-                    </Form.Item>
-                    <Form.Item name={['permissions', idx, 'section_key']} hidden>
-                      <Input type="hidden" />
-                    </Form.Item>
-                  </div>
-                ))}
+                {permissionRows.map((row, idx) => {
+                  const isKpiSub = row.group === 'dashboard_kpi' && row.key !== 'dashboard_kpi'
+                  const showKpiGroupTitle = row.key === 'dashboard_kpi'
+                  return (
+                    <div key={row.key}>
+                      {showKpiGroupTitle && (
+                        <Typography.Text
+                          type="secondary"
+                          style={{ display: 'block', marginTop: idx > 0 ? 12 : 0, marginBottom: 4 }}
+                        >
+                          Dashboard KPI — page and person dashboards
+                        </Typography.Text>
+                      )}
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 16,
+                          marginBottom: 8,
+                          paddingLeft: isKpiSub ? 16 : 0,
+                        }}
+                      >
+                        <span style={{ width: isKpiSub ? 248 : 264, flexShrink: 0 }}>
+                          {row.label}
+                        </span>
+                        <Form.Item
+                          name={['permissions', idx, 'can_view']}
+                          valuePropName="checked"
+                          noStyle
+                        >
+                          <Checkbox>View</Checkbox>
+                        </Form.Item>
+                        <Form.Item
+                          name={['permissions', idx, 'can_edit']}
+                          valuePropName="checked"
+                          noStyle
+                        >
+                          <Checkbox>Edit</Checkbox>
+                        </Form.Item>
+                        <Form.Item name={['permissions', idx, 'section_key']} hidden initialValue={row.key}>
+                          <Input type="hidden" />
+                        </Form.Item>
+                      </div>
+                    </div>
+                  )
+                })}
               </>
             )}
           </Form>

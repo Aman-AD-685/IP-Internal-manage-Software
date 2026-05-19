@@ -40,6 +40,7 @@ from cachetools import TTLCache
 from app.supabase_client import SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL, supabase, supabase_auth
 from app.auth_middleware import get_current_user, get_current_user_optional
 from app import payment_ageing as _pa
+from app.dashboard_kpi_sections import DASHBOARD_KPI_PERMISSION_SECTIONS, merge_section_keys
 from app.kpi_calendar_week import (
     build_week_merge_meta,
     get_kpi_calendar_week_range,
@@ -1148,6 +1149,16 @@ def _ensure_str(v: any) -> str | None:
     return None
 
 
+def _normalize_ticket_priority(priority: str | None) -> str:
+    """Map to low | medium | high (legacy critical/urgent → high)."""
+    v = (priority or "medium").strip().lower()
+    if v in ("critical", "urgent", "high"):
+        return "high"
+    if v == "low":
+        return "low"
+    return "medium"
+
+
 class CreateTicketRequest(BaseModel):
     title: str
     description: str | None = None
@@ -1348,7 +1359,7 @@ def create_ticket(payload: CreateTicketRequest, auth: dict = Depends(get_current
         "title": payload.title,
         "description": payload.description or "",
         "type": payload.type,
-        "priority": payload.priority or "medium",
+        "priority": _normalize_ticket_priority(payload.priority),
         "created_by": auth["id"],
         "assignee_id": payload.assignee_id,
     }
@@ -1774,6 +1785,8 @@ _FEATURE_STAGE_2_KEYS = {"live_status", "live_actual", "live_planned"}
 @api_router.put("/tickets/{ticket_id}")
 def update_ticket(ticket_id: str, payload: UpdateTicketRequest, auth: dict = Depends(get_current_user)):
     data = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if "priority" in data:
+        data["priority"] = _normalize_ticket_priority(data.get("priority"))
     # Keep denormalized display columns in sync when IDs are edited from ticket modal.
     try:
         if data.get("company_id"):
@@ -2283,7 +2296,10 @@ def dashboard_metrics(auth: dict = Depends(get_current_user)):
 
             pr = (
                 supabase.table("onboarding_client_payment")
-                .select("invoice_amount,invoice_date,timestamp,genre,payment_received_date")
+                .select(
+                    "invoice_amount,invoice_date,timestamp,genre,payment_received_date"
+                    + (",marked_na" if _client_payment_marked_na_supported() else "")
+                )
                 .limit(5000)
                 .execute()
             )
@@ -2293,14 +2309,14 @@ def dashboard_metrics(auth: dict = Depends(get_current_user)):
                 amt = _parse_invoice_amount(row.get("invoice_amount"))
                 is_paid = not _client_payment_row_unpaid(row)
                 inv_d = _pa._parse_date(row.get("invoice_date")) or _pa._parse_date(row.get("timestamp"))
-                if inv_d and q_start <= inv_d <= q_end:
+                if inv_d and q_start <= inv_d <= q_end and not _client_payment_row_marked_na(row):
                     custom_raised_quarter += amt
                     if not is_paid:
                         custom_total_due_quarter += amt
 
                 # Total Due: all unpaid raised invoices (same scope as Payment Management "open" list),
                 # not limited to the current fiscal quarter — invoice date can be any period.
-                if not is_paid:
+                if not is_paid and not _client_payment_row_marked_na(row):
                     custom_total_due += amt
                     continue
     
@@ -2480,7 +2496,7 @@ def dashboard_detail(
             try:
                 pr = (
                     supabase.table("onboarding_client_payment")
-                    .select(_OCP_LIST_COLUMNS)
+                    .select(_ocp_list_select_columns())
                     .is_("payment_received_date", "null")
                     .order("timestamp", desc=True)
                     .limit(_LIST_CLIENT_PAYMENT_LIMIT)
@@ -5424,8 +5440,46 @@ def _get_client_payment_max_followup(client_payment_ids: list) -> dict:
 
 
 # Columns needed for list (avoid SELECT *)
-_OCP_LIST_COLUMNS = "id,timestamp,reference_no,company_name,invoice_date,invoice_amount,invoice_number,genre,stage,payment_received_date"
+_OCP_LIST_COLUMNS_BASE = "id,timestamp,reference_no,company_name,invoice_date,invoice_amount,invoice_number,genre,stage,payment_received_date"
+_OCP_PAY_ROWS_COLUMNS_BASE = "id,company_name,invoice_amount,invoice_date,timestamp,payment_received_date,genre"
+_MARKED_NA_COLUMN_SUPPORTED: bool | None = None
+
+
+def _client_payment_marked_na_supported() -> bool:
+    """True when database/CLIENT_PAYMENT_MARKED_NA.sql has been applied."""
+    global _MARKED_NA_COLUMN_SUPPORTED
+    if _MARKED_NA_COLUMN_SUPPORTED is True:
+        return True
+    try:
+        supabase.table("onboarding_client_payment").select("marked_na").limit(1).execute()
+        _MARKED_NA_COLUMN_SUPPORTED = True
+        return True
+    except Exception as e:
+        err = str(e).lower()
+        if "marked_na" not in err or ("does not exist" not in err and "42703" not in err):
+            _log(f"marked_na column probe: {e}")
+        return False
+
+
+def _ocp_list_select_columns() -> str:
+    if _client_payment_marked_na_supported():
+        return f"{_OCP_LIST_COLUMNS_BASE},marked_na"
+    return _OCP_LIST_COLUMNS_BASE
+
+
+def _ocp_pay_rows_select_columns() -> str:
+    if _client_payment_marked_na_supported():
+        return f"{_OCP_PAY_ROWS_COLUMNS_BASE},marked_na"
+    return _OCP_PAY_ROWS_COLUMNS_BASE
+
+
 _LIST_CLIENT_PAYMENT_LIMIT = 500
+
+
+@api_router.get("/onboarding/client-payment/capabilities")
+def client_payment_capabilities(auth: dict = Depends(get_current_user)):
+    """Feature flags for Payment Management UI (NA filter, mark NA)."""
+    return {"marked_na_supported": _client_payment_marked_na_supported()}
 
 
 @api_router.get("/onboarding/client-payment")
@@ -5435,6 +5489,7 @@ def list_client_payment(
     status: str = None,
     section: str = None,
     genre: str = None,
+    na_view: str = Query("active", description="active = hide NA rows; na = only NA-marked rows"),
     page: int = 1,
     page_size: int = Query(50, le=200),
 ):
@@ -5443,7 +5498,7 @@ def list_client_payment(
         page = max(1, int(page or 1))
         page_size = max(1, min(int(page_size or 50), 200))
         offset = (page - 1) * page_size
-        q = supabase.table("onboarding_client_payment").select(_OCP_LIST_COLUMNS, count="exact").order("timestamp", desc=True)
+        q = supabase.table("onboarding_client_payment").select(_ocp_list_select_columns(), count="exact").order("timestamp", desc=True)
         if status == "completed" and section:
             q = q.not_.is_("payment_received_date", "null")
             if section == "Comp-Register":
@@ -5462,16 +5517,28 @@ def list_client_payment(
         else:
             # Open / Payment Management: unpaid only (payment_received_date IS NULL).
             q = q.is_("payment_received_date", "null")
+            if _client_payment_marked_na_supported():
+                nv = (na_view or "active").strip().lower()
+                if nv == "na":
+                    q = q.eq("marked_na", True)
+                else:
+                    q = q.eq("marked_na", False)
         q = q.range(offset, offset + page_size - 1)
         r = q.execute()
         items = r.data or []
         if status == "completed" and section and section == "Gener":
             items = [x for x in items if (x.get("genre") == "Y" or x.get("genre") not in ("M", "Q", "HY"))]
         _enrich_client_payment_list_items(items)
-        return {"data": items, "total": r.count or 0, "page": page, "page_size": page_size}
+        return {
+            "data": items,
+            "total": r.count or 0,
+            "page": page,
+            "page_size": page_size,
+            "marked_na_supported": _client_payment_marked_na_supported(),
+        }
     except Exception as e:
         _log(f"client payment list: {e}")
-        return {"data": [], "total": 0, "page": 1, "page_size": 50}
+        return {"data": [], "total": 0, "page": 1, "page_size": 50, "marked_na_supported": False}
 
 
 def _norm_name_company(s: str | None) -> str:
@@ -5552,6 +5619,15 @@ def _client_payment_row_unpaid(row: dict) -> bool:
     return pr is None or (isinstance(pr, str) and not str(pr).strip())
 
 
+def _client_payment_row_marked_na(row: dict) -> bool:
+    v = row.get("marked_na")
+    if v is True:
+        return True
+    if isinstance(v, str) and v.strip().lower() in ("true", "t", "1", "yes"):
+        return True
+    return False
+
+
 def _normalize_client_payment_genre(raw: object) -> str:
     """Map stored / legacy genre labels to M, Q, HY, Y."""
     g = (str(raw or "").strip().upper())
@@ -5602,6 +5678,7 @@ def _enrich_client_payment_list_items(items: list[dict]) -> None:
             pass
     today = date.today()
     for row in items:
+        row["marked_na"] = _client_payment_row_marked_na(row)
         inv_date = row.get("invoice_date")
         _pr = row.get("payment_received_date")
         paid_date = None if _pr is None or (isinstance(_pr, str) and not str(_pr).strip()) else _pr
@@ -5664,9 +5741,10 @@ def _compute_payment_ageing_kpis(
         amt = _parse_invoice_amount(row.get("invoice_amount"))
         rec_amt = _parse_invoice_amount((rec_row or {}).get("amount")) if rec_row else (amt if pay_d else 0)
         g = _normalize_client_payment_genre(row.get("genre"))
+        is_na = _client_payment_row_marked_na(row)
 
-        # Raised is attributed by invoice date.
-        if inv_d and q_start <= inv_d <= q_end:
+        # Raised is attributed by invoice date (NA rows excluded from Total raised).
+        if inv_d and q_start <= inv_d <= q_end and not is_na:
             o_raised += amt
             if g == "Q":
                 q_raised += amt
@@ -5675,7 +5753,7 @@ def _compute_payment_ageing_kpis(
             elif g == "HY":
                 hy_in_q_raised += amt
 
-        if inv_d and m_start <= inv_d <= m_end and g == "M":
+        if inv_d and m_start <= inv_d <= m_end and g == "M" and not is_na:
             m_month_raised += amt
 
         # Received is attributed by payment received date.
@@ -5724,7 +5802,7 @@ def _payment_ageing_report_payload():
     try:
         pr = (
             supabase.table("onboarding_client_payment")
-            .select("id,company_name,invoice_amount,invoice_date,timestamp,payment_received_date,genre")
+            .select(_ocp_pay_rows_select_columns())
             .limit(5000)
             .execute()
         )
@@ -5781,7 +5859,8 @@ def _payment_ageing_report_payload():
         rec_row = receive_by_cp_id.get(cp_id) if cp_id else None
         amt = _parse_invoice_amount(row.get("invoice_amount"))
         rec_amt = _parse_invoice_amount((rec_row or {}).get("amount")) if rec_row else (amt if row.get("payment_received_date") else 0)
-        by_name[nm]["invoice_total"] += amt
+        if not _client_payment_row_marked_na(row):
+            by_name[nm]["invoice_total"] += amt
         if rec_amt > 0:
             by_name[nm]["received_total"] += rec_amt
         inv_d = _pa._parse_date(row.get("invoice_date")) or _pa._parse_date(row.get("timestamp"))
@@ -6140,7 +6219,7 @@ def _payment_ageing_report_payload():
     try:
         pr = (
             supabase.table("onboarding_client_payment")
-            .select("id,company_name,invoice_amount,invoice_date,timestamp,payment_received_date,genre")
+            .select(_ocp_pay_rows_select_columns())
             .limit(5000)
             .execute()
         )
@@ -6322,6 +6401,7 @@ def _payment_ageing_report_payload():
         "summary": {"rows": summary_rows, "totals": totals},
         "summary_uploaded": [],
         "kpis": kpis,
+        "marked_na_supported": _client_payment_marked_na_supported(),
     }
 
 
@@ -6518,6 +6598,61 @@ def _client_payment_response_editable(submitted_at_iso: str | None, is_admin: bo
     return bool(until and until >= datetime.now(timezone.utc))
 
 
+@api_router.patch("/onboarding/client-payment/{client_payment_id}/marked-na")
+def patch_client_payment_marked_na(
+    client_payment_id: str,
+    payload: dict,
+    auth: dict = Depends(get_current_user),
+):
+    """Mark or unmark a raised invoice as NA (excluded from default list and Total raised KPIs)."""
+    if not _client_payment_marked_na_supported():
+        raise HTTPException(
+            400,
+            "NA marking is not enabled. Run database/CLIENT_PAYMENT_MARKED_NA.sql in Supabase, then retry.",
+        )
+    marked = payload.get("marked_na")
+    if not isinstance(marked, bool):
+        raise HTTPException(400, "marked_na must be true or false")
+    try:
+        r0 = (
+            supabase.table("onboarding_client_payment")
+            .select("id,payment_received_date")
+            .eq("id", client_payment_id)
+            .limit(1)
+            .execute()
+        )
+        row0 = (r0.data or [None])[0]
+        if not row0:
+            raise HTTPException(404, "Raised Invoice not found")
+        pr = row0.get("payment_received_date")
+        if pr is not None and str(pr).strip():
+            raise HTTPException(400, "Cannot change NA on a completed (paid) invoice")
+        supabase.table("onboarding_client_payment").update({"marked_na": marked}).eq("id", client_payment_id).execute()
+        r = (
+            supabase.table("onboarding_client_payment")
+            .select(_ocp_list_select_columns())
+            .eq("id", client_payment_id)
+            .limit(1)
+            .execute()
+        )
+        updated = (r.data or [None])[0]
+        if not updated:
+            raise HTTPException(404, "Raised Invoice not found after update")
+        _enrich_client_payment_list_items([updated])
+        return updated
+    except HTTPException:
+        raise
+    except Exception as e:
+        err = str(e).lower()
+        if "marked_na" in err and ("column" in err or "schema" in err):
+            raise HTTPException(
+                400,
+                "Database column marked_na is missing. Run database/CLIENT_PAYMENT_MARKED_NA.sql in Supabase.",
+            )
+        _log(f"client payment marked_na: {e}")
+        raise HTTPException(400, str(e)[:200])
+
+
 @api_router.put("/onboarding/client-payment/{client_payment_id}")
 def update_client_payment(client_payment_id: str, payload: dict, auth: dict = Depends(get_current_user)):
     """Update core Raised Invoice fields. Allowed within 150 days of ``timestamp`` and only while unpaid."""
@@ -6586,7 +6721,7 @@ def update_client_payment(client_payment_id: str, payload: dict, auth: dict = De
         supabase.table("onboarding_client_payment").update(patch).eq("id", client_payment_id).execute()
         r = (
             supabase.table("onboarding_client_payment")
-            .select(_OCP_LIST_COLUMNS)
+            .select(_ocp_list_select_columns())
             .eq("id", client_payment_id)
             .limit(1)
             .execute()
@@ -7790,7 +7925,7 @@ def get_client_payment_drawer(client_payment_id: str, auth: dict = Depends(get_c
         cp_row = None
         cr = (
             supabase.table("onboarding_client_payment")
-            .select(_OCP_LIST_COLUMNS)
+            .select(_ocp_list_select_columns())
             .eq("id", client_payment_id)
             .limit(1)
             .execute()
@@ -7856,7 +7991,7 @@ def get_client_payment_receive(client_payment_id: str, auth: dict = Depends(get_
     try:
         cr = (
             supabase.table("onboarding_client_payment")
-            .select(_OCP_LIST_COLUMNS)
+            .select(_ocp_list_select_columns())
             .eq("id", client_payment_id)
             .limit(1)
             .execute()
@@ -10131,15 +10266,47 @@ def _map_role(name: str) -> str:
     return _normalize_role(name)
 
 
-# Section keys for user_section_permissions (match frontend PERMISSION_SECTION_KEYS / Edit User matrix).
-# No row in DB => no access. New keys added here are unchecked until a Master Admin grants them.
-SECTION_KEYS = [
+# Section keys for user_section_permissions (Edit User matrix + login).
+# Dashboard KPI subsections come from app.dashboard_kpi_sections (auto-merged after dashboard_kpi).
+_BASE_SECTION_KEYS = [
     "dashboard", "dashboard_kpi", "support_dashboard", "all_tickets", "chores_bugs", "staging", "feature",
     "approval_status", "completed_chores_bugs", "rejected_tickets", "completed_feature",
     "solution", "task", "success_performance", "success_comp_perform",
     "client_to_lead", "leads", "onboarding", "onboarding_payment_status", "client_payment",
     "training", "db_client", "settings", "users",
 ]
+
+SECTION_KEYS = merge_section_keys(_BASE_SECTION_KEYS)
+
+_SECTION_LABELS_BASE: dict[str, str] = {
+    "dashboard": "Dashboard",
+    "dashboard_kpi": "Dashboard - KPI (page)",
+    "support_dashboard": "Support Dashboard",
+    "all_tickets": "All Tickets",
+    "chores_bugs": "Chores & Bugs",
+    "staging": "Staging",
+    "feature": "Feature",
+    "approval_status": "Approval Status",
+    "completed_chores_bugs": "Completed Chores & Bugs",
+    "rejected_tickets": "Rejected Tickets",
+    "completed_feature": "Completed Feature",
+    "solution": "Solution",
+    "task": "Task",
+    "success_performance": "Performance Monitoring",
+    "success_comp_perform": "Comp- Perform",
+    "client_to_lead": "Client to Lead",
+    "leads": "Lead",
+    "onboarding": "Onboarding",
+    "onboarding_payment_status": "Payment Status",
+    "client_payment": "Client Payment",
+    "training": "Training",
+    "db_client": "DB Client",
+    "settings": "Settings",
+    "users": "Users",
+}
+for _kpi in DASHBOARD_KPI_PERMISSION_SECTIONS:
+    _SECTION_LABELS_BASE[_kpi["key"]] = _kpi["label"]
+SECTION_LABELS = _SECTION_LABELS_BASE
 
 
 def _build_section_permissions_list(frontend_role: str, perm_rows: list[dict] | None) -> list[dict]:
@@ -10173,6 +10340,29 @@ def list_roles(auth: dict = Depends(require_roles(["admin", "master_admin"]))):
     """List roles for dropdown (e.g. Edit User). Returns id and name."""
     r = supabase.table("roles").select("id, name, description").order("name").execute()
     return {"data": r.data or []}
+
+
+@api_router.get("/permissions/section-catalog")
+def get_permissions_section_catalog(auth: dict = Depends(require_roles(["admin", "master_admin"]))):
+    """
+    Full permission matrix for Edit User — includes dynamic Dashboard KPI person dashboards.
+    Add entries to DASHBOARD_KPI_DASHBOARDS in app/dashboard_kpi_sections.py to expose new rows.
+    """
+    from app.dashboard_kpi_sections import dashboard_kpi_section_catalog
+
+    kpi_keys = {s["key"] for s in DASHBOARD_KPI_PERMISSION_SECTIONS}
+    rows: list[dict] = []
+    for key in SECTION_KEYS:
+        if key in kpi_keys:
+            group = "dashboard_kpi"
+        else:
+            group = "app"
+        rows.append({"key": key, "label": SECTION_LABELS.get(key, key), "group": group})
+    return {
+        "section_keys": SECTION_KEYS,
+        "rows": rows,
+        "dashboard_kpi": dashboard_kpi_section_catalog(),
+    }
 
 
 def _list_users_from_view(safe_search: str, page: int, limit: int):

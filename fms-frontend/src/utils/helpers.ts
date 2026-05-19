@@ -2,13 +2,17 @@ import type { User, UserRole, SectionPermission } from '../types/auth'
 import { ROLES, PERMISSION_SECTION_KEYS, ROUTES } from './constants'
 
 /**
- * Ensure `section_permissions` has one entry per `PERMISSION_SECTION_KEYS` (matches API shape).
- * Fixes stale sessionStorage from older builds missing new keys (e.g. `dashboard_kpi`) so View/Edit checks work after refresh.
+ * Ensure `section_permissions` matches API shape (ordered keys from login, including dynamic KPI subsections).
+ * Falls back to `PERMISSION_SECTION_KEYS` when the user has no permissions payload yet.
  */
 export function normalizeUserSectionPermissions(user: User): User {
   const list = user.section_permissions ?? []
   const byKey = new Map<string, SectionPermission>(list.map((p) => [p.section_key, p]))
-  const section_permissions: SectionPermission[] = PERMISSION_SECTION_KEYS.map((section_key) => {
+  const orderedKeys =
+    list.length > 0
+      ? list.map((p) => p.section_key)
+      : [...PERMISSION_SECTION_KEYS]
+  const section_permissions: SectionPermission[] = orderedKeys.map((section_key) => {
     const existing = byKey.get(section_key)
     return {
       section_key,
