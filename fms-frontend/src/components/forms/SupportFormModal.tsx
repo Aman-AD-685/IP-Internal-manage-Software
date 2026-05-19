@@ -9,6 +9,7 @@ import { uploadAttachment } from '../../api/upload'
 import { useAuth } from '../../hooks/useAuth'
 import type { Company, Page, Division } from '../../api/support'
 import { dedupeCompaniesForSelect } from '../../utils/companiesDedupe'
+import { TICKET_PRIORITY_OPTIONS, normalizePriorityValue } from '../../utils/ticketPriority'
 const { TextArea } = Input
 const { Dragger } = Upload
 
@@ -104,6 +105,9 @@ export const SupportFormModal = ({ open, onClose, onSuccess }: SupportFormModalP
   const [divisions, setDivisions] = useState<Division[]>([])
   const [divisionOther, setDivisionOther] = useState(false)
   const [typeFeature, setTypeFeature] = useState(false)
+  const [requestType, setRequestType] = useState<string>('')
+  const showPriorityField =
+    requestType === 'feature' || requestType === 'chore' || requestType === 'bug'
   const [uploading, setUploading] = useState(false)
   const [attachmentFileList, setAttachmentFileList] = useState<{ uid: string; name: string; url?: string }[]>([])
   /** Store attachment URL in state so it's always included in submit (hidden field can be missing from validateFields) */
@@ -120,6 +124,8 @@ export const SupportFormModal = ({ open, onClose, onSuccess }: SupportFormModalP
       setAttachmentUrl(null)
       setDivisions([])
       setDivisionOther(false)
+      setTypeFeature(false)
+      setRequestType('')
       supportApi
         .getCompanies()
         .then((list) => setCompanies(dedupeCompaniesForSelect(list)))
@@ -141,7 +147,9 @@ export const SupportFormModal = ({ open, onClose, onSuccess }: SupportFormModalP
           if (typeof data.query_response_at === 'string') {
             fields.query_response_at = dayjs(data.query_response_at)
           }
-          if (data.type_of_request === 'feature') setTypeFeature(true)
+          const draftType = typeof data.type_of_request === 'string' ? data.type_of_request : ''
+          setRequestType(draftType)
+          setTypeFeature(draftType === 'feature')
           if (data.company_id) {
             const d = await supportApi.getDivisions(data.company_id as string)
             setDivisions(d)
@@ -191,7 +199,11 @@ export const SupportFormModal = ({ open, onClose, onSuccess }: SupportFormModalP
   }, [companyId])
 
   const handleTypeChange = (val: string) => {
+    setRequestType(val)
     setTypeFeature(val === 'feature')
+    if (val !== 'feature') {
+      form.setFieldValue('why_feature', undefined)
+    }
   }
 
   const handleDivisionChange = (val: string) => {
@@ -224,7 +236,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess }: SupportFormModalP
         title: toStr(values.title) ?? '',
         description: toStr(values.description),
         type: (toStr(values.type_of_request) ?? 'chore') as 'feature' | 'chore' | 'bug',
-        priority: (toStr(values.priority) ?? 'medium') as 'medium' | 'high' | 'low' | 'critical' | 'urgent',
+        priority: normalizePriorityValue(toStr(values.priority)),
         company_id: toStr(values.company_id),
         page_id: toStr(values.page_id),
         division_id: toStr(values.division_id),
@@ -271,6 +283,8 @@ export const SupportFormModal = ({ open, onClose, onSuccess }: SupportFormModalP
     form.resetFields()
     setAttachmentFileList([])
     setAttachmentUrl(null)
+    setTypeFeature(false)
+    setRequestType('')
     onClose()
   }
 
@@ -426,24 +440,15 @@ export const SupportFormModal = ({ open, onClose, onSuccess }: SupportFormModalP
             style={{ width: '100%' }}
           />
         </Form.Item>
+        {showPriorityField && (
+          <Form.Item name="priority" label="Priority" rules={[{ required: true, message: 'Required' }]}>
+            <Select placeholder="Select priority" options={[...TICKET_PRIORITY_OPTIONS]} />
+          </Form.Item>
+        )}
         {typeFeature && (
-          <>
-            <Form.Item name="priority" label="Priority" rules={[{ required: true, message: 'Required' }]}>
-              <Select
-                placeholder="Select priority"
-                options={[
-                  { value: 'critical', label: 'Critical' },
-                  { value: 'urgent', label: 'Urgent' },
-                  { value: 'high', label: 'Red' },
-                  { value: 'medium', label: 'Yellow' },
-                  { value: 'low', label: 'Green' },
-                ]}
-              />
-            </Form.Item>
-            <Form.Item name="why_feature" label="Why Feature?" rules={[{ required: true, message: 'Required' }]}>
-              <TextArea rows={2} placeholder="Why feature?" />
-            </Form.Item>
-          </>
+          <Form.Item name="why_feature" label="Why Feature?" rules={[{ required: true, message: 'Required' }]}>
+            <TextArea rows={2} placeholder="Why feature?" />
+          </Form.Item>
         )}
       </Form>
     </Modal>

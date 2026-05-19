@@ -54,9 +54,11 @@ type Props = {
   kpis?: PaymentAmountKpis | null
   /** Fetch KPIs from payment-ageing-report API when true and kpis not passed. */
   loadFromApi?: boolean
+  /** Change to refetch KPIs (e.g. after marking invoice NA). */
+  refreshKey?: number | string
 }
 
-export function PaymentAmountKpiCards({ kpis: kpisProp, loadFromApi }: Props) {
+export function PaymentAmountKpiCards({ kpis: kpisProp, loadFromApi, refreshKey }: Props) {
   const [kpisFetched, setKpisFetched] = useState<PaymentAmountKpis | null>(null)
 
   const load = useCallback(() => {
@@ -72,7 +74,7 @@ export function PaymentAmountKpiCards({ kpis: kpisProp, loadFromApi }: Props) {
 
   useEffect(() => {
     load()
-  }, [load])
+  }, [load, refreshKey])
 
   const kpis = kpisProp ?? kpisFetched
 

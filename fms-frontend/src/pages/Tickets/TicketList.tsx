@@ -38,6 +38,7 @@ import type { Ticket } from '../../api/tickets'
 import type { Company } from '../../api/support'
 import { ROUTES } from '../../utils/constants'
 import { sessionApiCacheClearLogicalPrefix } from '../../utils/sessionApiCache'
+import { formatPriorityLabel, getPriorityTagColor, TICKET_PRIORITY_OPTIONS } from '../../utils/ticketPriority'
 
 const { Title, Text } = Typography
 const { Option } = Select
@@ -50,7 +51,7 @@ const cardStyle = {
 }
 
 const getTypeColor = (type: string) => (type === 'chore' ? 'green' : type === 'bug' ? 'red' : 'blue')
-const getPriorityColor = (p: string) => (p === 'high' ? 'red' : p === 'medium' ? 'gold' : 'green')
+const getPriorityColor = getPriorityTagColor
 const getCommIcon = (v: string) => {
   if (v === 'phone') return <PhoneOutlined title="Phone" />
   if (v === 'mail') return <MailOutlined title="Mail" />
@@ -327,7 +328,7 @@ export const TicketList = () => {
       ...(isRegisterSection && registerTypeFilters.length > 0 && { types_in: registerTypeFilters.join(',') }),
       ...(isApprovalSection && { section: 'approval-status', approval_filter: approvalFilter }),
       ...(filters.company_ids?.length ? { company_ids: filters.company_ids } : {}),
-      ...(!isChoresBugsSection && filters.priority && { priority: filters.priority }),
+      ...(filters.priority && { priority: filters.priority }),
       ...(filters.date_from && { date_from: filters.date_from }),
       ...(filters.date_to && { date_to: filters.date_to }),
       sort_by: filters.sort_by,
@@ -882,6 +883,15 @@ export const TicketList = () => {
               )
             },
           },
+          {
+            title: 'Priority',
+            dataIndex: 'priority',
+            key: 'priority',
+            width: 90,
+            render: (_: unknown, r: Ticket) => (
+              <Tag color={getPriorityColor(r.priority)}>{formatPriorityLabel(r.priority)}</Tag>
+            ),
+          },
         ]
       : []),
     ...(!isChoresBugs
@@ -905,7 +915,7 @@ export const TicketList = () => {
             width: 90,
             render: (_: unknown, r: Ticket) =>
               r.type === 'feature' ? (
-                <Tag color={getPriorityColor(r.priority)}>{r.priority === 'high' ? 'Red' : r.priority === 'medium' ? 'Yellow' : 'Green'}</Tag>
+                <Tag color={getPriorityColor(r.priority)}>{formatPriorityLabel(r.priority)}</Tag>
               ) : (
                 '-'
               ),
@@ -1298,7 +1308,8 @@ export const TicketList = () => {
               <Option value="bug">Bug</Option>
               {isRegisterSection && <Option value="feature">Feature</Option>}
             </Select>
-          ) : (
+          ) : null}
+          {isChoresBugsSection || !isRegisterSection ? (
             <Select
               placeholder="Priority"
               style={{ width: 110 }}
@@ -1307,11 +1318,13 @@ export const TicketList = () => {
               allowClear
               getPopupContainer={() => document.body}
             >
-              <Option value="high">High</Option>
-              <Option value="medium">Medium</Option>
-              <Option value="low">Low</Option>
+              {TICKET_PRIORITY_OPTIONS.map((o) => (
+                <Option key={o.value} value={o.value}>
+                  {o.label}
+                </Option>
+              ))}
             </Select>
-          )}
+          ) : null}
           {showStageFilter && (
             <Select
               placeholder="Stage"

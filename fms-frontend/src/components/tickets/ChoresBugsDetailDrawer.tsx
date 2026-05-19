@@ -21,6 +21,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { useRole } from '../../hooks/useRole'
 import { supportApi, type Company, type Division, type Page } from '../../api/support'
 import dayjs from 'dayjs'
+import { formatPriorityLabel, getPriorityTagColor } from '../../utils/ticketPriority'
 
 const { TextArea } = Input
 const { Text } = Typography
@@ -429,6 +430,9 @@ export const ChoresBugsDetailDrawer = ({ ticketId, open, onClose, onUpdate, read
                 ) : (
                   '-'
                 )}
+              </Descriptions.Item>
+              <Descriptions.Item label="Priority">
+                <Tag color={getPriorityTagColor(ticket.priority)}>{formatPriorityLabel(ticket.priority)}</Tag>
               </Descriptions.Item>
               <Descriptions.Item label="Type of Request">
                 <Tag color={ticket.type === 'chore' ? 'green' : 'red'}>

@@ -3,6 +3,7 @@ import { Form, Input, Button, Card, Typography, Select, message } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { ticketsApi } from '../../api/tickets'
 import { ROUTES } from '../../utils/constants'
+import { TICKET_PRIORITY_OPTIONS, normalizePriorityValue } from '../../utils/ticketPriority'
 
 const { Title } = Typography
 const { TextArea } = Input
@@ -19,7 +20,7 @@ export const CreateTicket = () => {
         title: values.title as string,
         description: values.description as string,
         type: values.type as 'bug' | 'feature' | 'chore',
-        priority: ((values.priority as string) || 'medium') as 'medium' | 'high' | 'low' | 'critical' | 'urgent',
+        priority: normalizePriorityValue(values.priority as string),
       })
       const ticketId = res?.data?.id
       if (ticketId) {
@@ -61,14 +62,8 @@ export const CreateTicket = () => {
               <Select.Option value="chore">Chores</Select.Option>
             </Select>
           </Form.Item>
-          <Form.Item name="priority" label="Priority">
-            <Select defaultValue="medium">
-              <Select.Option value="low">Low</Select.Option>
-              <Select.Option value="medium">Medium</Select.Option>
-              <Select.Option value="high">High</Select.Option>
-              <Select.Option value="critical">Critical</Select.Option>
-              <Select.Option value="urgent">Urgent</Select.Option>
-            </Select>
+          <Form.Item name="priority" label="Priority" initialValue="medium">
+            <Select options={[...TICKET_PRIORITY_OPTIONS]} />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" loading={loading}>

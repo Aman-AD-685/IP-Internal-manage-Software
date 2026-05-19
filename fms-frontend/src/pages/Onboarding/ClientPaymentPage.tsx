@@ -32,6 +32,7 @@ interface ClientPaymentRecord {
   payment_received_date?: string | null
   /** From list API: Invoice Sent form has been saved (Payment Received form can be submitted). */
   invoice_sent_submitted?: boolean
+  marked_na?: boolean
 }
 
 const GENRE_OPTIONS = [
@@ -156,6 +157,11 @@ export function ClientPaymentPage() {
   const [selectedExportColumns, setSelectedExportColumns] = useState<string[]>([])
   /** Open list only: show rows where Invoice Sent is saved but payment is not yet received. */
   const [awaitingPaymentReceiveOnly, setAwaitingPaymentReceiveOnly] = useState(false)
+  /** active = default list (hide NA); na = only NA-marked invoices */
+  const [naListView, setNaListView] = useState<'active' | 'na'>('active')
+  const [markedNaSupported, setMarkedNaSupported] = useState(false)
+  const [kpiRefreshKey, setKpiRefreshKey] = useState(0)
+  const [markingNa, setMarkingNa] = useState(false)
   /** Comp _ Register: total completed rows (server) for infinite scroll. */
   const [completedRegisterTotal, setCompletedRegisterTotal] = useState(0)
   const [loadingMoreCompleted, setLoadingMoreCompleted] = useState(false)
@@ -183,11 +189,16 @@ export function ClientPaymentPage() {
     const rows: ClientPaymentRecord[] = []
     try {
       for (let page = 1; page <= 100; page += 1) {
-        const r = await apiClient.get<{ items?: ClientPaymentRecord[]; data?: ClientPaymentRecord[]; total?: number }>(
-          listBasePath,
-          { params: { status: 'open', page_size: pageSize, page } },
-        )
+        const r = await apiClient.get<{
+          items?: ClientPaymentRecord[]
+          data?: ClientPaymentRecord[]
+          total?: number
+          marked_na_supported?: boolean
+        }>(listBasePath, { params: { status: 'open', page_size: pageSize, page, na_view: naListView } })
         const body = r.data
+        if (page === 1 && typeof body?.marked_na_supported === 'boolean') {
+          setMarkedNaSupported(body.marked_na_supported)
+        }
         const chunk = Array.isArray(body?.data) ? body.data : Array.isArray(body?.items) ? body.items : []
         rows.push(...(chunk as ClientPaymentRecord[]))
         const total = typeof body?.total === 'number' ? body.total : undefined
@@ -195,13 +206,14 @@ export function ClientPaymentPage() {
         if (total != null && rows.length >= total) break
       }
       setRecords(rows)
-    } catch {
+    } catch (e: unknown) {
       setRecords([])
-      message.warning('Could not load list. Ensure the database tables exist.')
+      const err = e as { response?: { data?: { detail?: string } } }
+      message.warning(err?.response?.data?.detail || 'Could not load invoice list. Check backend connection.')
     } finally {
       setLoading(false)
     }
-  }, [listBasePath])
+  }, [listBasePath, naListView])
 
   const fetchCompRegisterFirstPage = useCallback(async () => {
     setLoading(true)
@@ -281,13 +293,51 @@ export function ClientPaymentPage() {
     else void loadOpenListAllPages()
   }, [isCompRegister, fetchCompRegisterFirstPage, loadOpenListAllPages])
 
+  const refreshMarkedNaCapability = useCallback(() => {
+    if (!isOpenList) return
+    void apiClient
+      .get<{ marked_na_supported?: boolean }>(`${listBasePath}/capabilities`)
+      .then((r) => {
+        if (typeof r.data?.marked_na_supported === 'boolean') {
+          setMarkedNaSupported(r.data.marked_na_supported)
+        }
+      })
+      .catch(() => {})
+  }, [isOpenList, listBasePath])
+
+  const handleToggleMarkedNa = async (record: ClientPaymentRecord, marked: boolean) => {
+    setMarkingNa(true)
+    try {
+      await apiClient.patch(`/onboarding/client-payment/${record.id}/marked-na`, { marked_na: marked })
+      message.success(marked ? 'Marked as NA — removed from list and Total raised' : 'Restored to active list')
+      setMarkedNaSupported(true)
+      setKpiRefreshKey((k) => k + 1)
+      setDetailOpen(false)
+      setSelectedRecord(null)
+      reloadCurrentList()
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } }
+      const detail = err?.response?.data?.detail || 'Failed to update NA status'
+      message.error(detail)
+      if (String(detail).toLowerCase().includes('client_payment_marked_na')) {
+        setMarkedNaSupported(false)
+      }
+    } finally {
+      setMarkingNa(false)
+    }
+  }
+
+  useEffect(() => {
+    refreshMarkedNaCapability()
+  }, [refreshMarkedNaCapability])
+
   useEffect(() => {
     if (isCompRegister) {
       void fetchCompRegisterFirstPage()
       return
     }
     void loadOpenListAllPages()
-  }, [location.pathname, compRegisterGenre, isCompRegister, fetchCompRegisterFirstPage, loadOpenListAllPages])
+  }, [location.pathname, compRegisterGenre, isCompRegister, naListView, fetchCompRegisterFirstPage, loadOpenListAllPages])
 
   useEffect(() => {
     if ((!modalOpen && !editInvoiceModalOpen) || companies.length > 0) return
@@ -1127,6 +1177,22 @@ export function ClientPaymentPage() {
         <Space wrap align="center" size="middle">
           {isOpenList ? (
             <>
+              <Select
+                aria-label="Invoice list filter"
+                style={{ width: 168 }}
+                value={naListView}
+                options={[
+                  { value: 'active', label: 'Active invoices' },
+                  { value: 'na', label: 'NA only' },
+                ]}
+                onChange={(v) => setNaListView(v as 'active' | 'na')}
+                disabled={!markedNaSupported}
+                title={
+                  markedNaSupported
+                    ? undefined
+                    : 'Run database/CLIENT_PAYMENT_MARKED_NA.sql in Supabase to enable NA filter'
+                }
+              />
               <Checkbox checked={awaitingPaymentReceiveOnly} onChange={(e) => setAwaitingPaymentReceiveOnly(e.target.checked)}>
                 Awaiting Payment Received
               </Checkbox>
@@ -1178,7 +1244,7 @@ export function ClientPaymentPage() {
 
       {isOpenList ? (
         <div style={{ marginBottom: 24 }}>
-          <PaymentAmountKpiCards loadFromApi />
+          <PaymentAmountKpiCards loadFromApi refreshKey={kpiRefreshKey} />
         </div>
       ) : null}
 
@@ -1258,6 +1324,46 @@ export function ClientPaymentPage() {
                 {typeof selectedRecord.aging_days === 'number' ? selectedRecord.aging_days : 0}
               </Descriptions.Item>
             </Descriptions>
+            {isOpenList && !isCompleted && (
+              <div style={{ marginTop: 16 }}>
+                {selectedRecord.marked_na || naListView === 'na' ? (
+                  <Button loading={markingNa} onClick={() => void handleToggleMarkedNa(selectedRecord, false)}>
+                    Restore
+                  </Button>
+                ) : (
+                  <Button
+                    danger
+                    loading={markingNa}
+                    onClick={() => {
+                      if (!markedNaSupported) {
+                        message.warning('Run database/CLIENT_PAYMENT_MARKED_NA.sql in Supabase to enable NA.')
+                        return
+                      }
+                      Modal.confirm({
+                        title: 'Mark as NA?',
+                        content: (
+                          <>
+                            This removes this invoice from the active list and subtracts ₹
+                            {selectedRecord.invoice_amount || '—'} from <strong>Total raised</strong> in the KPI cards.
+                            Use the <strong>NA only</strong> filter at the top to view NA-marked invoices later.
+                          </>
+                        ),
+                        okText: 'NA',
+                        okButtonProps: { danger: true },
+                        onOk: () => handleToggleMarkedNa(selectedRecord, true),
+                      })
+                    }}
+                  >
+                    NA
+                  </Button>
+                )}
+                {!markedNaSupported ? (
+                  <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+                    NA requires database/CLIENT_PAYMENT_MARKED_NA.sql in Supabase.
+                  </Text>
+                ) : null}
+              </div>
+            )}
             {isOpenList && canEditRaisedInvoiceCore && (
               <Button type="default" icon={<EditOutlined />} onClick={openEditInvoiceModal} style={{ marginTop: 12 }}>
                 Edit

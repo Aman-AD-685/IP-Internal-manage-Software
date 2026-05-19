@@ -5,6 +5,7 @@ import { ticketsApi } from '../../api/tickets'
 import { formatDateTable, formatDuration, featureStage1DelaySeconds, featureStage2DelaySeconds, formatDelay } from '../../utils/helpers'
 import type { Ticket } from '../../api/tickets'
 import { useRole } from '../../hooks/useRole'
+import { formatPriorityLabel, getPriorityTagColor } from '../../utils/ticketPriority'
 
 const { TextArea } = Input
 const { Text } = Typography
@@ -73,8 +74,6 @@ interface TicketDetailDrawerProps {
 }
 
 const getTypeColor = (type: string) => (type === 'chore' ? 'green' : type === 'bug' ? 'red' : 'blue')
-const getPriorityColor = (p: string) => (p === 'high' ? 'red' : p === 'medium' ? 'gold' : 'green')
-
 export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly = false, approvalMode = false }: TicketDetailDrawerProps) => {
   const { isUser, isMasterAdmin } = useRole()
   const [ticket, setTicket] = useState<Ticket | null>(null)
@@ -202,10 +201,7 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
               <Tag color={getTypeColor(ticket.type)}>{ticket.type.toUpperCase()}</Tag>
             </Descriptions.Item>
             <Descriptions.Item label="Priority">
-              {ticket.type === 'feature' && (
-                <Tag color={getPriorityColor(ticket.priority)}>{ticket.priority}</Tag>
-              )}
-              {ticket.type !== 'feature' && '-'}
+              <Tag color={getPriorityTagColor(ticket.priority)}>{formatPriorityLabel(ticket.priority)}</Tag>
             </Descriptions.Item>
             <Descriptions.Item label="Submitted By">{ticket.submitted_by || '-'}</Descriptions.Item>
             <Descriptions.Item label="Query Arrival">{formatDateTable(ticket.query_arrival_at)}</Descriptions.Item>

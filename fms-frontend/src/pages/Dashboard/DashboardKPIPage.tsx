@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
+import { useState, useEffect, useCallback, useRef, lazy, Suspense, useMemo } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Typography,
@@ -48,7 +48,9 @@ import {
   type AdrijaSocialKpiDailyRow,
 } from '../../api/dashboardKpi'
 import { useAuth } from '../../hooks/useAuth'
+import type { UserRole } from '../../types/auth'
 import { ROUTES } from '../../utils/constants'
+import { canViewDashboardKpiPerson } from '../../utils/dashboardKpiPermissions'
 import { DashboardBlockSkeleton } from '../../components/common/skeletons'
 import {
   getDefaultPreviousWeekFilter,
@@ -196,6 +198,15 @@ const getPerformanceLevel = (value?: number) => {
 
 export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi' }: DashboardKPIPageProps) => {
   const { user } = useAuth()
+  const userRole = (user?.role ?? 'user') as UserRole
+  const sectionPermissions = user?.section_permissions
+  const visibleDashboardOptions = useMemo(
+    () =>
+      DASHBOARD_OPTIONS.filter((opt) =>
+        canViewDashboardKpiPerson(opt.key, userRole, sectionPermissions),
+      ),
+    [userRole, sectionPermissions],
+  )
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -461,8 +472,18 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
     const raw = searchParams.get('person')?.trim()
     if (!raw) return
     const match = DASHBOARD_KPI_NAMES.find((n) => n.toLowerCase() === raw.toLowerCase())
-    if (match) setSelectedPerson(match)
-  }, [forceOpen, searchParams])
+    if (match && canViewDashboardKpiPerson(match, userRole, sectionPermissions)) {
+      setSelectedPerson(match)
+    }
+  }, [forceOpen, searchParams, userRole, sectionPermissions])
+
+  useEffect(() => {
+    if (!selectedPerson) return
+    if (!canViewDashboardKpiPerson(selectedPerson, userRole, sectionPermissions)) {
+      setSelectedPerson(null)
+      setSearchParams({}, { replace: true })
+    }
+  }, [selectedPerson, userRole, sectionPermissions, setSearchParams])
 
   useEffect(() => {
     if (selectedPerson !== 'Adrija') {
@@ -502,8 +523,16 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
           </div>
         </div>
 
+        {visibleDashboardOptions.length === 0 ? (
+          <Alert
+            type="warning"
+            showIcon
+            message="No dashboard access"
+            description="You do not have permission to view any KPI dashboards. Contact an administrator."
+          />
+        ) : null}
         <Row gutter={[24, 24]} className="dashboard-kpi-grid">
-          {DASHBOARD_OPTIONS.map((opt) => (
+          {visibleDashboardOptions.map((opt) => (
             <Col key={opt.key} xs={24} sm={12} md={12} lg={6}>
               <Card
                 hoverable
@@ -548,6 +577,30 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
   const canEditAdrijaSocial =
     selectedPerson === 'Adrija' &&
     ADRIJA_SOCIAL_KPI_EDITOR_EMAILS.has((user?.email || '').trim().toLowerCase())
+
+  const personAllowed =
+    selectedPerson != null &&
+    canViewDashboardKpiPerson(selectedPerson, userRole, sectionPermissions)
+
+  if (selectedPerson && !personAllowed) {
+    return (
+      <div className="dashboard-kpi-page">
+        <Alert
+          type="warning"
+          showIcon
+          message="Access denied"
+          description="You do not have permission to view this KPI dashboard."
+          action={
+            !forceOpen ? (
+              <Button size="small" onClick={() => setSelectedPerson(null)}>
+                Back
+              </Button>
+            ) : undefined
+          }
+        />
+      </div>
+    )
+  }
 
   const monthIndexSel = MONTHS.findIndex((m) => m === month)
   const maxWeekSelectable =
