@@ -113,6 +113,12 @@ async def approval_email_action_post(
         out = execute_approval_by_token(token, "reject", remarks=remarks)
         return HTMLResponse(_success_html(out.get("message") or "Rejected."))
     except HTTPException as e:
-        if e.status_code == 400 and "remarks" in str(e.detail).lower():
-            return HTMLResponse(_reject_form_html(token, post_url, str(e.detail)), status_code=400)
-        return HTMLResponse(_error_html(str(e.detail)), status_code=e.status_code)
+        detail = e.detail if isinstance(e.detail, str) else str(e.detail)
+        if e.status_code == 400 and "remarks" in detail.lower():
+            return HTMLResponse(_reject_form_html(token, post_url, detail), status_code=400)
+        return HTMLResponse(_error_html(detail), status_code=e.status_code)
+    except Exception as e:
+        return HTMLResponse(
+            _error_html("Something went wrong while saving the rejection. Please try again or contact support."),
+            status_code=500,
+        )
