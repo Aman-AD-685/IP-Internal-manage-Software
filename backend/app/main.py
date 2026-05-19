@@ -3099,7 +3099,7 @@ def dashboard_soumya_kpi(
     ranked_limit: int = Query(25, ge=1, le=100),
     leaderboard_scope: str = Query(
         "week",
-        description="Delay leaderboard: week = query arrival in selected KPI week; all = all chores/bugs (excl. Demo C)",
+        description="Delay leaderboard: week = Stage 2 completed in selected KPI week; all = all Stage 2 completed (excl. Demo C)",
     ),
     auth: dict = Depends(get_current_user),
 ):

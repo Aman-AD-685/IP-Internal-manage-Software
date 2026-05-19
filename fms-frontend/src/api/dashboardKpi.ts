@@ -319,6 +319,7 @@ export type SoumyaCardDetailKey =
   | 'escalation_frequency'
   | 'deadline_adherence'
   | 'weekly_sla_breach'
+  | 'pending_staging'
 
 export interface SoumyaDashboardResponse {
   success: boolean
@@ -354,9 +355,17 @@ export interface SoumyaDashboardResponse {
     }
     weekly_sla_breach: {
       count_this_week: number
+      /** Total chores/bugs with query arrival in the selected week */
       target: number
+      weekly_total?: number
       on_target: boolean
       trend_weeks: SoumyaTrendWeek[]
+    }
+    pending_staging: {
+      total: number
+      chores_bugs: number
+      features: number
+      other?: number
     }
   }
   delay_ranked_tickets: SoumyaDelayRankedTicket[]
@@ -368,8 +377,11 @@ export interface SoumyaDashboardResponse {
     deadline_on_time?: SoumyaCardDetailRow[]
     deadline_late?: SoumyaCardDetailRow[]
     weekly_sla_breach: SoumyaCardDetailRow[]
+    pending_staging?: SoumyaCardDetailRow[]
   }
   meta: {
+    data_as_of?: string
+    cards_use_week_arrivals?: boolean
     month?: string
     year?: string
     week?: string
