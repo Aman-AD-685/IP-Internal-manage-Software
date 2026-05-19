@@ -20,6 +20,16 @@ ALTER TABLE public.tickets
 COMMENT ON COLUMN public.tickets.remarks IS 'Approver remarks (required on reject from email or UI).';
 COMMENT ON COLUMN public.tickets.approval_status IS 'Feature tickets: null=pending, approved, unapproved, rejected';
 
+-- Allow rejected (required for email Reject). Safe to re-run.
+ALTER TABLE public.tickets DROP CONSTRAINT IF EXISTS tickets_approval_status_check;
+ALTER TABLE public.tickets
+  ADD CONSTRAINT tickets_approval_status_check
+  CHECK (
+    approval_status IS NULL
+    OR approval_status = ''
+    OR approval_status IN ('approved', 'unapproved', 'rejected')
+  );
+
 -- One-time tokens for email Approve / Rejected buttons
 CREATE TABLE IF NOT EXISTS public.approval_tokens (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
