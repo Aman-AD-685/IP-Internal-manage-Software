@@ -1,6 +1,6 @@
 import { apiClient } from './axios'
 
-export const DASHBOARD_KPI_NAMES = ['Shreyasi', 'Rimpa', 'Akash', 'Adrija'] as const
+export const DASHBOARD_KPI_NAMES = ['Shreyasi', 'Rimpa', 'Akash', 'Adrija', 'Soumya'] as const
 export type DashboardKpiPerson = (typeof DASHBOARD_KPI_NAMES)[number]
 
 export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const
@@ -265,7 +265,144 @@ export interface DashboardKpiResponse {
   }
 }
 
+export interface SoumyaTrendWeek {
+  week_start: string
+  escalation_count: number
+  sla_breach_count: number
+  avg_resolution_hours?: number
+}
+
+export interface SoumyaStage2VolumeCard {
+  bucket_0_24: number
+  bucket_24_72: number
+  bucket_72_plus: number
+  total: number
+  labels: { safe: string; warning: string; breach: string }
+  colors: { safe: string; warning: string; breach: string }
+}
+
+export interface SoumyaDelayRankedTicket {
+  rank: number
+  id?: string
+  reference_no?: string
+  title?: string
+  description?: string
+  company_name?: string
+  type?: string
+  priority?: string
+  delay_score: number
+  delay_hours: number
+  delay_display?: string
+  delay_messages?: string[]
+  delay_types: string[]
+  delay_label: string
+}
+
+export interface SoumyaCardDetailRow {
+  id?: string
+  reference_no?: string
+  title?: string
+  description?: string
+  company_name?: string
+  type?: string
+  priority?: string
+  delay_hours: number
+  delay_display?: string
+  delay_messages?: string[]
+  delay_label: string
+  delay_score?: number
+}
+
+export type SoumyaCardDetailKey =
+  | 'stage2_volume'
+  | 'avg_resolution'
+  | 'escalation_frequency'
+  | 'deadline_adherence'
+  | 'weekly_sla_breach'
+
+export interface SoumyaDashboardResponse {
+  success: boolean
+  person: string
+  generated_at: string
+  cards: {
+    stage2_volume: SoumyaStage2VolumeCard
+    avg_resolution: {
+      avg_hours: number
+      avg_display: string
+      sample_size: number
+      target_hours: number
+      on_target: boolean
+      status: 'green' | 'red'
+      trend_weeks: SoumyaTrendWeek[]
+    }
+    escalation_frequency: {
+      count_this_week: number
+      target_max: number
+      on_target: boolean
+      trend_weeks: SoumyaTrendWeek[]
+    }
+    deadline_adherence: {
+      percent: number
+      percent_display?: string
+      on_time: number
+      total_with_deadline: number
+      total_closed?: number
+      target_percent: number
+      has_data?: boolean
+      on_target: boolean
+      status: 'green' | 'red' | 'neutral'
+    }
+    weekly_sla_breach: {
+      count_this_week: number
+      target: number
+      on_target: boolean
+      trend_weeks: SoumyaTrendWeek[]
+    }
+  }
+  delay_ranked_tickets: SoumyaDelayRankedTicket[]
+  card_details?: {
+    stage2_volume: SoumyaCardDetailRow[]
+    avg_resolution: SoumyaCardDetailRow[]
+    escalation_frequency: SoumyaCardDetailRow[]
+    deadline_adherence: SoumyaCardDetailRow[]
+    deadline_on_time?: SoumyaCardDetailRow[]
+    deadline_late?: SoumyaCardDetailRow[]
+    weekly_sla_breach: SoumyaCardDetailRow[]
+  }
+  meta: {
+    month?: string
+    year?: string
+    week?: string
+    week_start?: string
+    week_end?: string
+    week_label?: string
+    max_week_index?: number
+    leaderboard_scope?: 'week' | 'all'
+    total_tickets_scanned: number
+    leaderboard_pool_size?: number
+    total_in_pool?: number
+    total_ranked?: number
+    ranked_count: number
+    ranked_offset?: number
+    ranked_limit?: number
+    has_more?: boolean
+    excludes_demo_c?: boolean
+  }
+}
+
 export const dashboardKpiApi = {
+  getSoumyaKpi: (params: {
+    month: string
+    year: string
+    week: string
+    leaderboard_scope?: 'week' | 'all'
+    ranked_offset?: number
+    ranked_limit?: number
+  }) =>
+    apiClient
+      .get<SoumyaDashboardResponse>('/dashboard/soumya-kpi', { params })
+      .then((r) => r.data),
+
   getData: (filters: { name: string; month: string; year: string; week: string }) =>
     apiClient
       .get<DashboardKpiResponse>('/dashboard/kpi', {

@@ -9,6 +9,7 @@ import { ROUTES } from '../../utils/constants'
 import type { UserRole } from '../../types/auth'
 import { dashboardApi } from '../../api/dashboard'
 import { DASHBOARD_KPI_NAMES } from '../../api/dashboardKpi'
+import { canViewDashboardKpiPerson } from '../../utils/dashboardKpiPermissions'
 
 const { Header: AntHeader } = Layout
 const { Text } = Typography
@@ -42,11 +43,15 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
     navigate(ROUTES.LOGIN)
   }
 
-  const dashboardKpiMenuItems: MenuProps['items'] = DASHBOARD_KPI_NAMES.map((name) => ({
-    key: `dashboard-kpi-${name}`,
-    label: `${name} Dashboard`,
-    onClick: () => navigate(`${ROUTES.DASHBOARD_KPI}?person=${encodeURIComponent(name)}`),
-  }))
+  const dashboardKpiMenuItems: MenuProps['items'] = user
+    ? DASHBOARD_KPI_NAMES.filter((name) =>
+        canViewDashboardKpiPerson(name, user.role as UserRole, user.section_permissions),
+      ).map((name) => ({
+        key: `dashboard-kpi-${name}`,
+        label: `${name} Dashboard`,
+        onClick: () => navigate(`${ROUTES.DASHBOARD_KPI}?person=${encodeURIComponent(name)}`),
+      }))
+    : []
 
   const menuItems: MenuProps['items'] = [
     {
@@ -99,14 +104,11 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
         {canViewDashboardKpi ? (
           <Dropdown
             trigger={['click']}
-            menu={{ items: dashboardKpiMenuItems }}
+            menu={{ items: dashboardKpiMenuItems, className: 'kpi-header-dropdown-menu' }}
             placement="bottomLeft"
+            overlayClassName="kpi-header-dropdown"
           >
-            <Button
-              type="default"
-              icon={<DashboardOutlined />}
-              style={{ fontWeight: 500 }}
-            >
+            <Button type="default" icon={<DashboardOutlined />} className="kpi-header-trigger-btn">
               Dashboard - KPI
             </Button>
           </Dropdown>

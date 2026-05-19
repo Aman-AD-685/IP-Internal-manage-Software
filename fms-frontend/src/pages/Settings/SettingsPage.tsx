@@ -12,7 +12,6 @@ import {
   Table,
   Switch,
   Alert,
-  Spin,
 } from 'antd'
 import { UserOutlined, MailOutlined, PlusOutlined, DeleteOutlined, SendOutlined } from '@ant-design/icons'
 import { useAuth } from '../../hooks/useAuth'
@@ -28,6 +27,7 @@ import {
   type ApprovalPublicUrlConfig,
 } from '../../api/featureApprovalReminders'
 import { resolveFeatureApprovalCronRunUrl } from '../../api/axios'
+import { SkeletonOverlay } from '../../components/common/skeletons'
 import { EscalationEmailSettings } from './EscalationEmailSettings'
 import { ChecklistDelegationEmailSettings } from './ChecklistDelegationEmailSettings'
 
@@ -254,7 +254,7 @@ export const SettingsPage = () => {
               <Divider />
               <ChecklistDelegationEmailSettings />
               <Divider />
-              <Spin spinning={faLoading}>
+              <SkeletonOverlay loading={faLoading} rows={10} minHeight={200}>
                 <div>
                   <Title level={4}>
                     <MailOutlined style={{ marginRight: 8 }} />
@@ -402,7 +402,7 @@ export const SettingsPage = () => {
                     ]}
                   />
                 </div>
-              </Spin>
+              </SkeletonOverlay>
 
               <Divider />
               <EscalationEmailSettings />

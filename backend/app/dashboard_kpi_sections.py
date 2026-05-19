@@ -31,7 +31,7 @@ DASHBOARD_KPI_DASHBOARDS: tuple[dict[str, str], ...] = (
     {"name": "Akash", "key": "dashboard_kpi_person_akash", "label": "Akash Dashboard"},
 
     {"name": "Adrija", "key": "dashboard_kpi_person_adrija", "label": "Adrija Dashboard"},
-
+    {"name": "Soumya", "key": "dashboard_kpi_person_soumya", "label": "Soumya Dashboard"},
 )
 
 

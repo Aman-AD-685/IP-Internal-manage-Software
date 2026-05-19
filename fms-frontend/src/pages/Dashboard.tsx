@@ -1,4 +1,4 @@
-import { Typography, Row, Col, Card, Statistic, Button, Alert, Modal, Table, Tag, Form, Input, message, Space, Spin } from 'antd'
+import { Typography, Row, Col, Card, Statistic, Button, Alert, Modal, Table, Tag, Form, Input, message, Space } from 'antd'
 import {
   FileTextOutlined,
   ClockCircleOutlined,
@@ -17,7 +17,12 @@ const DashboardTrendCharts = lazy(() =>
 import { ticketsApi } from '../api/tickets'
 import { leadsApi, type ActiveLeadRow } from '../api/leads'
 import { LoadingSpinner } from '../components/common/LoadingSpinner'
-import { ModalContentSkeleton, TableWithSkeletonLoading } from '../components/common/skeletons'
+import {
+  ChartAreaSkeleton,
+  ModalContentSkeleton,
+  SkeletonOverlay,
+  TableWithSkeletonLoading,
+} from '../components/common/skeletons'
 import { PrintExport } from '../components/common/PrintExport'
 import {
   TICKET_EXPORT_COLUMNS,
@@ -64,6 +69,7 @@ const KPI_DASHBOARD_LINK_LABELS: Record<DashboardKpiPerson, string> = {
   Rimpa: 'Rimpa Dashboard',
   Akash: 'Akash Dashboard',
   Adrija: 'Adrija Dashboard',
+  Soumya: 'Soumya Dashboard',
 }
 
 function formatDateTime(v?: string | null): string {
@@ -934,7 +940,7 @@ export const Dashboard = () => {
           <Title level={3} style={{ marginBottom: 8, marginTop: 8, color: '#1e293b', fontWeight: 600 }}>
             Success
           </Title>
-          <Spin spinning={successPerformanceLoading}>
+          <SkeletonOverlay loading={successPerformanceLoading} minHeight={120}>
             <Row gutter={[20, 20]} style={{ marginBottom: 28 }}>
               {successCards.map((c) => (
                 <Col xs={24} sm={12} md={12} lg={6} key={c.key}>
@@ -973,7 +979,7 @@ export const Dashboard = () => {
                 </Col>
               ))}
             </Row>
-          </Spin>
+          </SkeletonOverlay>
 
           <Title level={3} style={{ marginBottom: 8, marginTop: 8, color: '#1e293b', fontWeight: 600 }}>
             Payment
@@ -1000,7 +1006,7 @@ export const Dashboard = () => {
           <Title level={5} style={{ marginBottom: 12, color: '#1e293b', fontWeight: 600 }}>
             Team KPI dashboards
           </Title>
-          <Spin spinning={kpiSnapshotLoading}>
+          <SkeletonOverlay loading={kpiSnapshotLoading} minHeight={100}>
             <Row gutter={[16, 16]} style={{ marginBottom: 28 }}>
               {DASHBOARD_KPI_NAMES.map((person) => {
                 const snapshotParts = kpiWeeklySnapshotParts(kpiSnapshotByPerson[person], {
@@ -1059,7 +1065,7 @@ export const Dashboard = () => {
                 )
               })}
             </Row>
-          </Spin>
+          </SkeletonOverlay>
         </>
       ) : (
         <>
@@ -1122,13 +1128,13 @@ export const Dashboard = () => {
         fallback={
           <Row gutter={[20, 20]}>
             <Col xs={24} lg={12}>
-              <Card style={{ minHeight: 280 }} bodyStyle={{ padding: 24, textAlign: 'center' }}>
-                <Spin />
+              <Card style={{ minHeight: 280 }} styles={{ body: { padding: 12 } }}>
+                <ChartAreaSkeleton height={260} />
               </Card>
             </Col>
             <Col xs={24} lg={12}>
-              <Card style={{ minHeight: 280 }} bodyStyle={{ padding: 24, textAlign: 'center' }}>
-                <Spin />
+              <Card style={{ minHeight: 280 }} styles={{ body: { padding: 12 } }}>
+                <ChartAreaSkeleton height={260} />
               </Card>
             </Col>
           </Row>
