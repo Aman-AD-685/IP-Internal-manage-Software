@@ -938,9 +938,25 @@ export const TicketList = () => {
             render: (_: unknown, r: Ticket) => {
               const s = r.approval_status ?? 'Pending'
               const label =
-                s === 'approved' ? 'Approved' : s === 'rejected' ? 'Rejected' : s === 'unapproved' ? 'Unapprove' : 'Pending'
+                s === 'approved'
+                  ? 'Approved'
+                  : s === 'rejected'
+                    ? 'Rejected'
+                    : s === 'hold'
+                      ? 'Hold'
+                      : s === 'unapproved'
+                        ? 'Unapprove'
+                        : 'Pending'
               const color =
-                s === 'approved' ? 'green' : s === 'rejected' ? 'red' : s === 'unapproved' ? 'orange' : 'default'
+                s === 'approved'
+                  ? 'green'
+                  : s === 'rejected'
+                    ? 'red'
+                    : s === 'hold'
+                      ? 'gold'
+                      : s === 'unapproved'
+                        ? 'orange'
+                        : 'default'
               return <Tag color={color}>{label}</Tag>
             },
           },
@@ -1218,6 +1234,7 @@ export const TicketList = () => {
               options={[
                 { value: 'unapproved', label: 'Unapprove' },
                 { value: 'rejected', label: 'Rejected' },
+                { value: 'hold', label: 'Hold' },
                 { value: 'pending', label: 'Pending approval' },
               ]}
             />

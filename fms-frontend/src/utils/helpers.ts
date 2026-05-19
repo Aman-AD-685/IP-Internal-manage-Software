@@ -190,12 +190,13 @@ export const getStagingCurrentStage = (t: {
 /** Current stage for Feature tickets: Approval + Stage 1 (Planned/Status/Actual) + Stage 2 (Completed/Pending). */
 export const getFeatureCurrentStage = (t: {
   status_2?: string
-  approval_status?: 'approved' | 'unapproved' | 'rejected' | null
+  approval_status?: 'approved' | 'unapproved' | 'rejected' | 'hold' | null
   live_status?: string | null
   staging_planned?: string | null
 }): { stageLabel: string; status?: string } => {
   if (t.approval_status == null || t.approval_status === undefined) return { stageLabel: 'Approval Pending', status: '-' }
   if (t.approval_status === 'rejected') return { stageLabel: 'Approval (rejected)', status: 'rejected' }
+  if (t.approval_status === 'hold') return { stageLabel: 'Approval (hold)', status: 'hold' }
   if (t.approval_status === 'unapproved') return { stageLabel: 'Approval (unapproved)', status: 'unapproved' }
   if (t.status_2 !== 'completed') {
     return { stageLabel: 'Stage 1', status: t.status_2 || 'pending' }

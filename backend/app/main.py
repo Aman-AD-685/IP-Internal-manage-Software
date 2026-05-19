@@ -1660,9 +1660,14 @@ def list_tickets(
             q = q.eq("approval_status", "unapproved")
         elif approval_filter == "rejected":
             q = q.eq("approval_status", "rejected")
+        elif approval_filter == "hold":
+            q = q.eq("approval_status", "hold")
         else:
-            # all: pending + unapproved + rejected (not approved)
-            q = q.or_("approval_status.is.null,approval_status.eq.unapproved,approval_status.eq.rejected")
+            # all: pending + unapproved + rejected + hold (not approved)
+            q = q.or_(
+                "approval_status.is.null,approval_status.eq.unapproved,"
+                "approval_status.eq.rejected,approval_status.eq.hold"
+            )
     elif apply_section_filter and types_in:
         types_list = [t.strip() for t in types_in.split(",") if t.strip()]
         if types_list:
@@ -1769,7 +1774,7 @@ def _apply_approval_actual_times(data: dict) -> dict:
     now = datetime.utcnow().isoformat()
     if data.get("approval_status") == "approved" and "approval_actual_at" not in data:
         data["approval_actual_at"] = now
-    if data.get("approval_status") in ("unapproved", "rejected") and "unapproval_actual_at" not in data:
+    if data.get("approval_status") in ("unapproved", "rejected", "hold") and "unapproval_actual_at" not in data:
         data["unapproval_actual_at"] = now
     return data
 
@@ -1784,7 +1789,13 @@ _FEATURE_STAGE_2_KEYS = {"live_status", "live_actual", "live_planned"}
 
 @api_router.put("/tickets/{ticket_id}")
 def update_ticket(ticket_id: str, payload: UpdateTicketRequest, auth: dict = Depends(get_current_user)):
-    data = {k: v for k, v in payload.model_dump().items() if v is not None}
+    raw = payload.model_dump(exclude_unset=True)
+    data: dict = {}
+    for k, v in raw.items():
+        if k == "approval_status" and v in ("", None):
+            data["approval_status"] = None
+        elif v is not None:
+            data[k] = v
     if "priority" in data:
         data["priority"] = _normalize_ticket_priority(data.get("priority"))
     # Keep denormalized display columns in sync when IDs are edited from ticket modal.
@@ -1804,10 +1815,27 @@ def update_ticket(ticket_id: str, payload: UpdateTicketRequest, auth: dict = Dep
     except Exception:
         pass
     role = _get_role_from_profile(auth["id"])
-    # Approve/Unapprove: only admin, master_admin and approver
+    # Approve / reject / hold / return to pending: only admin, master_admin and approver
     if "approval_status" in data:
         if role not in ("admin", "master_admin", "approver"):
             raise HTTPException(status_code=403, detail="Only Admin or Approver can approve or unapprove tickets")
+        if data.get("approval_status") == "hold":
+            hold_remarks = (data.get("remarks") or "").strip()
+            if not hold_remarks:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Hold remarks are required when placing a feature request on hold.",
+                )
+        if data.get("approval_status") == "rejected":
+            reject_remarks = (data.get("remarks") or "").strip()
+            if not reject_remarks:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Remarks are required when rejecting a feature request.",
+                )
+        if data.get("approval_status") is None:
+            data["unapproval_actual_at"] = None
+            data["approval_actual_at"] = None
         now = datetime.utcnow().isoformat()
         data["approved_by"] = auth["id"]
         data["approval_source"] = "ui"
@@ -1825,12 +1853,13 @@ def update_ticket(ticket_id: str, payload: UpdateTicketRequest, auth: dict = Dep
     # Log approval/rejection for audit
     if "approval_status" in data:
         try:
+            st = data.get("approval_status")
             status_log = (
                 "approved"
-                if data["approval_status"] == "approved"
-                else "rejected"
-                if data["approval_status"] in ("rejected", "unapproved")
-                else "rejected"
+                if st == "approved"
+                else st
+                if st in ("rejected", "unapproved", "hold")
+                else "pending"
             )
             supabase.table("approval_logs").insert({
                 "ticket_id": ticket_id,
@@ -1896,7 +1925,7 @@ def staging_back(ticket_id: str, auth: dict = Depends(get_current_user)):
 # ---------- Email-based approval (tokenized, one-time) ----------
 class ApprovalByTokenRequest(BaseModel):
     token: str
-    action: str  # approve | reject
+    action: str  # approve | reject | hold
     remarks: str | None = None
 
 
@@ -1951,12 +1980,12 @@ def create_approval_tokens(
         raise HTTPException(status_code=404, detail="Ticket not found")
     if r.data.get("type") != "feature":
         raise HTTPException(status_code=400, detail="Only feature tickets require approval tokens")
-    if r.data.get("approval_status") is not None:
-        raise HTTPException(status_code=400, detail="Ticket already approved or rejected")
+    if r.data.get("approval_status") not in (None, ""):
+        raise HTTPException(status_code=400, detail="Ticket is not pending approval")
     expires = (datetime.utcnow() + timedelta(days=7)).isoformat()
     base = _frontend_base_url()
     tokens_out = []
-    for action in ("approve", "reject"):
+    for action in ("approve", "reject", "hold"):
         row = supabase.table("approval_tokens").insert({
             "ticket_id": ticket_id,
             "action": action,

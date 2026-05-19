@@ -10,7 +10,7 @@ ALTER TABLE public.tickets
   CHECK (
     approval_status IS NULL
     OR approval_status = ''
-    OR approval_status IN ('approved', 'unapproved', 'rejected')
+    OR approval_status IN ('approved', 'unapproved', 'rejected', 'hold')
   );
 
 COMMENT ON COLUMN public.tickets.approval_status IS
