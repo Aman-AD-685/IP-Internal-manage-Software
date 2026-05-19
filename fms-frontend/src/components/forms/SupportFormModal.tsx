@@ -185,10 +185,13 @@ export const SupportFormModal = ({ open, onClose, onSuccess }: SupportFormModalP
   const companyId = Form.useWatch('company_id', form)
   useEffect(() => {
     if (companyId) {
-      supportApi.getDivisions(companyId).then((d) => {
-        setDivisions(d)
-        setDivisionOther(d.some((x) => x.name === 'Other'))
-      })
+      supportApi
+        .getDivisions(companyId, { bustCache: true })
+        .then((d) => {
+          setDivisions(d)
+          setDivisionOther(d.some((x) => x.name === 'Other'))
+        })
+        .catch(() => setDivisions([]))
       form.setFieldValue('division_id', undefined)
       form.setFieldValue('division_other', undefined)
     } else {

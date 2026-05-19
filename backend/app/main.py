@@ -4802,7 +4802,43 @@ def list_divisions(
         offset = (page - 1) * page_size
         q = supabase.table("divisions").select("id, name, company_id", count="exact")
         if company_id:
-            q = q.eq("company_id", company_id)
+            from app.company_dedupe import (
+                company_ids_by_name_fallback,
+                company_ids_for_division_lookup,
+                dedupe_division_rows,
+                ensure_divisions_for_companies,
+                _load_all_companies,
+            )
+
+            lookup_ids = company_ids_for_division_lookup(company_id)
+            anchor_name = ""
+            for row in _load_all_companies():
+                if str(row.get("id")) == str(company_id):
+                    anchor_name = str(row.get("name") or "")
+                    break
+
+            extra_ids: list[str] = []
+            if anchor_name:
+                extra_ids = company_ids_by_name_fallback(
+                    anchor_name, exclude_ids=set(lookup_ids)
+                )
+            all_ids = list(dict.fromkeys(lookup_ids + extra_ids)) or [company_id]
+
+            if anchor_name:
+                ensure_divisions_for_companies(all_ids, anchor_name)
+
+            r_all = (
+                supabase.table("divisions")
+                .select("id, name, company_id")
+                .in_("company_id", all_ids)
+                .order("name")
+                .execute()
+            )
+            merged = dedupe_division_rows(list(r_all.data or []))
+            total = len(merged)
+            page_rows = merged[offset : offset + page_size]
+            payload = {"data": page_rows, "total": total, "page": page, "page_size": page_size}
+            return _etag_json(payload)
         r = q.order("name").range(offset, offset + page_size - 1).execute()
         payload = {"data": r.data or [], "total": r.count or 0, "page": page, "page_size": page_size}
         return _etag_json(payload)

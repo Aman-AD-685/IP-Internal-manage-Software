@@ -2,6 +2,7 @@ import { apiClient } from './axios'
 import {
   API_CACHE_TTL_MS,
   sessionApiCacheGet,
+  sessionApiCacheRemove,
   sessionApiCacheSet,
   supportDivisionsLogicalKey,
 } from '../utils/sessionApiCache'
@@ -78,8 +79,9 @@ export const supportApi = {
     sessionApiCacheSet(key, rows, API_CACHE_TTL_MS.supportPages)
     return rows
   },
-  getDivisions: async (companyId?: string): Promise<Division[]> => {
+  getDivisions: async (companyId?: string, opts?: { bustCache?: boolean }): Promise<Division[]> => {
     const key = supportDivisionsLogicalKey(companyId)
+    if (opts?.bustCache) sessionApiCacheRemove(key)
     const cached = sessionApiCacheGet<Division[]>(key)
     if (cached) return cached
     const extra = companyId ? { company_id: companyId } : {}
