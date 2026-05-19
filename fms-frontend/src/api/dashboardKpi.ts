@@ -355,7 +355,9 @@ export interface SoumyaDashboardResponse {
     }
     weekly_sla_breach: {
       count_this_week: number
+      /** Total chores/bugs with query arrival in the selected week */
       target: number
+      weekly_total?: number
       on_target: boolean
       trend_weeks: SoumyaTrendWeek[]
     }

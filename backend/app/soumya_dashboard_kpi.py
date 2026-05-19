@@ -230,6 +230,61 @@ def _is_closed(t: dict) -> bool:
     return _closed_at(t) is not None
 
 
+def _stage2_completed_at(t: dict) -> datetime | None:
+    """When Stage 2 (dev) was marked completed (actual_2)."""
+    if str(t.get("status_2") or "").lower() != "completed":
+        return None
+    return _parse_dt(t.get("actual_2"))
+
+
+def _stage2_completed_in_range(t: dict, range_start: date, range_end: date) -> bool:
+    completed = _stage2_completed_at(t)
+    if not completed:
+        return False
+    d = completed.date() if isinstance(completed, datetime) else _parse_iso_date(completed)
+    return d is not None and range_start <= d <= range_end
+
+
+def _stage2_completion_hours(t: dict) -> float | None:
+    """Hours from Stage 2 entry to Stage 2 completion (delay metric for leaderboard)."""
+    entry = _stage2_entry(t)
+    completed = _stage2_completed_at(t)
+    if not entry or not completed:
+        return None
+    return _hours_between(entry, completed)
+
+
+def _stage2_leaderboard_pool(
+    tickets: list[dict],
+    *,
+    range_start: date,
+    range_end: date,
+    scope: str,
+) -> list[dict]:
+    """Tickets that finished Stage 2 in the selected week, or all-time when scope=all."""
+    use_all_time = (scope or "week").strip().lower() == "all"
+    out: list[dict] = []
+    for t in tickets:
+        if not _is_chore_bug(t):
+            continue
+        if str(t.get("status_2") or "").lower() != "completed":
+            continue
+        if not _stage2_completed_at(t):
+            continue
+        if use_all_time or _stage2_completed_in_range(t, range_start, range_end):
+            out.append(t)
+    return out
+
+
+def _stage2_completion_delay_messages(hours: float) -> list[str]:
+    dur = _fmt_duration_hours(hours)
+    if hours >= 72:
+        return [f"Stage 2 completed in {dur} (72 hr+ SLA breach)"]
+    if hours > 24:
+        return [f"Stage 2 completed in {dur} (24–72 hr band)"]
+    return [f"Stage 2 completed in {dur}"]
+
+
 def _is_placeholder_company_name(name: str | None) -> bool:
     if not name:
         return True
@@ -657,6 +712,7 @@ def card_weekly_sla_breach(
     tickets: list[dict], trends: list[dict], *, as_of: datetime | None = None
 ) -> dict:
     ref = as_of or _now()
+    weekly_total = sum(1 for t in tickets if _is_chore_bug(t))
     breach = 0
     for t in tickets:
         if not _is_at_stage2_open(t):
@@ -668,7 +724,8 @@ def card_weekly_sla_breach(
             breach += 1
     return {
         "count_this_week": breach,
-        "target": 0,
+        "target": weekly_total,
+        "weekly_total": weekly_total,
         "on_target": breach == 0,
         "trend_weeks": trends,
     }
@@ -904,27 +961,34 @@ def build_delay_ranked_list(
     offset: int = 0,
     limit: int = _RANKED_PAGE_DEFAULT,
 ) -> tuple[list[dict], int]:
-    scored: list[tuple[int, float, dict]] = []
+    """Rank Stage 2–completed tickets by longest Stage 2 duration (entry → actual_2)."""
+    scored: list[tuple[float, dict]] = []
     for t in tickets:
-        if not _is_chore_bug(t):
+        hours = _stage2_completion_hours(t)
+        if hours is None:
             continue
-        score, hours, dtypes = _delay_score(t)
-        if score <= 0 and hours <= 0 and _is_at_stage2_open(t):
-            entry = _stage2_entry(t)
-            hours = _hours_between(entry, _now()) or 0.0
-            score = 1
-            dtypes = ["Stage 2 active"]
-        if score <= 0 and hours <= 0:
-            continue
-        scored.append((score, hours, {**t, "_delay_score": score, "_delay_hours": round(hours, 1), "_delay_types": dtypes}))
-    scored.sort(key=lambda x: (-x[0], -x[1], x[2].get("reference_no") or ""))
+        hrs = round(hours, 1)
+        messages = _stage2_completion_delay_messages(hours)
+        scored.append(
+            (
+                hours,
+                {
+                    **t,
+                    "_delay_score": int(hours),
+                    "_delay_hours": hrs,
+                    "_delay_types": messages,
+                    "_delay_messages": messages,
+                },
+            )
+        )
+    scored.sort(key=lambda x: (-x[0], x[1].get("reference_no") or ""))
     total = len(scored)
     page = scored[offset : offset + limit]
     out: list[dict] = []
-    for i, (_, hours, row) in enumerate(page):
+    for i, (_, row) in enumerate(page):
         rank = offset + i + 1
-        messages = _build_delay_messages(row)
-        hrs = row.get("_delay_hours") or hours
+        messages = row.get("_delay_messages") or []
+        hrs = row.get("_delay_hours") or 0.0
         out.append(
             {
                 "rank": rank,
@@ -1029,7 +1093,9 @@ def compute_soumya_dashboard(
     c6 = card_weekly_sla_breach(week_tickets, trends, as_of=as_of)
     c_staging = card_pending_staging(all_tickets)
     scope = (leaderboard_scope or "week").strip().lower()
-    leaderboard_pool = all_tickets if scope == "all" else week_tickets
+    leaderboard_pool = _stage2_leaderboard_pool(
+        all_tickets, range_start=range_start, range_end=range_end, scope=scope
+    )
     ranked, total_ranked = build_delay_ranked_list(
         leaderboard_pool, offset=max(0, ranked_offset), limit=max(1, min(ranked_limit, 100))
     )
@@ -1080,6 +1146,7 @@ def compute_soumya_dashboard(
             "leaderboard_scope": "all" if scope == "all" else "week",
             "total_tickets_scanned": len(week_tickets),
             "leaderboard_pool_size": len(leaderboard_pool),
+            "leaderboard_mode": "stage2_completed",
             "total_in_pool": len(all_tickets),
             "total_ranked": total_ranked,
             "ranked_count": len(ranked),

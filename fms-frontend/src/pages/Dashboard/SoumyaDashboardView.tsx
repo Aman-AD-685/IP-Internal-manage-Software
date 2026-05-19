@@ -410,7 +410,6 @@ export function SoumyaDashboardView({ onRefresh }: SoumyaDashboardViewProps) {
 
   const c1 = cards.stage2_volume
   const c2 = cards.avg_resolution
-  const c3 = cards.escalation_frequency
   const c4 = cards.deadline_adherence
   const c6 = cards.weekly_sla_breach
   const cStaging = cards.pending_staging
@@ -422,8 +421,8 @@ export function SoumyaDashboardView({ onRefresh }: SoumyaDashboardViewProps) {
 
   const leaderboardSubtext =
     leaderboardScope === 'all'
-      ? `All chores & bugs (Demo C excluded). Pool: ${data.meta?.leaderboard_pool_size ?? rankedRows.length}. Scroll for more — highest delay first.`
-      : `Query arrival in selected week${mergeRangeText ? ` (${mergeRangeText})` : ''}. Demo C excluded. Scroll for more — highest delay first.`
+      ? `Stage 2 completed (all time). Ranked by longest Stage 2 duration. Demo C excluded. Pool: ${data.meta?.leaderboard_pool_size ?? rankedRows.length}.`
+      : `Stage 2 completed in selected week${mergeRangeText ? ` (${mergeRangeText})` : ''}. Ranked by highest delay first. Demo C excluded.`
 
 return (
     <div className="soumya-dash">
@@ -434,8 +433,8 @@ return (
             Soumya Dashboard
           </h2>
           <p>
-            KPI cards 1–5 use the selected calendar week (default: previous week) — query arrival in that week. Demo C
-            excluded. Card 6 is live pending Staging.
+            KPI cards use the selected calendar week (default: previous week) — query arrival in that week. Demo C
+            excluded. Staging is live pending queue.
           </p>
         </div>
         <div className="soumya-dash-meta">
@@ -492,11 +491,11 @@ return (
       {mergeRangeText ? (
         <Text className="dashboard-kpi-merge-hint">
           Calendar week: {mergeRangeText}
-          {dataAsOfLabel ? ` · Cards 1–5 measured as of ${dataAsOfLabel}` : null}
+          {dataAsOfLabel ? ` · Week KPIs measured as of ${dataAsOfLabel}` : null}
         </Text>
       ) : null}
 
-      <div className="soumya-kpi-grid soumya-kpi-grid--6">
+      <div className="soumya-kpi-grid soumya-kpi-grid--4">
         <article
           className="soumya-kpi-card soumya-kpi-card--clickable"
           role="button"
@@ -505,7 +504,6 @@ return (
           onKeyDown={(e) => e.key === 'Enter' && openCardModal('stage2_volume')}
         >
           <div className="soumya-kpi-card__label">
-            Card 1
             {detailCount('stage2_volume') > 0 ? (
               <UnorderedListOutlined className="soumya-kpi-card__list-icon" title="View details" />
             ) : null}
@@ -537,17 +535,17 @@ return (
           ) : null}
         </article>
 
-        <article
-          className="soumya-kpi-card soumya-kpi-card--clickable"
-          role="button"
-          tabIndex={0}
-          onClick={() => openCardModal('avg_resolution')}
-          onKeyDown={(e) => e.key === 'Enter' && openCardModal('avg_resolution')}
-        >
+        <article className="soumya-kpi-card soumya-kpi-card--combo">
+          <div
+            className="soumya-kpi-card__main soumya-kpi-card--clickable"
+            role="button"
+            tabIndex={0}
+            onClick={() => openCardModal('avg_resolution')}
+            onKeyDown={(e) => e.key === 'Enter' && openCardModal('avg_resolution')}
+          >
           <div className="soumya-kpi-card__label">
-            Card 2
             {detailCount('avg_resolution') > 0 ? (
-              <UnorderedListOutlined className="soumya-kpi-card__list-icon" title="View details" />
+              <UnorderedListOutlined className="soumya-kpi-card__list-icon" title="View resolution details" />
             ) : null}
           </div>
           <div className="soumya-kpi-card__title">Avg resolution time</div>
@@ -563,32 +561,37 @@ return (
           {detailCount('avg_resolution') > 0 ? (
             <span className="soumya-card-hint">Click for {detailCount('avg_resolution')} tickets</span>
           ) : null}
-        </article>
-
-        <article
-          className="soumya-kpi-card soumya-kpi-card--clickable"
-          role="button"
-          tabIndex={0}
-          onClick={() => openCardModal('escalation_frequency')}
-          onKeyDown={(e) => e.key === 'Enter' && openCardModal('escalation_frequency')}
-        >
-          <div className="soumya-kpi-card__label">
-            Card 3
-            {detailCount('escalation_frequency') > 0 ? (
-              <UnorderedListOutlined className="soumya-kpi-card__list-icon" title="View details" />
-            ) : null}
           </div>
-          <div className="soumya-kpi-card__title">Escalation frequency (72hr+)</div>
-          <div className={`soumya-metric-big ${c3.on_target ? 'soumya-metric-big--ok' : 'soumya-metric-big--bad'}`}>
-            {c3.count_this_week}
+          <div
+            className="soumya-kpi-sla-mini soumya-kpi-card--clickable"
+            role="button"
+            tabIndex={0}
+            onClick={(e) => {
+              e.stopPropagation()
+              openCardModal('weekly_sla_breach')
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.stopPropagation()
+                openCardModal('weekly_sla_breach')
+              }
+            }}
+          >
+            <div className="soumya-kpi-sla-mini__head">
+              <span className="soumya-kpi-sla-mini__title">Weekly SLA breach count</span>
+              {detailCount('weekly_sla_breach') > 0 ? (
+                <UnorderedListOutlined className="soumya-kpi-card__list-icon" title="View breach details" />
+              ) : null}
+            </div>
+            <div
+              className={`soumya-kpi-sla-mini__val ${c6.on_target ? 'soumya-kpi-sla-mini__val--ok' : 'soumya-kpi-sla-mini__val--bad'}`}
+            >
+              {c6.count_this_week}
+            </div>
+            <span className="soumya-kpi-sla-mini__meta">
+              Target = {c6.weekly_total ?? c6.target} weekly · goal 0 breach
+            </span>
           </div>
-          <span className={c3.on_target ? 'soumya-target-pill' : 'soumya-target-pill soumya-target-pill--fail'}>
-            Target under {c3.target_max} in selected week
-          </span>
-          <TrendBars weeks={c3.trend_weeks} field="escalation_count" />
-          {detailCount('escalation_frequency') > 0 ? (
-            <span className="soumya-card-hint">Click for {detailCount('escalation_frequency')} tickets</span>
-          ) : null}
         </article>
 
         <article
@@ -599,7 +602,6 @@ return (
           onKeyDown={(e) => e.key === 'Enter' && openCardModal('deadline_adherence')}
         >
           <div className="soumya-kpi-card__label">
-            Card 4
             {detailCount('deadline_adherence') > 0 ? (
               <UnorderedListOutlined className="soumya-kpi-card__list-icon" title="View details" />
             ) : null}
@@ -631,32 +633,6 @@ return (
           </p>
           {detailCount('deadline_adherence') > 0 ? (
             <span className="soumya-card-hint">Click for {detailCount('deadline_adherence')} tickets</span>
-          ) : null}
-        </article>
-
-        <article
-          className="soumya-kpi-card soumya-kpi-card--clickable"
-          role="button"
-          tabIndex={0}
-          onClick={() => openCardModal('weekly_sla_breach')}
-          onKeyDown={(e) => e.key === 'Enter' && openCardModal('weekly_sla_breach')}
-        >
-          <div className="soumya-kpi-card__label">
-            Card 5
-            {detailCount('weekly_sla_breach') > 0 ? (
-              <UnorderedListOutlined className="soumya-kpi-card__list-icon" title="View details" />
-            ) : null}
-          </div>
-          <div className="soumya-kpi-card__title">Weekly SLA breach count</div>
-          <div className={`soumya-metric-big ${c6.on_target ? 'soumya-metric-big--ok' : 'soumya-metric-big--bad'}`}>
-            {c6.count_this_week}
-          </div>
-          <span className={c6.on_target ? 'soumya-target-pill' : 'soumya-target-pill soumya-target-pill--fail'}>
-            Target = {c6.target}
-          </span>
-          <TrendBars weeks={c6.trend_weeks} field="sla_breach_count" variant="breach" />
-          {detailCount('weekly_sla_breach') > 0 ? (
-            <span className="soumya-card-hint">Click for {detailCount('weekly_sla_breach')} tickets</span>
           ) : null}
         </article>
 
