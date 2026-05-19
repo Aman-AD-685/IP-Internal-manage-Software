@@ -1,4 +1,4 @@
-"""Fast public HTML pages for email Approve / Reject — no app login, no React bundle."""
+"""Fast public HTML pages for email Approve / Reject / Hold — no app login, no React bundle."""
 from __future__ import annotations
 
 import html
@@ -43,6 +43,7 @@ def _page_shell(title: str, body: str, *, ok: bool = True) -> str:
   button{{width:100%;margin-top:12px;padding:12px;border:none;border-radius:8px;font-weight:700;
     font-size:15px;cursor:pointer}}
   .btn-danger{{background:linear-gradient(135deg,#f43f5e,#be123c);color:#fff}}
+  .btn-hold{{background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff}}
   .muted{{font-size:12px;color:#64748b;margin-top:20px;text-align:center}}
 </style>
 </head><body><div class="card">{body}<p class="muted">You can close this window.</p></div></body></html>"""
@@ -58,19 +59,65 @@ def _error_html(message: str) -> str:
     return _page_shell("Approval failed", body, ok=False)
 
 
-def _reject_form_html(token: str, post_url: str, error: str = "") -> str:
+def _remarks_form_html(
+    token: str,
+    post_url: str,
+    *,
+    action: str,
+    title: str,
+    intro: str,
+    placeholder: str,
+    button_label: str,
+    button_class: str,
+    error: str = "",
+) -> str:
     err = f'<p style="color:#fca5a5">{html.escape(error)}</p>' if error else ""
-    body = f"""<h1>Reject feature request</h1>
-<p>Remarks are <strong>required</strong>. They are saved on the ticket and shown in <strong>Approval Status</strong> as <strong>Rejected</strong>.</p>
+    body = f"""<h1>{html.escape(title)}</h1>
+<p>{intro}</p>
 {err}
 <form method="post" action="{html.escape(post_url)}">
   <input type="hidden" name="token" value="{html.escape(token)}"/>
-  <input type="hidden" name="action" value="reject"/>
+  <input type="hidden" name="action" value="{html.escape(action)}"/>
   <label for="remarks">Remarks *</label>
-  <textarea id="remarks" name="remarks" required placeholder="Why is this feature rejected?"></textarea>
-  <button type="submit" class="btn-danger">Confirm rejection</button>
+  <textarea id="remarks" name="remarks" required placeholder="{html.escape(placeholder)}"></textarea>
+  <button type="submit" class="{button_class}">{html.escape(button_label)}</button>
 </form>"""
-    return _page_shell("Reject feature", body, ok=False)
+    return _page_shell(title, body, ok=False)
+
+
+def _reject_form_html(token: str, post_url: str, error: str = "") -> str:
+    return _remarks_form_html(
+        token,
+        post_url,
+        action="reject",
+        title="Reject feature request",
+        intro=(
+            "Remarks are <strong>required</strong>. They are saved on the ticket and shown in "
+            "<strong>Approval Status</strong> as <strong>Rejected</strong>."
+        ),
+        placeholder="Why is this feature rejected?",
+        button_label="Confirm rejection",
+        button_class="btn-danger",
+        error=error,
+    )
+
+
+def _hold_form_html(token: str, post_url: str, error: str = "") -> str:
+    return _remarks_form_html(
+        token,
+        post_url,
+        action="hold",
+        title="Hold feature request",
+        intro=(
+            "Hold remarks are <strong>required</strong>. The ticket moves to "
+            "<strong>Hold</strong> in Approval Status. An approver can return it to "
+            "<strong>Pending approval</strong> from the app."
+        ),
+        placeholder="Why is this feature on hold?",
+        button_label="Confirm hold",
+        button_class="btn-hold",
+        error=error,
+    )
 
 
 @approval_public_router.get("/approval/email-action", response_class=HTMLResponse)
@@ -82,9 +129,10 @@ def approval_email_action_get(
     """
     Public email link target (no login).
     Approve: runs immediately and returns success HTML (one click, fast).
-    Reject: shows lightweight remarks form (POST to same path).
+    Reject / Hold: shows lightweight remarks form (POST to same path).
     """
     action = action.strip().lower()
+    post_url = _email_action_post_url(request)
     if action == "approve":
         try:
             out = execute_approval_by_token(token, "approve")
@@ -92,7 +140,9 @@ def approval_email_action_get(
         except HTTPException as e:
             return HTMLResponse(_error_html(str(e.detail)), status_code=e.status_code)
     if action == "reject":
-        return HTMLResponse(_reject_form_html(token, _email_action_post_url(request)))
+        return HTMLResponse(_reject_form_html(token, post_url))
+    if action == "hold":
+        return HTMLResponse(_hold_form_html(token, post_url))
     return HTMLResponse(_error_html("Invalid action."), status_code=400)
 
 
@@ -103,22 +153,25 @@ async def approval_email_action_post(
     action: str = Form(...),
     remarks: str = Form(""),
 ):
-    """Reject form submit — remarks mandatory."""
+    """Reject / Hold form submit — remarks mandatory."""
     post_url = _email_action_post_url(request)
-    if action.strip().lower() != "reject":
+    action_norm = action.strip().lower()
+    if action_norm not in ("reject", "hold"):
         return HTMLResponse(_error_html("Invalid action."), status_code=400)
     if not (remarks or "").strip():
-        return HTMLResponse(_reject_form_html(token, post_url, "Please enter remarks."), status_code=400)
+        form_html = _reject_form_html if action_norm == "reject" else _hold_form_html
+        return HTMLResponse(form_html(token, post_url, "Please enter remarks."), status_code=400)
     try:
-        out = execute_approval_by_token(token, "reject", remarks=remarks)
-        return HTMLResponse(_success_html(out.get("message") or "Rejected."))
+        out = execute_approval_by_token(token, action_norm, remarks=remarks)
+        return HTMLResponse(_success_html(out.get("message") or "Saved."))
     except HTTPException as e:
         detail = e.detail if isinstance(e.detail, str) else str(e.detail)
+        form_html = _reject_form_html if action_norm == "reject" else _hold_form_html
         if e.status_code == 400 and "remarks" in detail.lower():
-            return HTMLResponse(_reject_form_html(token, post_url, detail), status_code=400)
+            return HTMLResponse(form_html(token, post_url, detail), status_code=400)
         return HTMLResponse(_error_html(detail), status_code=e.status_code)
-    except Exception as e:
+    except Exception:
         return HTMLResponse(
-            _error_html("Something went wrong while saving the rejection. Please try again or contact support."),
+            _error_html("Something went wrong while saving. Please try again or contact support."),
             status_code=500,
         )

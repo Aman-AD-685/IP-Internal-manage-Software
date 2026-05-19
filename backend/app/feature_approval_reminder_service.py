@@ -299,12 +299,13 @@ def _create_email_approval_links(ticket_id: str) -> dict[str, str]:
             [
                 {"ticket_id": ticket_id, "action": "approve", "expires_at": expires},
                 {"ticket_id": ticket_id, "action": "reject", "expires_at": expires},
+                {"ticket_id": ticket_id, "action": "hold", "expires_at": expires},
             ]
         ).execute()
         for row in ins.data or []:
             action = (row.get("action") or "").strip().lower()
             token = row.get("token")
-            if action in ("approve", "reject") and token:
+            if action in ("approve", "reject", "hold") and token:
                 links[action] = build_approval_email_action_url(str(token), action)
     except Exception as e:
         _notify(f"approval token create {ticket_id}: {e}")
@@ -351,6 +352,7 @@ def build_reminder_html(pending: list[dict[str, Any]], tz_name: str) -> str:
         links = _create_email_approval_links(tid)
         approve_url = links.get("approve", _ticket_link(tid))
         reject_url = links.get("reject", _ticket_link(tid))
+        hold_url = links.get("hold", _ticket_link(tid))
         company = (t.get("company_name") or "").strip() or "—"
         rows.append(
             "<tr style=\"border-bottom:1px solid rgba(56,189,248,.15);\">"
@@ -367,6 +369,9 @@ def build_reminder_html(pending: list[dict[str, Any]], tz_name: str) -> str:
             f"<a href=\"{html.escape(reject_url)}\" style=\"display:inline-block;margin:2px 4px;padding:8px 14px;"
             "background:linear-gradient(135deg,#f43f5e,#be123c);color:#fff;text-decoration:none;border-radius:8px;"
             "font-size:12px;font-weight:700;\">Rejected</a>"
+            f"<a href=\"{html.escape(hold_url)}\" style=\"display:inline-block;margin:2px 4px;padding:8px 14px;"
+            "background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;text-decoration:none;border-radius:8px;"
+            "font-size:12px;font-weight:700;\">Hold</a>"
             "</td></tr>"
         )
     body_rows = "\n".join(rows)

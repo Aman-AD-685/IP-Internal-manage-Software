@@ -18,7 +18,7 @@ ALTER TABLE public.tickets
   ADD COLUMN IF NOT EXISTS approved_by uuid;
 
 COMMENT ON COLUMN public.tickets.remarks IS 'Approver remarks (required on reject from email or UI).';
-COMMENT ON COLUMN public.tickets.approval_status IS 'Feature tickets: null=pending, approved, unapproved, rejected';
+COMMENT ON COLUMN public.tickets.approval_status IS 'Feature tickets: null=pending, approved, unapproved, rejected, hold';
 
 -- Allow rejected (required for email Reject). Safe to re-run.
 ALTER TABLE public.tickets DROP CONSTRAINT IF EXISTS tickets_approval_status_check;
@@ -27,15 +27,15 @@ ALTER TABLE public.tickets
   CHECK (
     approval_status IS NULL
     OR approval_status = ''
-    OR approval_status IN ('approved', 'unapproved', 'rejected')
+    OR approval_status IN ('approved', 'unapproved', 'rejected', 'hold')
   );
 
--- One-time tokens for email Approve / Rejected buttons
+-- One-time tokens for email Approve / Reject / Hold buttons
 CREATE TABLE IF NOT EXISTS public.approval_tokens (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   ticket_id uuid NOT NULL REFERENCES public.tickets(id) ON DELETE CASCADE,
   token uuid NOT NULL DEFAULT gen_random_uuid() UNIQUE,
-  action text NOT NULL CHECK (action IN ('approve', 'reject')),
+  action text NOT NULL CHECK (action IN ('approve', 'reject', 'hold')),
   expires_at timestamptz NOT NULL,
   used_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now()

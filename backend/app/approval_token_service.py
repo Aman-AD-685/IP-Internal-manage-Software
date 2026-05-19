@@ -9,7 +9,7 @@ from fastapi import HTTPException
 
 from app.supabase_client import supabase
 
-_APPROVAL_STATUS_ALLOWED = frozenset({"approved", "unapproved", "rejected"})
+_APPROVAL_STATUS_ALLOWED = frozenset({"approved", "unapproved", "rejected", "hold"})
 
 
 def _friendly_db_error(exc: Exception) -> str | None:
@@ -19,23 +19,28 @@ def _friendly_db_error(exc: Exception) -> str | None:
         "23514" in raw and "approval_status" in raw.lower()
     ):
         return (
-            "Reject could not be saved: the database does not allow status 'rejected' yet. "
-            "Ask your admin to run database/FIX_TICKETS_APPROVAL_STATUS_CHECK.sql in Supabase, then try again."
+            "Could not save: the database does not allow this approval status yet. "
+            "Ask your admin to run database/FEATURE_APPROVAL_HOLD_STATUS.sql in Supabase, then try again."
+        )
+    if "approval_tokens_action_check" in raw:
+        return (
+            "Hold link is not enabled in the database yet. "
+            "Ask your admin to run database/FEATURE_APPROVAL_HOLD_STATUS.sql in Supabase."
         )
     return None
 
 
 def execute_approval_by_token(token: str, action: str, remarks: str | None = None) -> dict[str, Any]:
     """
-    Validate token and approve/reject feature ticket.
-    Reject requires non-empty remarks (stored on tickets.remarks).
+    Validate token and approve / reject / hold a feature ticket.
+    Reject and hold require non-empty remarks (stored on tickets.remarks).
     """
     try:
         token_uuid = uuid.UUID((token or "").strip())
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="Invalid token")
     action = (action or "").strip().lower()
-    if action not in ("approve", "reject"):
+    if action not in ("approve", "reject", "hold"):
         raise HTTPException(status_code=400, detail="Invalid action")
 
     r = (
@@ -62,8 +67,12 @@ def execute_approval_by_token(token: str, action: str, remarks: str | None = Non
 
     ticket_id = row["ticket_id"]
     remarks_clean = (remarks or "").strip()
-    if action == "reject" and not remarks_clean:
-        raise HTTPException(status_code=400, detail="Remarks are required when rejecting a feature request.")
+    if action in ("reject", "hold") and not remarks_clean:
+        label = "rejecting" if action == "reject" else "placing on hold"
+        raise HTTPException(
+            status_code=400,
+            detail=f"Remarks are required when {label} a feature request.",
+        )
 
     now = datetime.utcnow().isoformat()
     if action == "approve":
@@ -74,6 +83,16 @@ def execute_approval_by_token(token: str, action: str, remarks: str | None = Non
             "approved_by": None,
             "approval_actual_at": now,
             "unapproval_actual_at": None,
+        }
+    elif action == "hold":
+        status = "hold"
+        update_data = {
+            "approval_status": status,
+            "approval_source": "email",
+            "approved_by": None,
+            "approval_actual_at": None,
+            "unapproval_actual_at": now,
+            "remarks": remarks_clean,
         }
     else:
         status = "rejected"
@@ -98,13 +117,14 @@ def execute_approval_by_token(token: str, action: str, remarks: str | None = Non
     if not ur.data:
         raise HTTPException(status_code=404, detail="Ticket not found.")
     supabase.table("approval_tokens").update({"used_at": now}).eq("id", row["id"]).execute()
+    log_status = "approved" if status == "approved" else status
     try:
         supabase.table("approval_logs").insert(
             {
                 "ticket_id": ticket_id,
                 "approved_by": None,
                 "approved_at": now,
-                "status": "approved" if status == "approved" else "rejected",
+                "status": log_status,
                 "source": "email",
                 "remarks": update_data.get("remarks"),
             }
@@ -116,6 +136,11 @@ def execute_approval_by_token(token: str, action: str, remarks: str | None = Non
     ref = (tr.data[0].get("reference_no") if tr.data else None) or str(ticket_id)[:8]
     if status == "approved":
         msg = f"Feature request {ref} has been approved. Thank you, Approver."
+    elif status == "hold":
+        msg = (
+            f"Feature request {ref} is on hold. Your remarks were saved and appear in "
+            "Approval Status. You can return it to pending approval from the app."
+        )
     else:
         msg = f"Feature request {ref} has been rejected. Your remarks were saved and appear in Approval Status."
     return {

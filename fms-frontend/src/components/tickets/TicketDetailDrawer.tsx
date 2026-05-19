@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Drawer, Descriptions, Tag, Typography, Input, Button, Space, message, Modal, Divider, Select } from 'antd'
-import { CheckOutlined, CloseOutlined } from '@ant-design/icons'
+import { CheckOutlined, CloseOutlined, PauseCircleOutlined, UndoOutlined } from '@ant-design/icons'
 import { ticketsApi } from '../../api/tickets'
 import { formatDateTable, formatDuration, featureStage1DelaySeconds, featureStage2DelaySeconds, formatDelay } from '../../utils/helpers'
 import type { Ticket } from '../../api/tickets'
@@ -81,6 +81,8 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
   const [saving, setSaving] = useState(false)
   const [rejectModalOpen, setRejectModalOpen] = useState(false)
   const [rejectRemarks, setRejectRemarks] = useState('')
+  const [holdModalOpen, setHoldModalOpen] = useState(false)
+  const [holdRemarks, setHoldRemarks] = useState('')
   const [approvalActionLoading, setApprovalActionLoading] = useState(false)
 
   const handleFeatureStageUpdate = async (updates: Partial<Ticket>) => {
@@ -175,6 +177,54 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
     }
   }
 
+  const handleHoldOpen = () => {
+    setHoldRemarks('')
+    setHoldModalOpen(true)
+  }
+
+  const handleHoldSubmit = async () => {
+    if (!ticketId || !holdRemarks.trim()) {
+      message.error('Hold remarks are required')
+      return
+    }
+    setApprovalActionLoading(true)
+    try {
+      await ticketsApi.update(ticketId, {
+        approval_status: 'hold',
+        remarks: holdRemarks.trim(),
+      })
+      const fresh = await ticketsApi.get(ticketId)
+      setTicket(fresh && typeof fresh === 'object' ? (fresh as Ticket) : null)
+      onUpdate?.()
+      message.success('Feature ticket placed on hold. Remarks saved.')
+      setHoldModalOpen(false)
+      setHoldRemarks('')
+      onClose()
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } }
+      message.error(err?.response?.data?.detail || 'Failed to place on hold')
+    } finally {
+      setApprovalActionLoading(false)
+    }
+  }
+
+  const handleBackToPending = async () => {
+    if (!ticketId) return
+    setApprovalActionLoading(true)
+    try {
+      await ticketsApi.update(ticketId, { approval_status: null })
+      const fresh = await ticketsApi.get(ticketId)
+      setTicket(fresh && typeof fresh === 'object' ? (fresh as Ticket) : null)
+      onUpdate?.()
+      message.success('Returned to pending approval.')
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } }
+      message.error(err?.response?.data?.detail || 'Failed to update')
+    } finally {
+      setApprovalActionLoading(false)
+    }
+  }
+
   if (!ticket && !loading) return null
 
   return (
@@ -216,20 +266,27 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
                         ? 'green'
                         : ticket.approval_status === 'rejected'
                           ? 'red'
-                          : ticket.approval_status === 'unapproved'
-                            ? 'orange'
-                            : 'default'
+                          : ticket.approval_status === 'hold'
+                            ? 'gold'
+                            : ticket.approval_status === 'unapproved'
+                              ? 'orange'
+                              : 'default'
                     }
                   >
                     {ticket.approval_status === 'rejected'
                       ? 'Rejected'
-                      : ticket.approval_status === 'unapproved'
-                        ? 'Unapprove'
-                        : ticket.approval_status === 'approved'
-                          ? 'Approved'
-                          : 'Pending'}
+                      : ticket.approval_status === 'hold'
+                        ? 'Hold'
+                        : ticket.approval_status === 'unapproved'
+                          ? 'Unapprove'
+                          : ticket.approval_status === 'approved'
+                            ? 'Approved'
+                            : 'Pending'}
                   </Tag>
-                  {ticket.remarks && (ticket.approval_status === 'rejected' || ticket.approval_status === 'unapproved') && (
+                  {ticket.remarks &&
+                    (ticket.approval_status === 'rejected' ||
+                      ticket.approval_status === 'unapproved' ||
+                      ticket.approval_status === 'hold') && (
                     <div style={{ marginTop: 4 }}>
                       <Text type="secondary">Remarks: {ticket.remarks}</Text>
                     </div>
@@ -247,7 +304,7 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
                 </Descriptions.Item>
                 {approvalMode && (!isUser || isMasterAdmin) && (ticket.approval_status == null || ticket.approval_status === undefined) && (
                   <Descriptions.Item label="Actions">
-                    <Space>
+                    <Space wrap>
                       <Button
                         type="primary"
                         icon={<CheckOutlined />}
@@ -264,7 +321,26 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
                       >
                         Rejected
                       </Button>
+                      <Button
+                        icon={<PauseCircleOutlined />}
+                        loading={approvalActionLoading}
+                        onClick={handleHoldOpen}
+                        style={{ borderColor: '#faad14', color: '#d48806' }}
+                      >
+                        Hold
+                      </Button>
                     </Space>
+                  </Descriptions.Item>
+                )}
+                {approvalMode && (!isUser || isMasterAdmin) && ticket.approval_status === 'hold' && (
+                  <Descriptions.Item label="Actions">
+                    <Button
+                      icon={<UndoOutlined />}
+                      loading={approvalActionLoading}
+                      onClick={handleBackToPending}
+                    >
+                      Back to pending approval
+                    </Button>
                   </Descriptions.Item>
                 )}
               </>
@@ -398,6 +474,25 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
           value={rejectRemarks}
           onChange={(e) => setRejectRemarks(e.target.value)}
           placeholder="Enter remarks (required for rejection)"
+          style={{ marginTop: 8, width: '100%' }}
+        />
+      </Modal>
+      <Modal
+        title="Hold – Remarks required"
+        open={holdModalOpen}
+        onCancel={() => setHoldModalOpen(false)}
+        onOk={handleHoldSubmit}
+        okText="Confirm hold"
+        confirmLoading={approvalActionLoading}
+        destroyOnClose
+        okButtonProps={{ disabled: !holdRemarks.trim() }}
+      >
+        <Text strong>Hold remarks *</Text>
+        <TextArea
+          rows={4}
+          value={holdRemarks}
+          onChange={(e) => setHoldRemarks(e.target.value)}
+          placeholder="Enter hold remarks (required)"
           style={{ marginTop: 8, width: '100%' }}
         />
       </Modal>

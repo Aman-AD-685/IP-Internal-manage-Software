@@ -34,7 +34,9 @@ export const ApprovalConfirmPage = () => {
           data.message ||
             (data.status === 'approved'
               ? 'Feature ticket has been approved. Thank you, Approver.'
-              : 'Feature ticket has been rejected. Remarks were saved.')
+              : data.status === 'hold'
+                ? 'Feature ticket is on hold. Hold remarks were saved.'
+                : 'Feature ticket has been rejected. Remarks were saved.')
         )
       } else {
         setStatus('error')
@@ -52,12 +54,12 @@ export const ApprovalConfirmPage = () => {
   }
 
   useEffect(() => {
-    if (!token || !action || !['approve', 'reject'].includes(action)) {
+    if (!token || !action || !['approve', 'reject', 'hold'].includes(action)) {
       setStatus('error')
       setResultMessage('Invalid or missing token or action.')
       return
     }
-    if (action === 'reject') {
+    if (action === 'reject' || action === 'hold') {
       setStatus('form')
       return
     }
@@ -65,9 +67,13 @@ export const ApprovalConfirmPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, action])
 
-  const onRejectSubmit = () => {
+  const onRemarksSubmit = () => {
     if (!remarks.trim()) {
-      message.warning('Please enter remarks explaining why this feature is rejected.')
+      message.warning(
+        action === 'hold'
+          ? 'Please enter hold remarks.'
+          : 'Please enter remarks explaining why this feature is rejected.'
+      )
       return
     }
     runAction(remarks)
@@ -103,7 +109,7 @@ export const ApprovalConfirmPage = () => {
             Remarks are required. They will appear on the ticket in Approval Status as{' '}
             <Text strong>Rejected</Text>.
           </Paragraph>
-          <Form layout="vertical" onFinish={onRejectSubmit}>
+          <Form layout="vertical" onFinish={onRemarksSubmit}>
             <Form.Item label="Remarks" required>
               <TextArea
                 rows={4}
@@ -114,6 +120,47 @@ export const ApprovalConfirmPage = () => {
             </Form.Item>
             <Button type="primary" danger htmlType="submit" loading={submitting} block>
               Confirm rejection
+            </Button>
+          </Form>
+        </Card>
+      </div>
+    )
+  }
+
+  if (status === 'form' && action === 'hold') {
+    return (
+      <div style={{ maxWidth: 520, margin: '48px auto', padding: 24 }}>
+        <Card
+          style={{
+            borderRadius: 16,
+            border: '1px solid rgba(250,173,20,.35)',
+            boxShadow: '0 12px 40px rgba(15,23,42,.12)',
+          }}
+        >
+          <Typography.Title level={4} style={{ marginTop: 0 }}>
+            Hold feature request
+          </Typography.Title>
+          <Paragraph type="secondary">
+            Hold remarks are required. The ticket appears in <Text strong>Approval Status</Text> as{' '}
+            <Text strong>Hold</Text>. An approver can return it to pending approval from the app.
+          </Paragraph>
+          <Form layout="vertical" onFinish={onRemarksSubmit}>
+            <Form.Item label="Hold remarks" required>
+              <TextArea
+                rows={4}
+                value={remarks}
+                onChange={(e) => setRemarks(e.target.value)}
+                placeholder="Why is this feature request on hold?"
+              />
+            </Form.Item>
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={submitting}
+              block
+              style={{ background: '#faad14', borderColor: '#faad14' }}
+            >
+              Confirm hold
             </Button>
           </Form>
         </Card>
