@@ -1,3 +1,18 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Dashboard KPI — Futuristic command-center theme (all person dashboards)
+   ═══════════════════════════════════════════════════════════════════════════ */
+.dashboard-kpi-page--futuristic {
+  --kpi-bg: #070b14;
+  --kpi-panel: rgba(15, 23, 42, 0.78);
+  --kpi-border: rgba(56, 189, 248, 0.22);
+  --kpi-glow: #22d3ee;
+  --kpi-accent: #a78bfa;
+  --kpi-text: #e2e8f0;
+  --kpi-muted: #94a3b8;
+  --kpi-success: #4ade80;
+  --kpi-danger: #f87171;
+}
+
 /* KPI Dashboard page layout – responsive for all screen sizes */
 .dashboard-kpi-page {
   padding: 16px;
@@ -7,6 +22,138 @@
   max-width: 100%;
   box-sizing: border-box;
   overflow-x: hidden;
+}
+
+.dashboard-kpi-page.dashboard-kpi-page--futuristic {
+  background:
+    radial-gradient(ellipse 90% 55% at 0% -5%, rgba(34, 211, 238, 0.12), transparent 50%),
+    radial-gradient(ellipse 70% 45% at 100% 0%, rgba(167, 139, 250, 0.1), transparent 48%),
+    linear-gradient(180deg, #0c1222 0%, var(--kpi-bg) 45%, #020617 100%);
+  color: var(--kpi-text);
+  position: relative;
+}
+
+.dashboard-kpi-page--futuristic::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 3px,
+    rgba(34, 211, 238, 0.015) 3px,
+    rgba(34, 211, 238, 0.015) 4px
+  );
+  opacity: 0.7;
+}
+
+.dashboard-kpi-page--futuristic > * {
+  position: relative;
+  z-index: 1;
+}
+
+.dashboard-kpi-page--futuristic .page-main-heading,
+.dashboard-kpi-page--futuristic .dashboard-kpi-detail-title {
+  margin: 0 !important;
+  background: linear-gradient(90deg, #67e8f9, #c4b5fd, #f0abfc);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent !important;
+}
+
+.dashboard-kpi-page--futuristic .ant-typography-secondary,
+.dashboard-kpi-page--futuristic .ant-typography.ant-typography-secondary {
+  color: var(--kpi-muted) !important;
+}
+
+.dashboard-kpi-page--futuristic .ant-btn-text {
+  color: #67e8f9 !important;
+}
+
+.dashboard-kpi-page--futuristic .ant-btn-text:hover {
+  color: #a5f3fc !important;
+  background: rgba(34, 211, 238, 0.1) !important;
+}
+
+/* Detail header + filters */
+.dashboard-kpi-detail-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-radius: 16px;
+  background: var(--kpi-panel, rgba(15, 23, 42, 0.78));
+  border: 1px solid var(--kpi-border, rgba(56, 189, 248, 0.22));
+  backdrop-filter: blur(14px);
+  box-shadow: 0 0 32px rgba(34, 211, 238, 0.06);
+}
+
+.dashboard-kpi-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-end;
+  padding: 14px 18px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(51, 65, 85, 0.6);
+  margin-bottom: 4px;
+}
+
+.dashboard-kpi-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dashboard-kpi-filter-label {
+  font-size: 0.65rem !important;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--kpi-muted) !important;
+}
+
+.dashboard-kpi-page--futuristic .dashboard-kpi-filter-select {
+  min-width: 100px;
+}
+
+.dashboard-kpi-page--futuristic .dashboard-kpi-filter-select--week {
+  min-width: 128px;
+}
+
+.dashboard-kpi-page--futuristic .dashboard-kpi-filter-select .ant-select-selector {
+  background: rgba(2, 6, 23, 0.65) !important;
+  border-color: rgba(56, 189, 248, 0.35) !important;
+  color: var(--kpi-text) !important;
+  border-radius: 10px !important;
+}
+
+.dashboard-kpi-page--futuristic .dashboard-kpi-merge-tag {
+  margin-left: 8px;
+  border: 1px solid rgba(34, 211, 238, 0.45);
+  background: rgba(34, 211, 238, 0.12);
+  color: #67e8f9;
+}
+
+.dashboard-kpi-merge-hint {
+  display: block;
+  font-size: 13px;
+  color: var(--kpi-muted) !important;
+  margin-bottom: 8px;
+}
+
+.kpi-futuristic-btn-primary {
+  background: linear-gradient(135deg, #0891b2, #6366f1) !important;
+  border: none !important;
+  box-shadow: 0 0 20px rgba(34, 211, 238, 0.25);
+}
+
+.kpi-futuristic-btn-primary:hover {
+  filter: brightness(1.08);
+  box-shadow: 0 0 28px rgba(34, 211, 238, 0.35);
 }
 
 @media (min-width: 576px) {
@@ -35,6 +182,17 @@
   background: linear-gradient(135deg, #4a6bff 0%, #7c3aed 45%, #ec4899 100%);
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.25);
   color: #ffffff;
+}
+
+.dashboard-kpi-page--futuristic .dashboard-kpi-hero {
+  background:
+    linear-gradient(135deg, rgba(8, 145, 178, 0.35) 0%, rgba(99, 102, 241, 0.4) 50%, rgba(236, 72, 153, 0.25) 100%),
+    linear-gradient(165deg, #0f172a 0%, #1e1b4b 100%);
+  border: 1px solid rgba(34, 211, 238, 0.3);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+    0 20px 50px rgba(0, 0, 0, 0.45),
+    0 0 60px rgba(34, 211, 238, 0.08);
 }
 
 .dashboard-kpi-hero-content {
@@ -82,6 +240,65 @@
   box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
   transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease, filter 0.18s ease;
   color: #111827;
+}
+
+.dashboard-kpi-page--futuristic .kpi-card {
+  background: rgba(15, 23, 42, 0.65) !important;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  backdrop-filter: blur(12px);
+  color: var(--kpi-text);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+
+.dashboard-kpi-page--futuristic .kpi-card .ant-typography,
+.dashboard-kpi-page--futuristic .kpi-card h5 {
+  color: #f1f5f9 !important;
+}
+
+.dashboard-kpi-page--futuristic .kpi-card .ant-typography-secondary {
+  color: var(--kpi-muted) !important;
+}
+
+.dashboard-kpi-page--futuristic .kpi-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(34, 211, 238, 0.45);
+  box-shadow: 0 12px 40px rgba(34, 211, 238, 0.12);
+}
+
+.dashboard-kpi-page--futuristic .kpi-card--shreyasi {
+  border-color: rgba(59, 130, 246, 0.45);
+  box-shadow: 0 0 24px rgba(59, 130, 246, 0.1);
+}
+
+.dashboard-kpi-page--futuristic .kpi-card--rimpa {
+  border-color: rgba(249, 115, 22, 0.4);
+  box-shadow: 0 0 24px rgba(249, 115, 22, 0.08);
+}
+
+.dashboard-kpi-page--futuristic .kpi-card--akash {
+  border-color: rgba(20, 184, 166, 0.4);
+  box-shadow: 0 0 24px rgba(20, 184, 166, 0.08);
+}
+
+.dashboard-kpi-page--futuristic .kpi-card--adrija {
+  border-color: rgba(168, 85, 247, 0.4);
+  box-shadow: 0 0 24px rgba(168, 85, 247, 0.08);
+}
+
+.dashboard-kpi-page--futuristic .kpi-card--soumya {
+  border-color: rgba(34, 211, 238, 0.5);
+  box-shadow: 0 0 28px rgba(34, 211, 238, 0.15);
+}
+
+.dashboard-kpi-page--futuristic .kpi-card-pill {
+  background: rgba(34, 211, 238, 0.12);
+  color: #a5f3fc;
+  border: 1px solid rgba(34, 211, 238, 0.25);
+}
+
+.dashboard-kpi-page--futuristic .kpi-card-icon {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(148, 163, 184, 0.2);
 }
 
 .kpi-card:hover {
@@ -137,6 +354,25 @@
   color: #9333ea;
 }
 
+.kpi-card--soumya {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 40%, #164e63 100%);
+  color: #e2e8f0;
+}
+
+.kpi-card--soumya .kpi-card-icon {
+  color: #22d3ee;
+  background: rgba(34, 211, 238, 0.15);
+}
+
+.kpi-card--soumya .ant-typography-secondary {
+  color: #94a3b8 !important;
+}
+
+.kpi-card--soumya .kpi-card-pill {
+  background: rgba(34, 211, 238, 0.2);
+  color: #a5f3fc;
+}
+
 .kpi-card-footer {
   margin-top: 16px;
   display: flex;
@@ -159,6 +395,154 @@
   border: none;
   overflow: hidden;
   position: relative;
+}
+
+.dashboard-kpi-page--futuristic .kpi-summary-card,
+.dashboard-kpi-page--futuristic .kpi-section-card,
+.dashboard-kpi-page--futuristic .kpi-support-card,
+.dashboard-kpi-page--futuristic .kpi-success-card,
+.dashboard-kpi-page--futuristic .kpi-akash-cs-card {
+  background: var(--kpi-panel) !important;
+  border: 1px solid var(--kpi-border) !important;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.3) !important;
+  color: var(--kpi-text);
+}
+
+.dashboard-kpi-page--futuristic .kpi-summary-card .ant-card-head-title,
+.dashboard-kpi-page--futuristic .kpi-section-card .ant-card-head-title {
+  color: #f1f5f9 !important;
+  font-weight: 600;
+}
+
+.dashboard-kpi-page--futuristic .kpi-summary-card--clickable:hover,
+.dashboard-kpi-page--futuristic .kpi-support-card:hover {
+  border-color: rgba(34, 211, 238, 0.5) !important;
+  box-shadow: 0 0 24px rgba(34, 211, 238, 0.12) !important;
+}
+
+/* Success KPI inner cards (Rimpa) — readable on dark glass panels */
+.dashboard-kpi-page--futuristic .kpi-success-card .ant-card-head {
+  border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+  min-height: auto;
+}
+
+.dashboard-kpi-page--futuristic .kpi-success-card .ant-card-head-title {
+  color: #f1f5f9 !important;
+  font-size: 0.8rem !important;
+  font-weight: 600 !important;
+  white-space: normal;
+  line-height: 1.3;
+}
+
+.dashboard-kpi-page--futuristic .kpi-success-card .ant-card-body {
+  color: #e2e8f0 !important;
+}
+
+.dashboard-kpi-page--futuristic .kpi-success-card h1.ant-typography,
+.dashboard-kpi-page--futuristic .kpi-success-card h2.ant-typography,
+.dashboard-kpi-page--futuristic .kpi-success-card h3.ant-typography,
+.dashboard-kpi-page--futuristic .kpi-success-card h4.ant-typography,
+.dashboard-kpi-page--futuristic .kpi-success-card h5.ant-typography {
+  color: #f8fafc !important;
+  margin-bottom: 4px !important;
+}
+
+.dashboard-kpi-page--futuristic .kpi-success-card .ant-typography-secondary,
+.dashboard-kpi-page--futuristic .kpi-success-card span.ant-typography-secondary {
+  color: #94a3b8 !important;
+}
+
+.dashboard-kpi-page--futuristic .kpi-success-card--poc {
+  border-color: rgba(59, 130, 246, 0.45) !important;
+  background: linear-gradient(145deg, rgba(30, 58, 138, 0.35) 0%, rgba(15, 23, 42, 0.85) 100%) !important;
+}
+
+.dashboard-kpi-page--futuristic .kpi-success-card--poc h4.ant-typography {
+  color: #93c5fd !important;
+}
+
+.dashboard-kpi-page--futuristic .kpi-success-card--training {
+  border-color: rgba(34, 197, 94, 0.4) !important;
+  background: linear-gradient(145deg, rgba(20, 83, 45, 0.35) 0%, rgba(15, 23, 42, 0.85) 100%) !important;
+}
+
+.dashboard-kpi-page--futuristic .kpi-success-card--training h4.ant-typography {
+  color: #86efac !important;
+}
+
+.dashboard-kpi-page--futuristic .kpi-success-card--followup {
+  border-color: rgba(251, 191, 36, 0.45) !important;
+  background: linear-gradient(145deg, rgba(120, 53, 15, 0.3) 0%, rgba(15, 23, 42, 0.85) 100%) !important;
+}
+
+.dashboard-kpi-page--futuristic .kpi-success-card--followup h4.ant-typography {
+  color: #fcd34d !important;
+}
+
+.dashboard-kpi-page--futuristic .kpi-success-card--increase {
+  border-color: rgba(192, 132, 252, 0.45) !important;
+  background: linear-gradient(145deg, rgba(88, 28, 135, 0.35) 0%, rgba(15, 23, 42, 0.85) 100%) !important;
+}
+
+.dashboard-kpi-page--futuristic .kpi-success-card--increase h4.ant-typography {
+  color: #e9d5ff !important;
+}
+
+.dashboard-kpi-page--futuristic .kpi-success-card:hover {
+  border-color: rgba(34, 211, 238, 0.55) !important;
+  filter: brightness(1.05);
+}
+
+/* Success KPI section header (Rimpa) */
+.dashboard-kpi-page--futuristic .kpi-section-card .ant-card-head-title .ant-typography-secondary {
+  color: #94a3b8 !important;
+}
+
+.dashboard-kpi-page--futuristic .kpi-section-card .ant-tag {
+  color: #fcd34d;
+  border-color: rgba(251, 191, 36, 0.5);
+  background: rgba(251, 191, 36, 0.12);
+}
+
+.dashboard-kpi-page--futuristic .kpi-section-card--support-fms .support-fms-heading {
+  color: #67e8f9 !important;
+}
+
+.dashboard-kpi-page--futuristic .kpi-section-card--support-fms .ant-card-head-title .anticon {
+  color: #22d3ee !important;
+}
+
+.dashboard-kpi-page--futuristic .ant-table {
+  background: transparent !important;
+}
+
+.dashboard-kpi-page--futuristic .ant-table-thead > tr > th {
+  background: rgba(30, 41, 59, 0.95) !important;
+  color: var(--kpi-muted) !important;
+  border-bottom: 1px solid var(--kpi-border) !important;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.dashboard-kpi-page--futuristic .ant-table-tbody > tr > td {
+  background: rgba(15, 23, 42, 0.45) !important;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.5) !important;
+  color: var(--kpi-text) !important;
+}
+
+.dashboard-kpi-page--futuristic .ant-table-tbody > tr:hover > td {
+  background: rgba(34, 211, 238, 0.06) !important;
+}
+
+.dashboard-kpi-page--futuristic .ant-progress-text {
+  color: var(--kpi-text) !important;
+}
+
+.dashboard-kpi-page--futuristic .ant-alert-warning {
+  background: rgba(251, 191, 36, 0.12);
+  border-color: rgba(251, 191, 36, 0.35);
 }
 
 .kpi-summary-card .ant-card-head {
@@ -338,5 +722,94 @@
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.02em;
+}
+
+/* Header nav — Dashboard - KPI dropdown */
+.kpi-header-trigger-btn {
+  font-weight: 600 !important;
+  border: 1px solid rgba(74, 107, 255, 0.45) !important;
+  background: linear-gradient(135deg, rgba(74, 107, 255, 0.08), rgba(124, 58, 237, 0.08)) !important;
+  color: #4a6bff !important;
+  border-radius: 999px !important;
+  box-shadow: 0 2px 12px rgba(74, 107, 255, 0.12);
+}
+
+.kpi-header-trigger-btn:hover {
+  border-color: #4a6bff !important;
+  color: #6366f1 !important;
+  box-shadow: 0 4px 16px rgba(74, 107, 255, 0.2);
+}
+
+.kpi-header-dropdown .ant-dropdown-menu {
+  background: linear-gradient(165deg, #0f172a 0%, #1e293b 100%) !important;
+  border: 1px solid rgba(34, 211, 238, 0.25);
+  border-radius: 12px !important;
+  padding: 6px !important;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45), 0 0 24px rgba(34, 211, 238, 0.08) !important;
+  min-width: 200px;
+}
+
+.kpi-header-dropdown .ant-dropdown-menu-item {
+  color: #e2e8f0 !important;
+  border-radius: 8px !important;
+  font-weight: 500;
+}
+
+.kpi-header-dropdown .ant-dropdown-menu-item:hover {
+  background: rgba(34, 211, 238, 0.12) !important;
+  color: #67e8f9 !important;
+}
+
+.dashboard-kpi-select-dropdown.ant-select-dropdown {
+  background: #0f172a !important;
+  border: 1px solid rgba(56, 189, 248, 0.25);
+}
+
+.dashboard-kpi-select-dropdown .ant-select-item {
+  color: #e2e8f0;
+}
+
+.dashboard-kpi-select-dropdown .ant-select-item-option-selected {
+  background: rgba(34, 211, 238, 0.15) !important;
+}
+
+.dashboard-kpi-page--futuristic .kpi-modal .ant-modal-content {
+  background: linear-gradient(165deg, #0f172a, #1e293b);
+  border: 1px solid rgba(34, 211, 238, 0.2);
+  color: #e2e8f0;
+}
+
+.dashboard-kpi-page--futuristic .kpi-modal .ant-modal-title {
+  color: #f1f5f9;
+}
+
+.dashboard-kpi-page--futuristic .soumya-dash {
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  background: transparent;
+}
+
+.dashboard-kpi-page--futuristic .soumya-dash::before {
+  display: none;
+}
+
+/* Skeleton overlays on dark KPI pages */
+.dashboard-kpi-page--futuristic {
+  --skeleton-overlay-bg: rgba(15, 23, 42, 0.94);
+}
+
+.dashboard-kpi-page--futuristic .ant-skeleton-title,
+.dashboard-kpi-page--futuristic .ant-skeleton-paragraph > li {
+  background: linear-gradient(
+    90deg,
+    rgba(51, 65, 85, 0.45) 25%,
+    rgba(71, 85, 105, 0.65) 50%,
+    rgba(51, 65, 85, 0.45) 75%
+  ) !important;
+}
+
+.dashboard-kpi-page--futuristic .table-load-more-skeleton {
+  border-top: 1px solid rgba(56, 189, 248, 0.15);
 }
 

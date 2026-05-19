@@ -10,7 +10,6 @@ import {
   DatePicker,
   Button,
   Dropdown,
-  Spin,
 } from 'antd'
 import { SearchOutlined, PhoneOutlined, MailOutlined, MessageOutlined, LinkOutlined, MoreOutlined } from '@ant-design/icons'
 import { useSearchParams, useLocation, useNavigate } from 'react-router-dom'
@@ -19,7 +18,7 @@ import { supportApi } from '../../api/support'
 import { TicketDetailDrawer } from '../../components/tickets/TicketDetailDrawer'
 import { ChoresBugsDetailDrawer } from '../../components/tickets/ChoresBugsDetailDrawer'
 import { PrintExport } from '../../components/common/PrintExport'
-import { TableWithSkeletonLoading } from '../../components/common/skeletons'
+import { TableLoadMoreSkeleton, TableWithSkeletonLoading } from '../../components/common/skeletons'
 import { TextCellTooltip, tableCellEllipsisStyle } from '../../components/common/TextCellTooltip'
 import {
   formatDateTable,
@@ -1410,7 +1409,7 @@ export const TicketList = () => {
                             ? ' · scroll to load more'
                             : ''}
                         </Text>
-                        {loadingMore ? <Spin size="small" /> : null}
+                        {loadingMore ? <TableLoadMoreSkeleton rows={2} columns={6} /> : null}
                       </div>
                     </Table.Summary.Cell>
                   </Table.Summary.Row>

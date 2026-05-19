@@ -6,7 +6,6 @@ import {
   Collapse,
   Input,
   Space,
-  Spin,
   Switch,
   Table,
   Tag,
@@ -25,6 +24,7 @@ import {
   WarningOutlined,
 } from '@ant-design/icons'
 import { motion } from 'framer-motion'
+import { SkeletonOverlay } from '../../components/common/skeletons'
 import {
   escalationEmailsApi,
   type EscalationConfig,
@@ -322,8 +322,8 @@ export function EscalationEmailSettings() {
   const stageCron = resolveEscalationStageCronUrl()
 
   return (
-    <Spin spinning={loading}>
-      <div style={{ marginTop: 8 }}>
+    <SkeletonOverlay loading={loading} rows={14} minHeight={400}>
+      <motion.div style={{ marginTop: 8 }}>
         <Title level={4}>
           <MailOutlined style={{ marginRight: 8, color: '#38bdf8' }} />
           Advanced Pending Escalation &amp; Approval Email Configuration
@@ -573,6 +573,6 @@ export function EscalationEmailSettings() {
           ]}
         />
       </div>
-    </Spin>
+    </SkeletonOverlay>
   )
 }

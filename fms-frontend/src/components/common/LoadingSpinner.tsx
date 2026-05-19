@@ -1,6 +1,5 @@
-import { Spin } from 'antd'
-import { LoadingOutlined } from '@ant-design/icons'
 import { PageSkeleton } from './skeletons'
+import { Skeleton } from 'antd'
 
 interface LoadingSpinnerProps {
   fullPage?: boolean
@@ -8,16 +7,16 @@ interface LoadingSpinnerProps {
   tip?: string
 }
 
-export const LoadingSpinner = ({ fullPage = false, size = 'default', tip }: LoadingSpinnerProps) => {
+/** Skeleton-only loading — no dot/spin animation */
+export const LoadingSpinner = ({ fullPage = false, size = 'default' }: LoadingSpinnerProps) => {
   if (fullPage) {
     return <PageSkeleton />
   }
 
+  const rows = size === 'large' ? 6 : size === 'small' ? 2 : 4
   return (
-    <Spin
-      indicator={<LoadingOutlined style={{ fontSize: size === 'large' ? 48 : 24 }} spin />}
-      size={size}
-      tip={tip}
-    />
+    <div style={{ padding: 16, width: '100%' }} aria-busy aria-label="Loading">
+      <Skeleton active title={{ width: '40%' }} paragraph={{ rows }} />
+    </div>
   )
 }

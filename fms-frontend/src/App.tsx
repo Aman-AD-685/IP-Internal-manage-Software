@@ -1,6 +1,7 @@
 import { useEffect, lazy, Suspense } from "react"
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom"
-import { ConfigProvider, Spin } from "antd"
+import { ConfigProvider } from "antd"
+import { PageSkeleton } from "./components/common/skeletons"
 import { AuthProvider } from "./contexts/AuthProvider"
 import { AppLayout } from "./components/layout/AppLayout"
 import { ProtectedRoute } from "./components/layout/ProtectedRoute"
@@ -120,7 +121,7 @@ function App() {
       <AuthProvider>
         <BrowserRouter>
           <AppTitle />
-          <Suspense fallback={<div style={{ minHeight: "40vh", display: "flex", alignItems: "center", justifyContent: "center" }}><Spin size="large" /></div>}>
+          <Suspense fallback={<PageSkeleton />}>
           <Routes>
             {/* ================= PUBLIC ROUTES ================= */}
             <Route path={ROUTES.REGISTER} element={<Register />} />

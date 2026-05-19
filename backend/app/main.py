@@ -3089,10 +3089,53 @@ def _build_akash_kpi_payload(
     return out
 
 
+@api_router.get("/dashboard/soumya-kpi")
+@cached(ttl=60, key_prefix="dash:soumya:")
+def dashboard_soumya_kpi(
+    month: str = Query("Feb", description="Month: Jan..Dec"),
+    year: str = Query("2026", description="Year"),
+    week: str = Query("week 1", description="KPI week 1..5"),
+    ranked_offset: int = Query(0, ge=0),
+    ranked_limit: int = Query(25, ge=1, le=100),
+    leaderboard_scope: str = Query(
+        "week",
+        description="Delay leaderboard: week = query arrival in selected KPI week; all = all chores/bugs (excl. Demo C)",
+    ),
+    auth: dict = Depends(get_current_user),
+):
+    """Soumya Dashboard — week-based KPI (Support chores/bugs, excludes Demo C)."""
+    from app.soumya_dashboard_kpi import compute_soumya_dashboard
+
+    return compute_soumya_dashboard(
+        month,
+        year,
+        week,
+        leaderboard_scope=leaderboard_scope,
+        ranked_offset=ranked_offset,
+        ranked_limit=ranked_limit,
+    )
+
+
+@api_router.api_route("/cron/soumya-sla-scan", methods=["GET", "POST"])
+async def cron_soumya_sla_scan(
+    request: Request,
+    auth: dict | None = Depends(get_current_user_optional),
+):
+    """Hourly cron: refresh Soumya SLA weekly snapshot and list 72hr+ breaches."""
+    from app.cron_email_routes import _cron_authorized
+    from app.soumya_dashboard_kpi import run_soumya_sla_hourly_scan
+
+    is_cron = _cron_authorized(request)
+    is_admin = bool(auth and _get_role_from_profile(auth["id"]) in ("admin", "master_admin"))
+    if not is_cron and not is_admin:
+        raise HTTPException(status_code=401, detail="Use X-Cron-Secret or Admin login.")
+    return run_soumya_sla_hourly_scan()
+
+
 @api_router.get("/dashboard/kpi")
 @cached(ttl=30, key_prefix="dash:")
 def dashboard_kpi(
-    name: str = Query(..., description="Person name: Shreyasi, Rimpa, Akash, Adrija, etc."),
+    name: str = Query(..., description="Person name: Shreyasi, Rimpa, Akash, Adrija, Soumya, etc."),
     month: str = Query("Feb", description="Month: Jan..Dec"),
     year: str = Query("2026", description="Year"),
     week: str = Query("week 2", description="Week: week 1..week 5"),

@@ -41,8 +41,11 @@ Legacy URL (still works): `/api/scheduler/tick` — same behavior.
 | Escalation pending | `/api/escalation/send-pending-mails` |
 | Escalation critical | `/api/escalation/send-critical-mails` |
 | Escalation stages | `/api/escalation/send-stage-mails` |
+| Soumya SLA scan (hourly) | `/api/cron/soumya-sla-scan` |
 
 Same `X-Cron-Secret` on all.
+
+**Soumya SLA cron:** schedule every hour (`0 * * * *`). Refreshes weekly KPI snapshots and lists 72hr+ Stage 2 breaches. Requires `database/SOUMYA_DASHBOARD_KPI.sql` in Supabase first.
 
 ### Wrong URLs (do not use — no email is sent)
 

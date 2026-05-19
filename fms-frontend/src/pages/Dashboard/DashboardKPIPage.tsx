@@ -14,7 +14,6 @@ import {
   message,
   Modal,
   Alert,
-  Spin,
   Tabs,
   Input,
   InputNumber,
@@ -51,7 +50,8 @@ import { useAuth } from '../../hooks/useAuth'
 import type { UserRole } from '../../types/auth'
 import { ROUTES } from '../../utils/constants'
 import { canViewDashboardKpiPerson } from '../../utils/dashboardKpiPermissions'
-import { DashboardBlockSkeleton } from '../../components/common/skeletons'
+import { ChartAreaSkeleton, DashboardBlockSkeleton, SkeletonOverlay } from '../../components/common/skeletons'
+import { SoumyaDashboardView } from './SoumyaDashboardView'
 import {
   getDefaultPreviousWeekFilter,
   getKpiCalendarWeekBounds,
@@ -89,6 +89,7 @@ const DASHBOARD_OPTIONS: { key: DashboardKpiPerson; label: string }[] = [
   { key: 'Rimpa', label: 'Rimpa Dashboard' },
   { key: 'Akash', label: 'Akash Dashboard' },
   { key: 'Adrija', label: 'Adrija Dashboard' },
+  { key: 'Soumya', label: 'Soumya Dashboard' },
 ]
 
 /** Success KPI (Performance Monitoring aggregates) — Rimpa only. */
@@ -361,7 +362,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
   }, [month, year, week])
 
   const loadData = useCallback(() => {
-    if (!selectedPerson) return
+    if (!selectedPerson || selectedPerson === 'Soumya') return
     setLoading(true)
     dashboardKpiApi
       .getData({ name: selectedPerson, month, year, week })
@@ -506,7 +507,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
   // List view: dashboard chooser cards
   if (!forceOpen && selectedPerson === null) {
     return (
-      <div className="dashboard-kpi-page">
+      <div className="dashboard-kpi-page dashboard-kpi-page--futuristic">
         <div className="dashboard-kpi-hero">
           <div className="dashboard-kpi-hero-content">
             <div className="dashboard-kpi-hero-icon">
@@ -517,7 +518,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                 Dashboard - KPI
               </Title>
               <Text className="dashboard-kpi-subtitle">
-                Track Checklist, Delegation, Support FMS, and Success KPI across team dashboards.
+                Track Checklist, Delegation, Support FMS, Success KPI, and Soumya SLA metrics across team dashboards.
               </Text>
             </div>
           </div>
@@ -533,7 +534,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
         ) : null}
         <Row gutter={[24, 24]} className="dashboard-kpi-grid">
           {visibleDashboardOptions.map((opt) => (
-            <Col key={opt.key} xs={24} sm={12} md={12} lg={6}>
+            <Col key={opt.key} xs={24} sm={12} md={12} lg={8} xl={8}>
               <Card
                 hoverable
                 onClick={() => {
@@ -584,7 +585,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
 
   if (selectedPerson && !personAllowed) {
     return (
-      <div className="dashboard-kpi-page">
+      <div className="dashboard-kpi-page dashboard-kpi-page--futuristic">
         <Alert
           type="warning"
           showIcon
@@ -598,6 +599,21 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
             ) : undefined
           }
         />
+      </div>
+    )
+  }
+
+  if (selectedPerson === 'Soumya') {
+    return (
+      <div className="dashboard-kpi-page dashboard-kpi-page--futuristic">
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          {!forceOpen && (
+            <Button type="text" icon={<ArrowLeftOutlined />} onClick={handleBackToDashboard}>
+              Back to Dashboard
+            </Button>
+          )}
+          <SoumyaDashboardView />
+        </Space>
       </div>
     )
   }
@@ -644,7 +660,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
     .join(' · ')
 
   return (
-    <div className="dashboard-kpi-page">
+    <div className="dashboard-kpi-page dashboard-kpi-page--futuristic">
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
         {!forceOpen && (
           <Space wrap>
@@ -658,59 +674,53 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
           </Space>
         )}
 
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
-            marginBottom: 0,
-          }}
-        >
-          <Title level={4} className="page-main-heading" style={{ marginBottom: 0 }}>
+        <div className="dashboard-kpi-detail-bar">
+          <Title level={4} className="dashboard-kpi-detail-title page-main-heading">
             {selectedPerson} Dashboard
           </Title>
           <Space wrap>
             {selectedPerson === 'Akash' && akashKpi?.kpiDailyLogEditor && (
-              <Button type="primary" icon={<PlusOutlined />} onClick={openKpiDailyLog}>
+              <Button type="primary" className="kpi-futuristic-btn-primary" icon={<PlusOutlined />} onClick={openKpiDailyLog}>
                 Add KPI
               </Button>
             )}
             {canEditAdrijaSocial && (
-              <Button type="primary" icon={<PlusOutlined />} onClick={openAdrijaSocialModal}>
+              <Button type="primary" className="kpi-futuristic-btn-primary" icon={<PlusOutlined />} onClick={openAdrijaSocialModal}>
                 Add
               </Button>
             )}
           </Space>
         </div>
 
-        <Space wrap size="middle">
-          <span>
-            <Text type="secondary">Month:</Text>
+        <div className="dashboard-kpi-filters">
+          <span className="dashboard-kpi-filter-field">
+            <Text className="dashboard-kpi-filter-label">Month</Text>
             <Select
               value={month}
               onChange={setMonth}
               options={MONTHS.map((m) => ({ label: m, value: m }))}
-              style={{ width: 100, marginLeft: 8 }}
+              className="dashboard-kpi-filter-select"
+              popupClassName="dashboard-kpi-select-dropdown"
             />
           </span>
-          <span>
-            <Text type="secondary">Year:</Text>
+          <span className="dashboard-kpi-filter-field">
+            <Text className="dashboard-kpi-filter-label">Year</Text>
             <Select
               value={year}
               onChange={setYear}
               options={YEARS.map((y) => ({ label: y, value: y }))}
-              style={{ width: 100, marginLeft: 8 }}
+              className="dashboard-kpi-filter-select"
+              popupClassName="dashboard-kpi-select-dropdown"
             />
           </span>
-          <span>
-            <Text type="secondary">Week:</Text>
+          <span className="dashboard-kpi-filter-field">
+            <Text className="dashboard-kpi-filter-label">Week</Text>
             <Select
               value={week}
               onChange={setWeek}
               options={weekOptions}
-              style={{ width: 128, marginLeft: 8 }}
+              className="dashboard-kpi-filter-select dashboard-kpi-filter-select--week"
+              popupClassName="dashboard-kpi-select-dropdown"
               title={
                 weekMerge?.tooltip?.trim()
                   ? weekMerge.tooltip
@@ -719,18 +729,14 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
             />
             {showMergedWeekLabel ? (
               <Tooltip title={mergeTooltip || 'This KPI week spans two calendar months; numbers match the same real week under the other month filter.'}>
-                <span style={{ marginLeft: 8, display: 'inline-block' }}>
-                  <Tag color="processing">Week {weekNumDisplay} (Merged)</Tag>
-                </span>
+                <Tag className="dashboard-kpi-merge-tag">Week {weekNumDisplay} (Merged)</Tag>
               </Tooltip>
             ) : null}
           </span>
-        </Space>
+        </div>
 
         {selectedPerson && showMergedWeekLabel && mergeRangeText ? (
-          <Text type="secondary" style={{ display: 'block', fontSize: 13 }}>
-            Merged calendar week: {mergeRangeText}
-          </Text>
+          <Text className="dashboard-kpi-merge-hint">Merged calendar week: {mergeRangeText}</Text>
         ) : null}
 
         {loading && <DashboardBlockSkeleton />}
@@ -1500,11 +1506,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
             >
               {graphModal === 'akashMonthly' && akashKpi?.monthly?.pillars && akashKpi.monthly.pillars.length > 0 ? (
                 <Suspense
-                  fallback={
-                    <div style={{ width: '100%', minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Spin tip="Loading chart…" />
-                    </div>
-                  }
+                  fallback={<ChartAreaSkeleton height={320} />}
                 >
                   <LazyAkashMonthlyBarChart pillars={akashKpi.monthly.pillars} month={month} year={year} />
                 </Suspense>
@@ -1514,11 +1516,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
               ) : null}
               {graphModal && graphModal !== 'akashMonthly' && data?.weeklyProgress && (
                 <Suspense
-                  fallback={
-                    <div style={{ width: '100%', minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Spin tip="Loading chart…" />
-                    </div>
-                  }
+                  fallback={<ChartAreaSkeleton height={320} />}
                 >
                   <LazyWeeklyBarChart graphModal={graphModal} weeklyProgress={data.weeklyProgress} />
                 </Suspense>
@@ -1645,7 +1643,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                   description="Pick another month above, or re-select the same month, to load the daily log."
                 />
               )}
-              <Spin spinning={kpiDailyLogLoading}>
+              <SkeletonOverlay loading={kpiDailyLogLoading} rows={12} minHeight={320}>
                 <Table<KpiDailyLogTableRow>
                   size="small"
                   rowKey="work_date"
@@ -1753,7 +1751,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                     },
                   ]}
                 />
-              </Spin>
+              </SkeletonOverlay>
             </Modal>
 
             <Modal
@@ -1790,7 +1788,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                   />
                 </Col>
               </Row>
-              <Spin spinning={adrijaSocialDailyLoading}>
+              <SkeletonOverlay loading={adrijaSocialDailyLoading} rows={12} minHeight={280}>
                 <Table<AdrijaSocialKpiDailyRow>
                   size="small"
                   rowKey="work_date"
@@ -1895,7 +1893,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                     },
                   ]}
                 />
-              </Spin>
+              </SkeletonOverlay>
             </Modal>
 
             <Modal

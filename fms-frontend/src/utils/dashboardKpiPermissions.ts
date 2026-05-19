@@ -7,6 +7,7 @@ export const DASHBOARD_KPI_PERSON_SECTION_KEY: Record<DashboardKpiPerson, string
   Rimpa: 'dashboard_kpi_person_rimpa',
   Akash: 'dashboard_kpi_person_akash',
   Adrija: 'dashboard_kpi_person_adrija',
+  Soumya: 'dashboard_kpi_person_soumya',
 }
 
 const KPI_PERSON_KEY_PREFIX = 'dashboard_kpi_person_'
