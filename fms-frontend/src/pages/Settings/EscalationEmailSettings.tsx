@@ -572,7 +572,7 @@ export function EscalationEmailSettings() {
             },
           ]}
         />
-      </div>
+      </motion.div>
     </SkeletonOverlay>
   )
 }
