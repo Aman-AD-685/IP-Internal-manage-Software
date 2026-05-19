@@ -61,6 +61,7 @@ const CARD_MODAL_TITLES: Record<SoumyaCardDetailKey, string> = {
   escalation_frequency: 'Escalation frequency (72hr+) – Details',
   deadline_adherence: 'Deadline adherence rate – Details',
   weekly_sla_breach: 'Weekly SLA breach – Details',
+  pending_staging: 'Pending Staging tickets – Details',
 }
 
 function TrendBars({
@@ -412,8 +413,12 @@ export function SoumyaDashboardView({ onRefresh }: SoumyaDashboardViewProps) {
   const c3 = cards.escalation_frequency
   const c4 = cards.deadline_adherence
   const c6 = cards.weekly_sla_breach
+  const cStaging = cards.pending_staging
 
   const detailCount = (key: SoumyaCardDetailKey) => data.card_details?.[key]?.length ?? 0
+  const dataAsOfLabel = data.meta?.data_as_of
+    ? dayjs(data.meta.data_as_of).format('DD MMM YYYY, HH:mm')
+    : null
 
   const leaderboardSubtext =
     leaderboardScope === 'all'
@@ -429,7 +434,8 @@ return (
             Soumya Dashboard
           </h2>
           <p>
-            Week-based Support KPIs (Chores &amp; Bugs). Demo C excluded. Tickets ranked by delay — highest first.
+            KPI cards 1–5 use the selected calendar week (default: previous week) — query arrival in that week. Demo C
+            excluded. Card 6 is live pending Staging.
           </p>
         </div>
         <div className="soumya-dash-meta">
@@ -483,9 +489,14 @@ return (
           ) : null}
         </span>
       </div>
-      {mergeRangeText ? <Text className="dashboard-kpi-merge-hint">Calendar week: {mergeRangeText}</Text> : null}
+      {mergeRangeText ? (
+        <Text className="dashboard-kpi-merge-hint">
+          Calendar week: {mergeRangeText}
+          {dataAsOfLabel ? ` · Cards 1–5 measured as of ${dataAsOfLabel}` : null}
+        </Text>
+      ) : null}
 
-      <div className="soumya-kpi-grid soumya-kpi-grid--5">
+      <div className="soumya-kpi-grid soumya-kpi-grid--6">
         <article
           className="soumya-kpi-card soumya-kpi-card--clickable"
           role="button"
@@ -614,6 +625,10 @@ return (
               ? `Target ${c4.target_percent}%+ · ${c4.on_time}/${c4.total_with_deadline} on time`
               : 'No closed tickets with deadline in selected week'}
           </span>
+          <p className="soumya-card-formula">
+            Chores/bugs that arrived and closed in this week: % closed on or before committed deadline (or Stage 3 + 2h /
+            query + 1 day if not set).
+          </p>
           {detailCount('deadline_adherence') > 0 ? (
             <span className="soumya-card-hint">Click for {detailCount('deadline_adherence')} tickets</span>
           ) : null}
@@ -644,6 +659,36 @@ return (
             <span className="soumya-card-hint">Click for {detailCount('weekly_sla_breach')} tickets</span>
           ) : null}
         </article>
+
+        {cStaging ? (
+          <article
+            className="soumya-kpi-card soumya-kpi-card--clickable soumya-kpi-card--staging"
+            role="button"
+            tabIndex={0}
+            onClick={() => openCardModal('pending_staging')}
+            onKeyDown={(e) => e.key === 'Enter' && openCardModal('pending_staging')}
+          >
+            <div className="soumya-kpi-card__label">
+              Staging
+              {detailCount('pending_staging') > 0 ? (
+                <UnorderedListOutlined className="soumya-kpi-card__list-icon" title="View details" />
+              ) : null}
+            </div>
+            <div className="soumya-kpi-card__title">Pending Staging tickets</div>
+            <div
+              className={`soumya-metric-big ${cStaging.total === 0 ? 'soumya-metric-big--ok' : 'soumya-metric-big--warn'}`}
+            >
+              {cStaging.total}
+            </div>
+            <span className="soumya-target-pill">
+              Chores/Bugs: {cStaging.chores_bugs} · Features: {cStaging.features}
+            </span>
+            <p className="soumya-card-formula">Live queue — not limited to selected week.</p>
+            {detailCount('pending_staging') > 0 ? (
+              <span className="soumya-card-hint">Click for {detailCount('pending_staging')} tickets</span>
+            ) : null}
+          </article>
+        ) : null}
       </div>
 
       <section className="soumya-delay-section">

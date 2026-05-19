@@ -175,6 +175,17 @@ def _week_start(d: date | None = None) -> date:
     return d - timedelta(days=d.weekday())
 
 
+def _end_of_day_utc(d: date) -> datetime:
+    return datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=timezone.utc)
+
+
+def _kpi_as_of(range_end: date) -> datetime:
+    """Past KPI weeks are measured at week end; current week uses now."""
+    if range_end >= _now().date():
+        return _now()
+    return _end_of_day_utc(range_end)
+
+
 def _stage2_entry(t: dict) -> datetime | None:
     return (
         _parse_dt(t.get("stage2_entry_at"))
@@ -463,7 +474,17 @@ def _has_completion_delay(t: dict) -> tuple[bool, str]:
     return False, ""
 
 
-def card_stage2_volume(tickets: list[dict]) -> dict:
+def _is_pending_staging(t: dict) -> bool:
+    """Same rules as Support → Staging list (staging_planned or status_2=staging, not live-completed)."""
+    if str(t.get("live_review_status") or "").lower() == "completed":
+        return False
+    if t.get("staging_planned"):
+        return True
+    return str(t.get("status_2") or "").lower() == "staging"
+
+
+def card_stage2_volume(tickets: list[dict], *, as_of: datetime | None = None) -> dict:
+    ref = as_of or _now()
     bucket_0_24 = bucket_24_72 = bucket_72_plus = 0
     for t in tickets:
         if not _is_at_stage2_open(t):
@@ -471,7 +492,7 @@ def card_stage2_volume(tickets: list[dict]) -> dict:
         entry = _stage2_entry(t)
         if not entry:
             continue
-        age_h = _hours_between(entry, _now()) or 0.0
+        age_h = _hours_between(entry, ref) or 0.0
         if age_h <= 24:
             bucket_0_24 += 1
         elif age_h <= 72:
@@ -524,8 +545,10 @@ def card_avg_resolution(tickets: list[dict], trends: list[dict] | None = None) -
     }
 
 
-def card_escalation_frequency(tickets: list[dict], trends: list[dict]) -> dict:
-    now = _now()
+def card_escalation_frequency(
+    tickets: list[dict], trends: list[dict], *, as_of: datetime | None = None
+) -> dict:
+    ref = as_of or _now()
     count = 0
     for t in tickets:
         if not _is_at_stage2_open(t):
@@ -533,7 +556,7 @@ def card_escalation_frequency(tickets: list[dict], trends: list[dict]) -> dict:
         entry = _stage2_entry(t)
         if not entry:
             continue
-        age_h = _hours_between(entry, now) or 0.0
+        age_h = _hours_between(entry, ref) or 0.0
         if age_h >= 72:
             count += 1
     target = 2
@@ -630,7 +653,10 @@ def card_ack_response(tickets: list[dict]) -> dict:
     }
 
 
-def card_weekly_sla_breach(tickets: list[dict], trends: list[dict]) -> dict:
+def card_weekly_sla_breach(
+    tickets: list[dict], trends: list[dict], *, as_of: datetime | None = None
+) -> dict:
+    ref = as_of or _now()
     breach = 0
     for t in tickets:
         if not _is_at_stage2_open(t):
@@ -638,13 +664,27 @@ def card_weekly_sla_breach(tickets: list[dict], trends: list[dict]) -> dict:
         entry = _stage2_entry(t)
         if not entry:
             continue
-        if (_hours_between(entry, _now()) or 0) >= 72:
+        if (_hours_between(entry, ref) or 0) >= 72:
             breach += 1
     return {
         "count_this_week": breach,
         "target": 0,
         "on_target": breach == 0,
         "trend_weeks": trends,
+    }
+
+
+def card_pending_staging(all_tickets: list[dict]) -> dict:
+    """Live count of tickets in Staging (not filtered by KPI week)."""
+    pending = [t for t in all_tickets if _is_pending_staging(t)]
+    chores_bugs = sum(1 for t in pending if _is_chore_bug(t))
+    features = sum(1 for t in pending if str(t.get("type") or "").lower() == "feature")
+    other = len(pending) - chores_bugs - features
+    return {
+        "total": len(pending),
+        "chores_bugs": chores_bugs,
+        "features": features,
+        "other": other,
     }
 
 
@@ -749,13 +789,14 @@ def _detail_row(t: dict, *, note: str = "", hours: float | None = None) -> dict:
     }
 
 
-def _stage2_age_bucket(t: dict) -> str | None:
+def _stage2_age_bucket(t: dict, *, as_of: datetime | None = None) -> str | None:
     if not _is_at_stage2_open(t):
         return None
     entry = _stage2_entry(t)
     if not entry:
         return None
-    age_h = _hours_between(entry, _now()) or 0.0
+    ref = as_of or _now()
+    age_h = _hours_between(entry, ref) or 0.0
     if age_h <= 24:
         return "0–24 hr"
     if age_h <= 72:
@@ -769,11 +810,14 @@ def build_card_details(
     *,
     range_start: date,
     range_end: date,
+    all_tickets: list[dict] | None = None,
+    as_of: datetime | None = None,
 ) -> dict:
     """Ticket rows for KPI card detail modals."""
+    ref = as_of or _now()
     stage2_items: list[dict] = []
     for t in week_tickets:
-        bucket = _stage2_age_bucket(t)
+        bucket = _stage2_age_bucket(t, as_of=ref)
         if not bucket:
             continue
         stage2_items.append(_detail_row(t, note=f"Stage 2 · {bucket}"))
@@ -793,14 +837,13 @@ def build_card_details(
         )
 
     escalation_items: list[dict] = []
-    now = _now()
     for t in week_tickets:
         if not _is_at_stage2_open(t):
             continue
         entry = _stage2_entry(t)
         if not entry:
             continue
-        age_h = _hours_between(entry, now) or 0.0
+        age_h = _hours_between(entry, ref) or 0.0
         if age_h >= 72:
             escalation_items.append(_detail_row(t, note="Stage 2 breach 72hr+", hours=age_h))
 
@@ -832,8 +875,16 @@ def build_card_details(
         entry = _stage2_entry(t)
         if not entry:
             continue
-        if (_hours_between(entry, now) or 0) >= 72:
-            breach_items.append(_detail_row(t, note="SLA breach 72hr+", hours=_hours_between(entry, now) or 0))
+        breach_h = _hours_between(entry, ref) or 0.0
+        if breach_h >= 72:
+            breach_items.append(_detail_row(t, note="SLA breach 72hr+", hours=breach_h))
+
+    staging_items: list[dict] = []
+    for t in all_tickets or []:
+        if not _is_pending_staging(t):
+            continue
+        typ = str(t.get("type") or "").title()
+        staging_items.append(_detail_row(t, note=f"In Staging · {typ}"))
 
     return {
         "stage2_volume": stage2_items,
@@ -843,6 +894,7 @@ def build_card_details(
         "deadline_on_time": on_time_items,
         "deadline_late": late_items,
         "weekly_sla_breach": breach_items,
+        "pending_staging": staging_items,
     }
 
 
@@ -961,6 +1013,7 @@ def compute_soumya_dashboard(
             date.today(),
         )
     range_start, range_end = week_range
+    as_of = _kpi_as_of(range_end)
 
     all_tickets = _exclude_demo_c(_fetch_tickets())
     week_tickets = _tickets_arrival_in_range(all_tickets, range_start, range_end)
@@ -968,19 +1021,25 @@ def compute_soumya_dashboard(
 
     trends = _load_weekly_trends(8)
     resolution_weekly = _weekly_resolution_pool(week_tickets, range_start, range_end)
-    c1 = card_stage2_volume(week_tickets)
+    c1 = card_stage2_volume(week_tickets, as_of=as_of)
     c2 = card_avg_resolution(resolution_weekly, trends)
-    c3 = card_escalation_frequency(week_tickets, trends)
+    c3 = card_escalation_frequency(week_tickets, trends, as_of=as_of)
     deadline_weekly = _weekly_deadline_adherence_pool(week_tickets, range_start, range_end)
     c4 = card_deadline_adherence(deadline_weekly)
-    c6 = card_weekly_sla_breach(week_tickets, trends)
+    c6 = card_weekly_sla_breach(week_tickets, trends, as_of=as_of)
+    c_staging = card_pending_staging(all_tickets)
     scope = (leaderboard_scope or "week").strip().lower()
     leaderboard_pool = all_tickets if scope == "all" else week_tickets
     ranked, total_ranked = build_delay_ranked_list(
         leaderboard_pool, offset=max(0, ranked_offset), limit=max(1, min(ranked_limit, 100))
     )
     card_details = build_card_details(
-        week_tickets, closed_in_week, range_start=range_start, range_end=range_end
+        week_tickets,
+        closed_in_week,
+        range_start=range_start,
+        range_end=range_end,
+        all_tickets=all_tickets,
+        as_of=as_of,
     )
 
     if ranked_offset == 0:
@@ -1004,6 +1063,7 @@ def compute_soumya_dashboard(
             "escalation_frequency": c3,
             "deadline_adherence": c4,
             "weekly_sla_breach": c6,
+            "pending_staging": c_staging,
         },
         "delay_ranked_tickets": ranked,
         "card_details": card_details,
@@ -1014,6 +1074,8 @@ def compute_soumya_dashboard(
             "week_start": range_start.isoformat(),
             "week_end": range_end.isoformat(),
             "week_label": f"{range_start.strftime('%d %b')} – {range_end.strftime('%d %b %Y')}",
+            "data_as_of": as_of.isoformat(),
+            "cards_use_week_arrivals": True,
             "max_week_index": max_week_index,
             "leaderboard_scope": "all" if scope == "all" else "week",
             "total_tickets_scanned": len(week_tickets),

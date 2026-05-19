@@ -80,8 +80,24 @@
   z-index: 1;
 }
 
-.soumya-kpi-grid--5 {
+.soumya-kpi-grid--5,
+.soumya-kpi-grid--6 {
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+
+.soumya-card-formula {
+  margin: 8px 0 0;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--sd-muted, #94a3b8);
+}
+
+.soumya-metric-big--warn {
+  color: #fbbf24;
+}
+
+.soumya-kpi-card--staging {
+  border-color: rgba(168, 85, 247, 0.35);
 }
 
 .soumya-dash-filters {
