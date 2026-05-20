@@ -94,8 +94,8 @@ The three cards at the top of **Payment Management** load from:
 | Symptom | Cause | Fix |
 |--------|--------|-----|
 | Cards show **0 / 0** but invoices exist | Old Render deploy (no `payment-summary`) or API URL points at Vercel | Redeploy **backend**; set **VITE_API_BASE_URL** to Render; redeploy **frontend** |
-| Yellow **Payment summary unavailable** alert | `payment-summary` timed out (30s) or 404 on old Render | Redeploy backend; frontend now waits **90s** for this route. Avoid scanning whole DB per request. |
-| Request timed out | Too many invoice rows + old deploy used unlimited pagination | Latest backend caps pagination; redeploy Render + Vercel |
+| Yellow **Payment summary unavailable** / **Network Error** | Render closes idle connections ~**30s**; old backend scanned the whole invoice table | Redeploy **latest** backend (`payment-summary` uses one combined aggregate scan + capped pages + 60s cache). Frontend timeout **28s**. |
+| Request timed out | `payment-summary` still slower than Render limit | Confirm `openapi.json` has `payment-summary`; check row count; redeploy Render + Vercel |
 | Works locally, not production | Frontend calling wrong host | See table at top of this doc |
 
 Quick check (logged in): open  

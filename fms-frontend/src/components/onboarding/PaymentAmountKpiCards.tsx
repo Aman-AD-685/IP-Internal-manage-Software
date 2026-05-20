@@ -6,8 +6,8 @@ import { API_ENDPOINTS } from '../../utils/constants'
 
 const { Text } = Typography
 
-/** Payment-summary aggregates many Supabase pages; Render needs longer than default 30s. */
-const PAYMENT_KPI_TIMEOUT_MS = 90_000
+/** Render proxy drops connections around 30s; keep under that for a clear timeout vs opaque network error. */
+const PAYMENT_KPI_TIMEOUT_MS = 28_000
 
 export type KpiPair = { received: number; raised: number }
 
@@ -56,7 +56,12 @@ function apiErrorDetail(err: unknown): string {
   const d = ax.response?.data?.detail
   if (typeof d === 'string' && d.trim()) return d.trim()
   if (d && typeof d === 'object' && 'msg' in d && typeof d.msg === 'string') return d.msg
-  if (ax.code === 'ECONNABORTED') return 'Request timed out — backend may still be starting or aggregating payments.'
+  if (ax.code === 'ECONNABORTED') {
+    return 'Request timed out — payment totals are still loading on the server. Redeploy the latest backend on Render, then retry.'
+  }
+  if (!ax.response && (ax.code === 'ERR_NETWORK' || ax.message === 'Network Error')) {
+    return 'Could not reach the API (connection closed). Confirm VITE_API_BASE_URL points to your Render backend and redeploy Render with the latest payment-summary optimizations.'
+  }
   if (ax.response?.status === 404) {
     return 'payment-summary route not found — redeploy the backend on Render (latest main.py).'
   }
@@ -111,11 +116,8 @@ export function PaymentAmountKpiCards({ kpis: kpisProp, loadFromApi, refreshKey 
     setLoadError(null)
     setKpisFetched(null)
 
-    const cacheBust = { _: refreshKey ?? Date.now() }
-    const noCacheHeaders = { 'Cache-Control': 'no-cache', Pragma: 'no-cache' }
     const reqOpts = {
-      params: cacheBust,
-      headers: noCacheHeaders,
+      params: { _: refreshKey ?? Date.now() },
       timeout: PAYMENT_KPI_TIMEOUT_MS,
     }
 
