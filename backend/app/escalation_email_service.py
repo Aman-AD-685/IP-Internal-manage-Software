@@ -9,6 +9,7 @@ import logging
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from app.escalation_email_templates import (
@@ -40,8 +41,9 @@ _IST_FIXED = timezone(timedelta(hours=5, minutes=30))
 TICKET_SELECT = (
     "id, reference_no, title, description, type, status, status_1, status_2, status_3, status_4, "
     "quality_solution, staging_planned, staging_review_status, live_review_status, live_status, "
-    "assignee_id, created_at, query_arrival_at, planned_2, actual_2, planned_3, actual_3, "
-    "planned_4, actual_4, resolved_at, company_name"
+    "assignee_id, user_name, submitted_by, created_by, "
+    "created_at, query_arrival_at, planned_2, actual_2, planned_3, actual_3, "
+    "planned_4, actual_4, resolved_at, company_name, company_id"
 )
 
 
@@ -150,24 +152,148 @@ def _is_open_ticket(t: dict[str, Any]) -> bool:
     return True
 
 
-def get_user_display_map(user_ids: list[str]) -> dict[str, str]:
-    out: dict[str, str] = {}
-    ids = [str(x) for x in user_ids if x]
-    if not ids:
-        return out
+def _as_profile_uuid(val) -> str | None:
+    """Return canonical UUID string if val is a UUID, else None (free-text submitted_by stays out)."""
+    if val is None:
+        return None
+    s = str(val).strip()
+    if not s:
+        return None
     try:
-        r = supabase.table("user_profiles").select("id, email, full_name").in_("id", ids).execute()
-        for p in r.data or []:
-            uid = str(p.get("id", ""))
-            out[uid] = (p.get("full_name") or "").strip() or (p.get("email") or "").strip() or "User"
-    except Exception as e:
-        _notify(f"user_profiles: {e}")
+        return str(UUID(s))
+    except (ValueError, AttributeError):
+        return None
+
+
+def _collect_escalation_profile_ids(tickets: list[dict[str, Any]]) -> list[str]:
+    ids: set[str] = set()
+    for t in tickets:
+        for key in ("assignee_id", "created_by"):
+            u = _as_profile_uuid(t.get(key))
+            if u:
+                ids.add(u)
+        u_sb = _as_profile_uuid(t.get("submitted_by"))
+        if u_sb:
+            ids.add(u_sb)
+    return sorted(ids)
+
+
+def _assignee_display(t: dict[str, Any], user_map: dict[str, str]) -> str:
+    """Internal assignee from profile first; fall back to company user_name and other ticket fields."""
+    aid = _as_profile_uuid(t.get("assignee_id"))
+    if aid:
+        dn = user_map.get(aid)
+        if dn and dn.strip():
+            return dn.strip()
+
+    user_nm = (t.get("user_name") or "").strip()
+    if user_nm:
+        return user_nm
+
+    sb_raw = (t.get("submitted_by") or "").strip()
+    if sb_raw:
+        sb_uid = _as_profile_uuid(sb_raw)
+        if sb_uid:
+            dn = user_map.get(sb_uid)
+            if dn and dn.strip():
+                return dn.strip()
+        return sb_raw
+
+    cid = _as_profile_uuid(t.get("created_by"))
+    if cid:
+        dn = user_map.get(cid)
+        if dn and dn.strip():
+            return dn.strip()
+
+    return "—"
+
+
+def get_user_display_map(user_ids: list[str]) -> dict[str, str]:
+    """Resolve display names; keys are canonical lowercase UUID strings."""
+    out: dict[str, str] = {}
+    raw_ids = sorted({str(x).strip() for x in user_ids if x and str(x).strip()})
+    if not raw_ids:
+        return out
+    chunk = 100
+    for i in range(0, len(raw_ids), chunk):
+        part = raw_ids[i : i + chunk]
+        try:
+            r = supabase.table("user_profiles").select("id, email, full_name").in_("id", part).execute()
+            for p in r.data or []:
+                raw = p.get("id")
+                if not raw:
+                    continue
+                try:
+                    uid = str(UUID(str(raw)))
+                except (ValueError, TypeError):
+                    uid = str(raw).strip()
+                if uid:
+                    out[uid] = (p.get("full_name") or "").strip() or (p.get("email") or "").strip() or "User"
+        except Exception as e:
+            _notify(f"user_profiles: {e}")
     return out
 
 
-def _assignee_name(t: dict[str, Any], user_map: dict[str, str]) -> str:
-    aid = str(t.get("assignee_id") or "")
-    return user_map.get(aid, "—") if aid else "—"
+def _normalize_company_name_key(name: str | None) -> str:
+    """Lowercase, underscores → spaces, collapse whitespace (Demo_c → demo c)."""
+    return " ".join((name or "").strip().lower().replace("_", " ").split())
+
+
+def _ticket_is_demo_c_excluded(t: dict[str, Any]) -> bool:
+    """Match dashboard logic: exclude Demo C / Demo_c from escalation emails."""
+    bn = _normalize_company_name_key(t.get("company_name"))
+    return bn in ("demo c", "democ")
+
+
+def _hydrate_missing_company_names(tickets: list[dict[str, Any]]) -> None:
+    """Fill empty company_name from companies table when company_id is set."""
+    ids = sorted(
+        {
+            str(t["company_id"])
+            for t in tickets
+            if t.get("company_id") and not (str(t.get("company_name") or "").strip())
+        }
+    )
+    if not ids:
+        return
+    by_id: dict[str, str] = {}
+    chunk = 120
+    for i in range(0, len(ids), chunk):
+        part = ids[i : i + chunk]
+        try:
+            r = supabase.table("companies").select("id,name").in_("id", part).execute()
+            for row in r.data or []:
+                cid = str(row.get("id") or "")
+                if cid:
+                    by_id[cid] = (row.get("name") or "").strip()
+        except Exception as e:
+            _notify(f"escalation companies lookup: {e}")
+    for t in tickets:
+        cid = str(t.get("company_id") or "")
+        if not cid or (str(t.get("company_name") or "").strip()):
+            continue
+        n = by_id.get(cid)
+        if n:
+            t["company_name"] = n
+
+
+def _sort_escalation_by_hours_desc(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(items, key=lambda x: float(x.get("hours") or 0), reverse=True)
+
+
+def _group_timeframe_sorted(items: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {"24_48": [], "48_72": [], "72_plus": []}
+    for it in items:
+        b = it.get("bucket")
+        if b in grouped:
+            grouped[b].append(it)
+    for k in grouped:
+        grouped[k] = _sort_escalation_by_hours_desc(grouped[k])
+    return grouped
+
+
+def _sort_critical_sections(sections: dict[str, list[dict[str, Any]]]) -> dict[str, list[dict[str, Any]]]:
+    return {label: _sort_escalation_by_hours_desc(rows) for label, rows in sections.items()}
 
 
 def _to_row(t: dict[str, Any], user_map: dict[str, str], stage_num: int | None = None) -> dict[str, Any]:
@@ -181,9 +307,10 @@ def _to_row(t: dict[str, Any], user_map: dict[str, str], stage_num: int | None =
         stage_label = stage["stage_label"]
     return {
         "reference": _ticket_ref(t),
+        "company": (t.get("company_name") or "").strip() or "—",
         "title": (t.get("title") or "—")[:120],
         "description": _desc_preview(t.get("description")),
-        "assignee": _assignee_name(t, user_map),
+        "assignee": _assignee_display(t, user_map),
         "stage_label": stage_label,
         "pending_since": _format_dt_local(since),
         "delay": _format_delay(hours),
@@ -367,12 +494,14 @@ def _fetch_escalation_tickets() -> list[dict[str, Any]]:
                 seen.add(str(t["id"]))
     except Exception as e:
         _notify(f"fetch staging: {e}")
-    return [t for t in rows if _is_open_ticket(t)]
+    open_ts = [t for t in rows if _is_open_ticket(t)]
+    _hydrate_missing_company_names(open_ts)
+    return [t for t in open_ts if not _ticket_is_demo_c_excluded(t)]
 
 
 def _eligible_timeframe_items() -> list[dict[str, Any]]:
     tickets = _fetch_escalation_tickets()
-    user_map = get_user_display_map([str(t.get("assignee_id")) for t in tickets if t.get("assignee_id")])
+    user_map = get_user_display_map(_collect_escalation_profile_ids(tickets))
     items: list[dict[str, Any]] = []
     for t in tickets:
         if t.get("type") in ("chore", "bug") and not is_chores_bug_pending(t):
@@ -387,7 +516,7 @@ def _eligible_timeframe_items() -> list[dict[str, Any]]:
 
 def _eligible_critical_items() -> dict[str, list[dict[str, Any]]]:
     tickets = _fetch_escalation_tickets()
-    user_map = get_user_display_map([str(t.get("assignee_id")) for t in tickets if t.get("assignee_id")])
+    user_map = get_user_display_map(_collect_escalation_profile_ids(tickets))
     chores: list[dict[str, Any]] = []
     bugs: list[dict[str, Any]] = []
     staging: list[dict[str, Any]] = []
@@ -407,12 +536,12 @@ def _eligible_critical_items() -> dict[str, list[dict[str, Any]]]:
                 chores.append(row)
             else:
                 bugs.append(row)
-    return {"Chores": chores, "Bugs": bugs, "Staging": staging}
+    return _sort_critical_sections({"Chores": chores, "Bugs": bugs, "Staging": staging})
 
 
 def _eligible_stage_items(stage_num: int) -> list[dict[str, Any]]:
     tickets = _fetch_escalation_tickets()
-    user_map = get_user_display_map([str(t.get("assignee_id")) for t in tickets if t.get("assignee_id")])
+    user_map = get_user_display_map(_collect_escalation_profile_ids(tickets))
     items: list[dict[str, Any]] = []
     for t in tickets:
         if t.get("type") not in ("chore", "bug"):
@@ -422,7 +551,7 @@ def _eligible_stage_items(stage_num: int) -> list[dict[str, Any]]:
             continue
         row = _to_row(t, user_map, stage_num)
         items.append(row)
-    return items
+    return _sort_escalation_by_hours_desc(items)
 
 
 # ---------------------------------------------------------------------------
@@ -554,9 +683,7 @@ async def send_with_retries(to_email: str, subject: str, html_body: str, plain: 
 async def preview_html(configuration_type: str) -> str:
     if configuration_type == "pending_timeframe":
         items = _eligible_timeframe_items()
-        grouped: dict[str, list] = {"24_48": [], "48_72": [], "72_plus": []}
-        for it in items:
-            grouped[it["bucket"]].append(it)
+        grouped = _group_timeframe_sorted(items)
         critical = len(grouped["72_plus"])
         return build_timeframe_html(grouped, total=len(items), critical_count=critical)
     if configuration_type == "critical_pending":
@@ -632,9 +759,7 @@ async def run_escalation_batch(
                 if not force:
                     release_dedup(dedup_key)
                 return {"skipped": True, "reason": "no_tickets"}
-            grouped: dict[str, list] = {"24_48": [], "48_72": [], "72_plus": []}
-            for it in items:
-                grouped[it["bucket"]].append(it)
+            grouped = _group_timeframe_sorted(items)
             html_body = build_timeframe_html(
                 grouped, total=len(items), critical_count=len(grouped["72_plus"])
             )
