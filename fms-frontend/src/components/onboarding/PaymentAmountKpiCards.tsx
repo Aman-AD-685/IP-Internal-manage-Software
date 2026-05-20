@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Alert, Card, Col, Row, Spin, Typography } from 'antd'
+import type { AxiosError } from 'axios'
 import { apiClient } from '../../api/axios'
 import { API_ENDPOINTS } from '../../utils/constants'
 
 const { Text } = Typography
+
+/** Payment-summary aggregates many Supabase pages; Render needs longer than default 30s. */
+const PAYMENT_KPI_TIMEOUT_MS = 90_000
 
 export type KpiPair = { received: number; raised: number }
 
@@ -15,13 +19,9 @@ export type PaymentAmountKpis = {
   overall_in_quarter: KpiPair
   monthly_in_quarter: KpiPair
   half_yearly_in_quarter?: KpiPair
-  /** All-time gross raised excl. NA (not shown on cards by default). */
   lifetime_raised_excl_na?: number
-  /** Unpaid rows marked NA (minused from lifetime & due — should move when toggling NA). */
   na_marked_unpaid_invoice_total?: number
-  /** Explain fiscal-period scope vs lifetime. */
   kpi_scope_note?: string
-  /** Portion of Overall raised from unpaid invoices dated before this FY quarter (carry-forward). */
   overall_carried_unpaid_prior_quarters?: number
 }
 
@@ -49,6 +49,19 @@ function mergeKpiBody(body: SummaryBody | undefined): PaymentAmountKpis | null {
         : k.na_marked_unpaid_invoice_total,
     kpi_scope_note: body?.kpi_scope_note ?? k.kpi_scope_note,
   }
+}
+
+function apiErrorDetail(err: unknown): string {
+  const ax = err as AxiosError<{ detail?: string | { msg?: string } }>
+  const d = ax.response?.data?.detail
+  if (typeof d === 'string' && d.trim()) return d.trim()
+  if (d && typeof d === 'object' && 'msg' in d && typeof d.msg === 'string') return d.msg
+  if (ax.code === 'ECONNABORTED') return 'Request timed out — backend may still be starting or aggregating payments.'
+  if (ax.response?.status === 404) {
+    return 'payment-summary route not found — redeploy the backend on Render (latest main.py).'
+  }
+  if (ax.response?.status === 500) return 'Server error while building payment totals.'
+  return ax.message || 'Network error'
 }
 
 function KpiSummaryCard({
@@ -82,11 +95,8 @@ function KpiSummaryCard({
 }
 
 type Props = {
-  /** When provided, cards render from this data (no fetch). */
   kpis?: PaymentAmountKpis | null
-  /** Fetch KPIs from payment-summary API when true and kpis not passed. */
   loadFromApi?: boolean
-  /** Change to refetch KPIs (e.g. after marking invoice NA). */
   refreshKey?: number | string
 }
 
@@ -103,45 +113,32 @@ export function PaymentAmountKpiCards({ kpis: kpisProp, loadFromApi, refreshKey 
 
     const cacheBust = { _: refreshKey ?? Date.now() }
     const noCacheHeaders = { 'Cache-Control': 'no-cache', Pragma: 'no-cache' }
-
-    const trySummary = async (): Promise<PaymentAmountKpis | null> => {
-      const r = await apiClient.get<SummaryBody>(API_ENDPOINTS.CLIENT_PAYMENT.PAYMENT_SUMMARY, {
-        params: cacheBust,
-        headers: noCacheHeaders,
-      })
-      return mergeKpiBody(r.data)
+    const reqOpts = {
+      params: cacheBust,
+      headers: noCacheHeaders,
+      timeout: PAYMENT_KPI_TIMEOUT_MS,
     }
 
-    const tryAgeingReport = async (): Promise<PaymentAmountKpis | null> => {
-      const r = await apiClient.get<SummaryBody>(API_ENDPOINTS.CLIENT_PAYMENT.PAYMENT_AGEING_REPORT, {
-        params: cacheBust,
-        headers: noCacheHeaders,
-      })
-      return mergeKpiBody(r.data)
-    }
-
-    try {
-      const fromSummary = await trySummary()
-      if (fromSummary) {
-        setKpisFetched(fromSummary)
-        return
+    let lastErr: unknown = null
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const r = await apiClient.get<SummaryBody>(API_ENDPOINTS.CLIENT_PAYMENT.PAYMENT_SUMMARY, reqOpts)
+        const merged = mergeKpiBody(r.data)
+        if (merged) {
+          setKpisFetched(merged)
+          return
+        }
+        lastErr = new Error('payment-summary returned no kpis')
+      } catch (e) {
+        lastErr = e
+        if (attempt === 0) {
+          await new Promise((r) => setTimeout(r, 800))
+        }
       }
-    } catch {
-      /* fall through to ageing report (older backends may lack payment-summary) */
-    }
-
-    try {
-      const fromAgeing = await tryAgeingReport()
-      if (fromAgeing) {
-        setKpisFetched(fromAgeing)
-        return
-      }
-    } catch {
-      /* both failed */
     }
 
     setLoadError(
-      'Payment totals could not be loaded. Redeploy the backend (Render) with the latest code, set VITE_API_BASE_URL to your API host on Vercel, then redeploy the frontend. See docs/CLIENT_PAYMENT_PRODUCTION.md.',
+      `${apiErrorDetail(lastErr)} If this persists after redeploying Render, open /onboarding/client-payment/payment-summary while logged in.`,
     )
   }, [loadFromApi, refreshKey])
 
@@ -150,7 +147,6 @@ export function PaymentAmountKpiCards({ kpis: kpisProp, loadFromApi, refreshKey 
   }, [load, refreshKey])
 
   const kpis = kpisProp ?? kpisFetched
-
   const lifetimeRaised = kpis?.lifetime_raised_excl_na
   const naUnpaidExcluded = kpis?.na_marked_unpaid_invoice_total
 

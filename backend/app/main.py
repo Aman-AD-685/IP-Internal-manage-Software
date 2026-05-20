@@ -5792,6 +5792,9 @@ def _ocp_query_exclude_marked_na(q):
 # Safety cap when paginating all invoice rows from Supabase (1000 × 500 = 500k rows max).
 _OCP_AGG_PAGE_SIZE = 1000
 _OCP_AGG_MAX_PAGES = 500
+# Payment-summary must finish within HTTP timeout — avoid scanning entire tables per request.
+_PAYMENT_SUMMARY_PAY_ROW_LIMIT = 20000
+_PAYMENT_SUMMARY_RECEIVE_MAX_PAGES = 25
 
 
 def _sum_invoice_amount_pages(
@@ -5850,12 +5853,13 @@ def _sum_unpaid_invoice_marked_na() -> int:
     return _sum_invoice_amount_pages(exclude_na_marked=False, unpaid_only=True, na_marked_only=True)
 
 
-def _fetch_client_payment_receive_by_cp_id() -> dict[str, dict]:
-    """All payment-receive rows keyed by client_payment_id (paginated for production)."""
+def _fetch_client_payment_receive_by_cp_id(*, max_pages: int = _PAYMENT_SUMMARY_RECEIVE_MAX_PAGES) -> dict[str, dict]:
+    """Payment-receive rows keyed by client_payment_id (paginated; capped for HTTP latency)."""
     by_id: dict[str, dict] = {}
     offset = 0
     pages = 0
-    while pages < _OCP_AGG_MAX_PAGES:
+    page_cap = max(1, min(_OCP_AGG_MAX_PAGES, int(max_pages or _PAYMENT_SUMMARY_RECEIVE_MAX_PAGES)))
+    while pages < page_cap:
         try:
             r = (
                 supabase.table("onboarding_client_payment_receive")
@@ -7179,29 +7183,41 @@ def patch_client_payment_marked_na(
         raise HTTPException(400, str(e)[:200])
 
 
-@api_router.get("/onboarding/client-payment/payment-summary")
-def client_payment_payment_summary(auth: dict = Depends(get_current_user)):
-    """Single source for Payment KPI cards and dashboard Payment totals (NA rows excluded)."""
-    pay_rows = _fetch_client_payment_rows_for_metrics(limit=0)
-    receive_by_cp_id = _fetch_client_payment_receive_by_cp_id()
+def _build_payment_summary_payload() -> dict:
+    """Payment KPI cards + totals. Capped pagination so production Render stays under HTTP timeout."""
+    pay_rows = _fetch_client_payment_rows_for_metrics(limit=_PAYMENT_SUMMARY_PAY_ROW_LIMIT)
+    receive_by_cp_id = _fetch_client_payment_receive_by_cp_id(max_pages=_PAYMENT_SUMMARY_RECEIVE_MAX_PAGES)
     kpis = _compute_payment_ageing_kpis(pay_rows, None, receive_by_cp_id)
-    lifetime_excl = _sum_all_raised_invoice_excl_na()
-    na_unpaid_total = _sum_unpaid_invoice_marked_na()
-    kpis["lifetime_raised_excl_na"] = int(lifetime_excl)
-    kpis["na_marked_unpaid_invoice_total"] = int(na_unpaid_total)
+
+    lifetime_excl = int(_sum_all_raised_invoice_excl_na())
+    na_unpaid_total = int(_sum_unpaid_invoice_marked_na())
+    total_due = int(_sum_unpaid_client_payment_excluding_na())
+
+    kpis["lifetime_raised_excl_na"] = lifetime_excl
+    kpis["na_marked_unpaid_invoice_total"] = na_unpaid_total
     kpis["kpi_scope_note"] = (
         "Quarterly & Monthly cards are strict invoice-dated slices. Overall adds unpaid invoices dated "
         "before this FY quarter until Payment Received is saved, and counts all receipts with payment "
         "date in this FY quarter—even for older invoices. India FY quarters (Apr–Mar)."
     )
-    payload = {
-        "total_due": _sum_unpaid_client_payment_excluding_na(),
+    return {
+        "total_due": total_due,
         "raised_quarter": int((kpis.get("overall_in_quarter") or {}).get("raised") or 0),
-        "lifetime_raised_excl_na": int(lifetime_excl),
-        "na_marked_unpaid_invoice_total": int(na_unpaid_total),
+        "lifetime_raised_excl_na": lifetime_excl,
+        "na_marked_unpaid_invoice_total": na_unpaid_total,
         "kpis": kpis,
         "marked_na_supported": _client_payment_marked_na_supported(),
     }
+
+
+@api_router.get("/onboarding/client-payment/payment-summary")
+def client_payment_payment_summary(auth: dict = Depends(get_current_user)):
+    """Single source for Payment KPI cards and dashboard Payment totals (NA rows excluded)."""
+    try:
+        payload = _build_payment_summary_payload()
+    except Exception as e:
+        _log(f"payment-summary: {e}")
+        raise HTTPException(status_code=500, detail=f"payment-summary failed: {str(e)[:200]}")
     return JSONResponse(
         content=payload,
         headers={"Cache-Control": "no-store, no-cache, max-age=0, must-revalidate"},
