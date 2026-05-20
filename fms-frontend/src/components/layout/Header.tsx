@@ -1,9 +1,20 @@
 import { Layout, Dropdown, Avatar, Space, Typography, Button, Badge } from 'antd'
-import { UserOutlined, LogoutOutlined, PlusOutlined, MenuOutlined, BellOutlined, DashboardOutlined } from '@ant-design/icons'
+import {
+  UserOutlined,
+  LogoutOutlined,
+  PlusOutlined,
+  MenuOutlined,
+  BellOutlined,
+  DashboardOutlined,
+  BulbOutlined,
+} from '@ant-design/icons'
 import type { MenuProps } from 'antd'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { useAuth } from '../../hooks/useAuth'
+import { useRole } from '../../hooks/useRole'
+import { ImprovementSuggestionModal } from '../improvement/ImprovementSuggestionModal'
+import { ImprovementI1AdminModal } from '../improvement/ImprovementI1AdminModal'
 import { getInitials, canViewSection } from '../../utils/helpers'
 import { ROUTES } from '../../utils/constants'
 import type { UserRole } from '../../types/auth'
@@ -24,7 +35,13 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
   const navigate = useNavigate()
   const location = useLocation()
   const { user, logout } = useAuth()
+  const { role: userRole } = useRole()
+  const sectionPermissions = user?.section_permissions
+  const canImprovement = canViewSection('improvement', userRole as UserRole, sectionPermissions)
+  const canImprovementI1 = canViewSection('improvement_i1', userRole as UserRole, sectionPermissions)
   const [activityCount, setActivityCount] = useState(0)
+  const [improvementOpen, setImprovementOpen] = useState(false)
+  const [i1Open, setI1Open] = useState(false)
   const searchParams = new URLSearchParams(location.search)
   const section = searchParams.get('section')
   const viewApproval = searchParams.get('view') === 'approval'
@@ -101,6 +118,16 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
         <img src="/logo.png" alt="Logo" style={{ height: 32, width: 'auto', objectFit: 'contain' }} />
       </Space>
       <Space size="middle">
+        {canImprovementI1 ? (
+          <Button type="default" onClick={() => setI1Open(true)} className="kpi-header-trigger-btn">
+            I - 1
+          </Button>
+        ) : null}
+        {canImprovement ? (
+          <Button type="default" icon={<BulbOutlined />} onClick={() => setImprovementOpen(true)}>
+            Improvement
+          </Button>
+        ) : null}
         {canViewDashboardKpi ? (
           <Dropdown
             trigger={['click']}
@@ -171,6 +198,10 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
           </Dropdown>
         </Space>
       </Space>
+      <ImprovementSuggestionModal open={improvementOpen} onClose={() => setImprovementOpen(false)} />
+      {canImprovementI1 ? (
+        <ImprovementI1AdminModal open={i1Open} onClose={() => setI1Open(false)} />
+      ) : null}
     </AntHeader>
   )
 }

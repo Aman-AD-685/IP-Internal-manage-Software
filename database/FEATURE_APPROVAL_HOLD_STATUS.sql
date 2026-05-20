@@ -20,7 +20,8 @@ COMMENT ON COLUMN public.tickets.approval_status IS
 COMMENT ON COLUMN public.tickets.remarks IS
   'Approver remarks (required on reject/hold from email or UI).';
 
--- approval_tokens.action — allow hold (one-time email link)
+-- approval_tokens.action — allow hold (one-time email link).
+-- Reminder emails use one token per ticket; ?action=approve|reject|hold selects the action.
 ALTER TABLE public.approval_tokens DROP CONSTRAINT IF EXISTS approval_tokens_action_check;
 
 ALTER TABLE public.approval_tokens

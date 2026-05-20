@@ -192,6 +192,8 @@ export const ticketsApi = {
     skipCache?: boolean
     /** When true, only tickets created by the logged-in user. */
     mine_only?: boolean
+    /** Date-range CSV/print: include all rows in section for the range (chores-bugs: not only open queue). */
+    export_date_range?: boolean
   }): Promise<ApiResponse<PaginatedResponse<Ticket>>> => {
     const listKey = ticketsListLogicalKey(params as object | undefined)
     const skipCache = !!(params as { skipCache?: boolean } | undefined)?.skipCache

@@ -122,9 +122,6 @@ function unwrapTicketListPayload(
 export const TicketList = () => {
   const navigate = useNavigate()
   const { canAccessApproval, isUser, isMasterAdmin } = useRole()
-  const scopeHint = isUser
-    ? 'Includes tickets you submitted, created within the selected date range.'
-    : 'Includes all tickets in this section created within the selected date range.'
   const [loading, setLoading] = useState(true)
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [allTicketsForStageFilter, setAllTicketsForStageFilter] = useState<Ticket[]>([])
@@ -148,6 +145,11 @@ export const TicketList = () => {
   const showStageFilter = sectionFromUrl === 'chores-bugs'
   const showStageFilterForFeature = typeFromUrl === 'feature' && !isApprovalSection
   const isChoresBugsSection = sectionFromUrl === 'chores-bugs'
+  const scopeHint = isUser
+    ? 'Exports every ticket you created between the selected dates (ignores Status/Stage filters on screen).'
+    : isChoresBugsSection
+      ? 'Exports every chore and bug created between the selected dates (ignores Status/Stage filters on screen).'
+      : 'Exports all tickets in this section created between the selected dates (ignores table filters).'
 
   useEffect(() => {
     if (isApprovalSection && !canAccessApproval) {
@@ -174,7 +176,7 @@ export const TicketList = () => {
   })
   /** Stage filter: applies to table, Export and Print (filters current result set) */
   const [stageFilter, setStageFilter] = useState<string>('')
-  /** Approval Status view: pending | unapproved (Unapprove) | rejected */
+  /** Approval Status view: pending | unapproved (includes rejected) | hold */
   const [approvalFilter, setApprovalFilter] = useState<string>('unapproved')
   /** Chores & Bugs only: filter by Stage 2 status (pending | completed | staging | hold) */
   const [status2Filter, setStatus2Filter] = useState<string>('')
@@ -199,6 +201,9 @@ export const TicketList = () => {
   useEffect(() => {
     if (sectionFromUrl !== 'chores-bugs') setStatus2Filter('')
   }, [sectionFromUrl])
+  useEffect(() => {
+    if (approvalFilter === 'rejected') setApprovalFilter('unapproved')
+  }, [approvalFilter])
   useEffect(() => {
     if (sectionFromUrl !== 'chores-bugs' && sectionFromUrl !== 'register-of-tickets') {
       setTypeOfRequestFilter('')
@@ -642,66 +647,63 @@ export const TicketList = () => {
       ? (t: Record<string, unknown>) => getFeatureCurrentStage(t as Parameters<typeof getFeatureCurrentStage>[0])
       : undefined
 
-  const applyExportSectionFilters = useCallback(
-    (allTickets: Ticket[]) => {
-      let filteredForExport =
-        showStageFilter && stageFilter
-          ? allTickets.filter((t) => getChoresBugsCurrentStage(t).stageLabel === stageFilter)
-          : showStageFilterForFeature && stageFilter
-            ? allTickets.filter((t) => getFeatureCurrentStage(t).stageLabel === stageFilter)
-            : allTickets
-      if (typeFromUrl === 'feature' || sectionFromUrl === 'completed-feature') {
-        filteredForExport = [...filteredForExport].sort((a, b) => {
-          const refCompare = (b.reference_no || '').localeCompare(a.reference_no || '', undefined, { numeric: true })
-          if (refCompare !== 0) return refCompare
-          const tA = a.created_at ? new Date(a.created_at).getTime() : 0
-          const tB = b.created_at ? new Date(b.created_at).getTime() : 0
-          return tB - tA
-        })
+  /** Export/print by date range: section + dates only (no Status/Stage/Type table filters). */
+  const buildDateRangeExportListParams = useCallback(
+    (dateFrom: string, dateTo: string) => {
+      const bounds = dateRangeToIsoBounds(dateFrom, dateTo)
+      return {
+        date_from: bounds.date_from,
+        date_to: bounds.date_to,
+        sort_by: filters.sort_by,
+        sort_order: filters.sort_order,
+        export_date_range: true,
+        ...(isUser ? { mine_only: true } : {}),
+        ...(sectionFromUrl === 'chores-bugs' && { section: 'chores-bugs' as const }),
+        ...(sectionFromUrl === 'register-of-tickets' && {
+          section: 'register-of-tickets' as const,
+          ...(registerTypeFilters.length > 0 && { types_in: registerTypeFilters.join(',') }),
+        }),
+        ...(sectionFromUrl === 'completed-chores-bugs' && { section: 'completed-chores-bugs' as const }),
+        ...(sectionFromUrl === 'rejected-tickets' && { section: 'rejected-tickets' as const }),
+        ...(sectionFromUrl === 'completed-feature' && { section: 'completed-feature' as const }),
+        ...(sectionFromUrl === 'solutions' && { section: 'solutions' as const }),
+        ...(isApprovalSection && { section: 'approval-status' as const, approval_filter: 'all' }),
+        ...(typeFromUrl === 'feature' &&
+          !isApprovalSection &&
+          sectionFromUrl !== 'completed-feature' && { type: 'feature' as const }),
+        ...(!sectionFromUrl &&
+          !typeFromUrl &&
+          filters.types_in && { types_in: filters.types_in }),
+        ...(!sectionFromUrl &&
+          !typeFromUrl &&
+          !filters.types_in &&
+          filters.type && { type: filters.type }),
       }
-      if (isRegisterSection) {
-        filteredForExport = filteredForExport.filter((t) => {
-          const kindOk = registerTypeFilters.length === 0 || registerTypeFilters.includes(String(t.type || ''))
-          if (!kindOk) return false
-          if (registerStatusFilter === 'all') return true
-          const s = getRegisterStatusLabel(t)
-          return registerStatusFilter === 'completed' ? s === 'Completed' : s === 'Rejected'
-        })
-      }
-      return filteredForExport
     },
     [
-      showStageFilter,
-      stageFilter,
-      showStageFilterForFeature,
-      typeFromUrl,
+      filters.sort_by,
+      filters.sort_order,
+      filters.types_in,
+      filters.type,
       sectionFromUrl,
-      isRegisterSection,
+      typeFromUrl,
+      isApprovalSection,
+      isUser,
       registerTypeFilters,
-      registerStatusFilter,
     ],
   )
 
   const fetchExportRowsByDateRange = useCallback(
     async (dateFrom: string, dateTo: string) => {
-      const bounds = dateRangeToIsoBounds(dateFrom, dateTo)
-      let allTickets = await fetchAllTicketsPages({
-        ...getTicketsListParams(1, 100, {
-          skipCache: true,
-          dateFrom: bounds.date_from,
-          dateTo: bounds.date_to,
-          mineOnly: isUser,
-        }),
-      })
+      let allTickets = await fetchAllTicketsPages(buildDateRangeExportListParams(dateFrom, dateTo))
       if (isChoresBugs) {
         allTickets = keepOnlyChoresAndBugs(allTickets)
       }
-      const filtered = applyExportSectionFilters(allTickets)
-      return filtered.map((t) =>
+      return allTickets.map((t) =>
         buildTicketExportRow(t as unknown as Record<string, unknown>, getStageForExport),
       )
     },
-    [getTicketsListParams, isUser, isChoresBugs, applyExportSectionFilters, getStageForExport],
+    [buildDateRangeExportListParams, isChoresBugs, getStageForExport],
   )
 
   const wrapStyle = { whiteSpace: 'normal' as const, wordBreak: 'break-word' as const }
@@ -1287,7 +1289,6 @@ export const TicketList = () => {
               getPopupContainer={() => document.body}
               options={[
                 { value: 'unapproved', label: 'Unapprove' },
-                { value: 'rejected', label: 'Rejected' },
                 { value: 'hold', label: 'Hold' },
                 { value: 'pending', label: 'Pending approval' },
               ]}

@@ -457,17 +457,13 @@ export const StagingList = () => {
         sort_order: 'desc',
         date_from: bounds.date_from,
         date_to: bounds.date_to,
-        ...(referenceFilter ? { reference_filter: referenceFilter } : {}),
         ...(isUser ? { mine_only: true } : {}),
       })
-      const filtered = stageFilter
-        ? allTickets.filter((t) => getStagingCurrentStage(t).stageLabel === stageFilter)
-        : allTickets
-      return filtered.map((t) =>
+      return allTickets.map((t) =>
         buildTicketExportRow(t as unknown as Record<string, unknown>, getStageForExport),
       )
     },
-    [referenceFilter, stageFilter, isUser],
+    [isUser],
   )
 
   return (

@@ -54,8 +54,8 @@ def execute_approval_by_token(token: str, action: str, remarks: str | None = Non
     if not r.data:
         raise HTTPException(status_code=400, detail="This link was already used or is invalid.")
     row = r.data[0]
-    if row["action"] != action:
-        raise HTTPException(status_code=400, detail="Token action mismatch")
+    # Action comes from the email link (?action=approve|reject|hold). One token row may
+    # authorize any of those actions for the same pending ticket (reminder email uses one token).
 
     exp = row.get("expires_at")
     try:
@@ -153,8 +153,29 @@ def execute_approval_by_token(token: str, action: str, remarks: str | None = Non
     except Exception:
         pass
 
-    tr = supabase.table("tickets").select("reference_no").eq("id", ticket_id).limit(1).execute()
+    tr = (
+        supabase.table("tickets")
+        .select("reference_no, title, remarks")
+        .eq("id", ticket_id)
+        .limit(1)
+        .execute()
+    )
     ref = (tr.data[0].get("reference_no") if tr.data else None) or str(ticket_id)[:8]
+    title = tr.data[0].get("title") if tr.data else None
+    saved_remarks = update_data.get("remarks") or (tr.data[0].get("remarks") if tr.data else None)
+    try:
+        from app.feature_approval_submitter_notify import fire_submitter_approval_notification
+
+        fire_submitter_approval_notification(
+            str(ticket_id),
+            status=status,
+            reference_no=ref,
+            title=title,
+            remarks=saved_remarks,
+            source="email",
+        )
+    except Exception:
+        pass
     if status == "approved":
         msg = f"Feature request {ref} has been approved. Thank you, Approver."
     elif status == "hold":
