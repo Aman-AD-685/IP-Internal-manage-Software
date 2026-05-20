@@ -84,6 +84,25 @@ After step 1, **Add Raised Invoice** and **list open invoices** should work (wit
 
 ---
 
+## Payment Management KPI cards (Quarterly / Monthly / Overall) show **0 / 0**
+
+The three cards at the top of **Payment Management** load from:
+
+`GET /onboarding/client-payment/payment-summary`  
+(fallback: `GET /onboarding/client-payment/payment-ageing-report` → `kpis`)
+
+| Symptom | Cause | Fix |
+|--------|--------|-----|
+| Cards show **0 / 0** but invoices exist | Old Render deploy (no `payment-summary`) or API URL points at Vercel | Redeploy **backend**; set **VITE_API_BASE_URL** to Render; redeploy **frontend** |
+| Yellow **Payment summary unavailable** alert | Both endpoints failed (404/network) | Same as above; verify `https://YOUR-BACKEND/openapi.json` contains `payment-summary` |
+| Works locally, not production | Frontend calling wrong host | See table at top of this doc |
+
+Quick check (logged in): open  
+`https://YOUR-BACKEND.onrender.com/onboarding/client-payment/payment-summary`  
+→ JSON with `"kpis": { "overall_in_quarter": { "received": …, "raised": … }, … }`.
+
+---
+
 ## CORS (if browser blocks API)
 
 Backend must allow your Vercel origin, e.g. in `backend/.env` on Render:
