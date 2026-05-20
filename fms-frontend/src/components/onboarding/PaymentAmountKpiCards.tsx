@@ -63,14 +63,17 @@ export function PaymentAmountKpiCards({ kpis: kpisProp, loadFromApi, refreshKey 
 
   const load = useCallback(() => {
     if (!loadFromApi) return
+    setKpisFetched(null)
     apiClient
-      .get<{ kpis?: PaymentAmountKpis }>(API_ENDPOINTS.CLIENT_PAYMENT.PAYMENT_AGEING_REPORT)
+      .get<{ kpis?: PaymentAmountKpis }>(API_ENDPOINTS.CLIENT_PAYMENT.PAYMENT_SUMMARY, {
+        params: { _: refreshKey ?? Date.now() },
+      })
       .then((r) => {
         const k = r.data?.kpis
         if (k) setKpisFetched(k)
       })
       .catch(() => setKpisFetched(null))
-  }, [loadFromApi])
+  }, [loadFromApi, refreshKey])
 
   useEffect(() => {
     load()
@@ -97,7 +100,9 @@ export function PaymentAmountKpiCards({ kpis: kpisProp, loadFromApi, refreshKey 
       <Col xs={24} md={8}>
         <KpiSummaryCard
           heading="Overall"
-          period={kpis ? `${kpis.quarter_period_label} · all genres in this FY quarter` : '—'}
+          period={
+            kpis ? `${kpis.quarter_period_label} · Raised = all invoices (excl. NA); Received = payments in FY quarter` : '—'
+          }
           pair={kpis?.overall_in_quarter ?? { received: 0, raised: 0 }}
           extra={
             kpis ? (

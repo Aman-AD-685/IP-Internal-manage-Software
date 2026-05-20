@@ -41,7 +41,7 @@ import {
 import { getDefaultPreviousWeekFilter } from './Dashboard/kpiWeekUtils'
 import type { Ticket } from '../api/tickets'
 import type { DashboardMetrics } from '../api/dashboard'
-import { sessionApiCacheGet, ticketsListLogicalKey } from '../utils/sessionApiCache'
+import { sessionApiCacheClearLogicalPrefix, sessionApiCacheGet, ticketsListLogicalKey } from '../utils/sessionApiCache'
 
 /** Export/print dataset only — not needed to paint KPI cards; loaded after metrics+trends */
 const DASHBOARD_EXPORT_TICKET_PARAMS = { limit: 100, types_in: 'chore,bug' } as const
@@ -427,6 +427,24 @@ export const Dashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  useEffect(() => {
+    if (!isCustomDashboardUser) return
+    const onPaymentNaChanged = () => {
+      sessionApiCacheClearLogicalPrefix('dashboard:')
+      const gen = ++dashboardFetchGen.current
+      void (async () => {
+        try {
+          const m = await dashboardApi.getMetrics({ skipCache: true })
+          if (gen === dashboardFetchGen.current) setMetrics(m)
+        } catch {
+          /* keep previous metrics */
+        }
+      })()
+    }
+    window.addEventListener('client-payment-na-changed', onPaymentNaChanged)
+    return () => window.removeEventListener('client-payment-na-changed', onPaymentNaChanged)
+  }, [isCustomDashboardUser])
+
   const safeMetrics: DashboardMetrics = metrics ?? {
     all_tickets: 0,
     pending_till_date: 0,
@@ -446,6 +464,7 @@ export const Dashboard = () => {
     custom_received_half_yearly: 0,
     custom_received_yearly: 0,
     custom_total_due: 0,
+    custom_raised_all: 0,
     custom_pending_delegation: 0,
   }
 
@@ -476,7 +495,9 @@ export const Dashboard = () => {
     {
       title: 'Total DUE',
       metricKey: 'custom_total_due',
-      value: Number(safeMetrics.custom_total_due_quarter) || 0,
+      /** All unpaid (excl. NA) — "due till now" */
+      value: Number(safeMetrics.custom_total_due) || 0,
+      /** Current FY quarter raised (excl. NA) — matches Client Payment Overall card */
       raisedQuarter: Number(safeMetrics.custom_raised_quarter) || 0,
       icon: <WarningOutlined />,
     },

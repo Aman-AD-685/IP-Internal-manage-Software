@@ -10,6 +10,7 @@ import {
   DatePicker,
   Button,
   Dropdown,
+  message,
 } from 'antd'
 import { SearchOutlined, PhoneOutlined, MailOutlined, MessageOutlined, LinkOutlined, MoreOutlined } from '@ant-design/icons'
 import { useSearchParams, useLocation, useNavigate } from 'react-router-dom'
@@ -84,6 +85,9 @@ function getRegisterStatusLabel(ticket: Ticket): 'Completed' | 'Rejected' | 'Oth
 /** Rows per scroll chunk (API uses page_size; server allows up to 200 per request). */
 const TICKETS_CHUNK = 15
 
+/** Ant virtual tables do not render the summary sentinel reliably — breaks infinite scroll (Feature list). */
+const TICKET_LIST_USE_VIRTUAL_TABLE = false
+
 /** When API total is missing/0 but we received a full page, assume more rows exist. */
 function resolveTicketListTotal(apiTotal: number, rowCount: number, pageSize: number): number {
   if (apiTotal > 0) return apiTotal
@@ -100,20 +104,38 @@ function unwrapTicketListPayload(
   const r = response as Record<string, unknown>
   if (Array.isArray(r.data)) {
     const rows = r.data as Ticket[]
-    const rawTotal = typeof r.total === 'number' ? r.total : 0
+    const rt = r.total
+    const rawTotal =
+      typeof rt === 'number' && !Number.isNaN(rt)
+        ? rt
+        : typeof rt === 'string' && rt.trim() !== '' && !Number.isNaN(Number(rt))
+          ? Number(rt)
+          : 0
     return { rows, total: resolveTicketListTotal(rawTotal, rows.length, pageSize) }
   }
   if (r.data && typeof r.data === 'object' && !Array.isArray(r.data)) {
     const inner = r.data as Record<string, unknown>
     if (Array.isArray(inner.data)) {
       const rows = inner.data as Ticket[]
-      const rawTotal = typeof inner.total === 'number' ? inner.total : 0
+      const it = inner.total
+      const rawTotal =
+        typeof it === 'number' && !Number.isNaN(it)
+          ? it
+          : typeof it === 'string' && it.trim() !== '' && !Number.isNaN(Number(it))
+            ? Number(it)
+            : 0
       return { rows, total: resolveTicketListTotal(rawTotal, rows.length, pageSize) }
     }
   }
   if (Array.isArray(r.items)) {
     const rows = r.items as Ticket[]
-    const rawTotal = typeof r.total === 'number' ? r.total : 0
+    const rt = r.total
+    const rawTotal =
+      typeof rt === 'number' && !Number.isNaN(rt)
+        ? rt
+        : typeof rt === 'string' && rt.trim() !== '' && !Number.isNaN(Number(rt))
+          ? Number(rt)
+          : 0
     return { rows, total: resolveTicketListTotal(rawTotal, rows.length, pageSize) }
   }
   return { rows: [], total: 0 }
@@ -450,6 +472,12 @@ export const TicketList = () => {
         (apiTotal > 0 && list.length >= apiTotal) || list.length < TICKETS_CHUNK
     } catch (error) {
       console.error('Failed to fetch tickets:', error)
+      if (gen === listFetchGeneration.current) {
+        message.error(
+          'Tickets could not load — network error or server busy (try Refresh). If this persists, restart uvicorn and npm run dev.',
+          6,
+        )
+      }
     } finally {
       if (gen === listFetchGeneration.current) setLoading(false)
     }
@@ -518,12 +546,103 @@ export const TicketList = () => {
     if (stageClientInfinite) {
       const full = allTicketsForStageFilterRef.current
       if (ticketsRef.current.length >= full.length) return
+      loadingMoreRef.current = true
       const next = Math.min(full.length, ticketsRef.current.length + TICKETS_CHUNK)
       setTickets(full.slice(0, next))
+      loadingMoreRef.current = false
       return
     }
     void fetchTicketsAppend()
   }, [loading, stageClientInfinite, fetchTicketsAppend])
+
+  const listHasMoreRows = useCallback(() => {
+    if (loadingMoreRef.current) return false
+    if (stageClientInfinite) {
+      return ticketsRef.current.length < allTicketsForStageFilterRef.current.length
+    }
+    if (listExhaustedRef.current) return false
+    if (totalRef.current > 0 && ticketsRef.current.length >= totalRef.current) return false
+    return true
+  }, [stageClientInfinite])
+
+  /** When the table body is shorter than its viewport, scroll/sentinel never fire — load until scrollable or exhausted. */
+  useEffect(() => {
+    if (loading) return
+    let cancelled = false
+    let rafId = 0
+    const prefill = () => {
+      if (cancelled) return
+      if (!listHasMoreRows()) return
+      const root = scrollRootRef.current
+      if (!root) {
+        rafId = requestAnimationFrame(prefill)
+        return
+      }
+      const body = root.querySelector('.ant-table-body') as HTMLElement | null
+      if (!body) {
+        rafId = requestAnimationFrame(prefill)
+        return
+      }
+      if (body.scrollHeight <= body.clientHeight + 48) {
+        tryLoadMoreTickets()
+        rafId = requestAnimationFrame(prefill)
+      }
+    }
+    rafId = requestAnimationFrame(prefill)
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(rafId)
+    }
+  }, [
+    loading,
+    loadingMore,
+    stageClientInfinite,
+    tickets.length,
+    total,
+    allTicketsForStageFilter.length,
+    tryLoadMoreTickets,
+    listHasMoreRows,
+  ])
+
+  /** Fixed-height table: load more when user scrolls near the bottom of .ant-table-body. */
+  useEffect(() => {
+    if (loading) return
+    const root = scrollRootRef.current
+    if (!root) return
+
+    const nearBottom = () => {
+      if (!listHasMoreRows()) return
+      const body = root.querySelector('.ant-table-body') as HTMLElement | null
+      if (!body) return
+      const slack = body.scrollHeight - body.scrollTop - body.clientHeight
+      if (slack <= 180) void tryLoadMoreTickets()
+    }
+
+    let rafCheck = 0
+    let rafAttach = 0
+    const schedule = () => {
+      if (rafCheck) cancelAnimationFrame(rafCheck)
+      rafCheck = requestAnimationFrame(nearBottom)
+    }
+
+    let bodyEl: HTMLElement | null = null
+    const attachScroll = () => {
+      bodyEl = root.querySelector('.ant-table-body') as HTMLElement | null
+      if (!bodyEl) {
+        rafAttach = requestAnimationFrame(attachScroll)
+        return
+      }
+      schedule()
+      bodyEl.addEventListener('scroll', schedule, { passive: true })
+    }
+    attachScroll()
+
+    return () => {
+      if (rafAttach) cancelAnimationFrame(rafAttach)
+      if (rafCheck) cancelAnimationFrame(rafCheck)
+      bodyEl?.removeEventListener('scroll', schedule)
+    }
+  }, [loading, tickets.length, total, loadingMore, tryLoadMoreTickets, listHasMoreRows])
 
   useEffect(() => {
     sessionApiCacheClearLogicalPrefix('tickets:list:')
@@ -1445,7 +1564,7 @@ export const TicketList = () => {
               columns={columns}
               dataSource={ticketsForDisplay}
               rowKey="id"
-              virtual={!isChoresBugsSection}
+              virtual={TICKET_LIST_USE_VIRTUAL_TABLE}
               loading={false}
               locale={{
                 emptyText:
