@@ -41,7 +41,12 @@ import {
 import { getDefaultPreviousWeekFilter } from './Dashboard/kpiWeekUtils'
 import type { Ticket } from '../api/tickets'
 import type { DashboardMetrics } from '../api/dashboard'
-import { sessionApiCacheClearLogicalPrefix, sessionApiCacheGet, ticketsListLogicalKey } from '../utils/sessionApiCache'
+import {
+  DASHBOARD_CROSS_TAB_BUMP_KEY,
+  sessionApiCacheClearLogicalPrefix,
+  sessionApiCacheGet,
+  ticketsListLogicalKey,
+} from '../utils/sessionApiCache'
 
 /** Export/print dataset only — not needed to paint KPI cards; loaded after metrics+trends */
 const DASHBOARD_EXPORT_TICKET_PARAMS = { limit: 100, types_in: 'chore,bug' } as const
@@ -146,7 +151,6 @@ export const Dashboard = () => {
   const customDashboardPaymentOnlyEmails = new Set(['ea@industryprime.com'])
   const isCustomDashboardFullUser = emailLower ? customDashboardFullEmails.has(emailLower) : false
   const isCustomDashboardPaymentOnlyUser = emailLower ? customDashboardPaymentOnlyEmails.has(emailLower) : false
-  const isCustomDashboardUser = isCustomDashboardFullUser || isCustomDashboardPaymentOnlyUser
   const [loading, setLoading] = useState(true)
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null)
   const [allFetchedTickets, setAllFetchedTickets] = useState<Ticket[]>([])
@@ -427,9 +431,9 @@ export const Dashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  /** Client Payment runs on another route/tab; sessionStorage is per-tab, so NA/payment updates broadcast via localStorage. */
   useEffect(() => {
-    if (!isCustomDashboardUser) return
-    const onPaymentNaChanged = () => {
+    const refetchMetricsFromServer = () => {
       sessionApiCacheClearLogicalPrefix('dashboard:')
       const gen = ++dashboardFetchGen.current
       void (async () => {
@@ -441,9 +445,23 @@ export const Dashboard = () => {
         }
       })()
     }
+
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== DASHBOARD_CROSS_TAB_BUMP_KEY || e.newValue == null) return
+      refetchMetricsFromServer()
+    }
+    window.addEventListener('storage', onStorage)
+
+    const onPaymentNaChanged = () => {
+      refetchMetricsFromServer()
+    }
     window.addEventListener('client-payment-na-changed', onPaymentNaChanged)
-    return () => window.removeEventListener('client-payment-na-changed', onPaymentNaChanged)
-  }, [isCustomDashboardUser])
+
+    return () => {
+      window.removeEventListener('storage', onStorage)
+      window.removeEventListener('client-payment-na-changed', onPaymentNaChanged)
+    }
+  }, [])
 
   const safeMetrics: DashboardMetrics = metrics ?? {
     all_tickets: 0,
@@ -466,13 +484,18 @@ export const Dashboard = () => {
     custom_total_due: 0,
     custom_raised_all: 0,
     custom_pending_delegation: 0,
+    custom_received_in_fy_quarter: undefined,
   }
 
-  const customReceivedTotal =
+  const customReceivedGenreFallback =
     Number(safeMetrics.custom_received_monthly) +
     Number(safeMetrics.custom_received_quarterly) +
     Number(safeMetrics.custom_received_half_yearly) +
     Number(safeMetrics.custom_received_yearly)
+  const customReceivedTotal =
+    typeof safeMetrics.custom_received_in_fy_quarter === 'number'
+      ? safeMetrics.custom_received_in_fy_quarter
+      : customReceivedGenreFallback
 
   const baseMetricCards = [
     { title: 'Total Pending Bug (till date)', metricKey: 'total_pending_bug', value: Number(safeMetrics.total_pending_bug_till_date) ?? 0, icon: <FileTextOutlined /> },
@@ -487,7 +510,7 @@ export const Dashboard = () => {
 
   const paymentOnlyCards = [
     {
-      title: 'Total Rec Ammount',
+      title: 'Total Rec Amount',
       metricKey: 'custom_total_rec_amount',
       value: Number(customReceivedTotal) || 0,
       icon: <FileTextOutlined />,

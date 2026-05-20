@@ -2376,6 +2376,7 @@ def dashboard_metrics(auth: dict = Depends(get_current_user)):
     custom_total_due_quarter = 0
     custom_raised_quarter = 0
     custom_raised_all = 0  # Gross raised (all invoices, incl. paid), excludes NA — pairs with Payment card Total Due
+    custom_received_in_fy_quarter = 0  # Cash received in current India FY quarter (any invoice)
     custom_pending_delegation = 0
 
     custom_full_emails = {"ad@ip.com", "ayush@industryprime.com"}
@@ -2439,9 +2440,10 @@ def dashboard_metrics(auth: dict = Depends(get_current_user)):
                 elif g == "Y":
                     custom_received_yearly += amt
 
-            # Align dashboard "Total Raised" with Client Payment Overall card (same KPI helper).
+            # Align dashboard Payment card totals with Client Payment Overall card (carry-forward logic).
             kpis = _compute_payment_ageing_kpis(pay_rows, None, receive_by_cp_id)
             custom_raised_quarter = int((kpis.get("overall_in_quarter") or {}).get("raised") or custom_raised_quarter)
+            custom_received_in_fy_quarter = int((kpis.get("overall_in_quarter") or {}).get("received") or 0)
         except Exception as e:
             _log(f"dashboard payment metrics: {e}")
 
@@ -2474,6 +2476,7 @@ def dashboard_metrics(auth: dict = Depends(get_current_user)):
         "custom_total_due_quarter": custom_total_due_quarter,
         "custom_raised_quarter": custom_raised_quarter,
         "custom_raised_all": custom_raised_all,
+        "custom_received_in_fy_quarter": custom_received_in_fy_quarter,
         "custom_pending_delegation": custom_pending_delegation,
         "response_delay": response_delay,
         "completion_delay": completion_delay,
@@ -2595,7 +2598,7 @@ def dashboard_detail(
     elif metric == "feature_with_demo_c":
         result = [row(t) for t in all_feature if _is_pending_ticket(t) and _company_demo_c_t(t)]
     elif metric in ("custom_total_rec_amount", "custom_total_due"):
-        # Total Due: all unpaid rows (Payment Management). Received: trailing 12 months (matches dashboard metrics).
+        # Total Due: unpaid open invoices (excl. NA). Received detail: payments with payment date in current India FY quarter.
         from datetime import date as date_cls
         from datetime import timedelta
 
@@ -2604,14 +2607,15 @@ def dashboard_detail(
 
         if metric == "custom_total_due":
             try:
-                pr = (
+                due_q = (
                     supabase.table("onboarding_client_payment")
                     .select(_ocp_list_select_columns())
                     .is_("payment_received_date", "null")
                     .order("timestamp", desc=True)
                     .limit(_LIST_CLIENT_PAYMENT_LIMIT)
-                    .execute()
                 )
+                due_q = _ocp_query_exclude_marked_na(due_q)
+                pr = due_q.execute()
                 pay_rows = pr.data or []
             except Exception:
                 pay_rows = []
@@ -2645,37 +2649,60 @@ def dashboard_detail(
                     }
                 )
         else:
+            fyq, qq = _pa.fy_quarter_key(today)
+            qr_start, qr_end = _pa.quarter_date_bounds(fyq, qq)
+            recv_by: dict[str, dict] = {}
+            pay_rows_recv: list = []
             try:
-                pr = (
-                    supabase.table("onboarding_client_payment")
-                    .select("id, reference_no, company_name, invoice_amount, invoice_date, invoice_number, timestamp, genre, payment_received_date, stage")
-                    .not_.is_("payment_received_date", "null")
-                    .limit(5000)
+                rrecv = (
+                    supabase.table("onboarding_client_payment_receive")
+                    .select("client_payment_id,amount,payment_date")
+                    .limit(8000)
                     .execute()
                 )
-                pay_rows = pr.data or []
-            except Exception:
-                pay_rows = []
-            for rowp in pay_rows:
+                for xr in rrecv.data or []:
+                    xid = str(xr.get("client_payment_id") or "").strip()
+                    if xid:
+                        recv_by[xid] = xr
+                rec_q = (
+                    supabase.table("onboarding_client_payment")
+                    .select(_ocp_list_select_columns())
+                    .not_.is_("payment_received_date", "null")
+                    .limit(8000)
+                )
+                rec_q = _ocp_query_exclude_marked_na(rec_q)
+                pr = rec_q.execute()
+                pay_rows_recv = pr.data or []
+            except Exception as ex:
+                _log(f"dashboard_detail custom_total_rec_amount: {ex}")
+            for rowp in pay_rows_recv:
                 if _client_payment_row_unpaid(rowp):
                     continue
-                anchor_d = _client_payment_received_quarter_anchor(rowp)
-                if not anchor_d or not (recv_window_start <= anchor_d <= today):
+                if _client_payment_row_marked_na(rowp):
+                    continue
+                cpid = str(rowp.get("id") or "").strip()
+                rrow = recv_by.get(cpid) if cpid else None
+                pay_d = _pa._parse_date((rrow or {}).get("payment_date")) or _pa._parse_date(
+                    rowp.get("payment_received_date")
+                )
+                if not pay_d or pay_d < qr_start or pay_d > qr_end:
                     continue
                 amt = _parse_invoice_amount(rowp.get("invoice_amount"))
-                g = _normalize_client_payment_genre(rowp.get("genre"))
-                if g not in ("M", "Q", "HY", "Y"):
-                    continue
+                g_raw = _normalize_client_payment_genre(rowp.get("genre"))
+                genre_label = (
+                    {"M": "Monthly", "Q": "Quarterly", "HY": "Half-Yearly", "Y": "Yearly"}.get(
+                        g_raw, (rowp.get("genre") or "—").strip() or "—"
+                    )
+                )
                 inv_d = _pa._parse_date(rowp.get("invoice_date")) or _pa._parse_date(rowp.get("timestamp"))
                 company_name = (rowp.get("company_name") or "").strip() or "Unknown"
                 reference_no = (rowp.get("reference_no") or "").strip() or str(rowp.get("id") or "N/A")
-                genre_label = {"M": "Monthly", "Q": "Quarterly", "HY": "Half-Yearly", "Y": "Yearly"}.get(g, g)
                 result.append(
                     {
                         "id": str(rowp.get("id") or ""),
                         "referenceNo": reference_no,
                         "title": company_name,
-                        "description": f"Genre: {genre_label} | Amount: ₹{amt} | Received: {anchor_d.isoformat()}",
+                        "description": f"Genre: {genre_label} | Amount: ₹{amt} | Payment date: {pay_d.isoformat()}",
                         "type": "payment",
                         "company": company_name,
                         "status": "Received",
@@ -2683,7 +2710,7 @@ def dashboard_detail(
                         "invoiceDate": inv_d.isoformat() if inv_d else "",
                         "invoiceNumber": (rowp.get("invoice_number") or "").strip(),
                         "stage": (rowp.get("stage") or "—").strip() or "—",
-                        "genre": genre_label,
+                        "genre": str(genre_label),
                         "agingDays": None,
                     }
                 )
@@ -5752,11 +5779,84 @@ def _ocp_pay_rows_select_columns() -> str:
     return f"{_OCP_PAY_ROWS_COLUMNS_BASE},marked_na"
 
 
+def _ocp_query_exclude_marked_na(q):
+    """Drop invoices explicitly marked NA from Payment KPIs and Due.
+
+    Uses (marked_na IS NULL OR marked_na = false) so legacy rows stay visible if the column was backfilled.
+    """
+    if not _client_payment_marked_na_supported():
+        return q
+    return q.or_("marked_na.is.null,marked_na.eq.false")
+
+
+# Safety cap when paginating all invoice rows from Supabase (1000 × 500 = 500k rows max).
+_OCP_AGG_PAGE_SIZE = 1000
+_OCP_AGG_MAX_PAGES = 500
+
+
+def _sum_invoice_amount_pages(
+    *,
+    exclude_na_marked: bool,
+    unpaid_only: bool,
+    na_marked_only: bool,
+) -> int:
+    """Sum invoice_amount with stable pagination by id."""
+    total = 0
+    offset = 0
+    pages = 0
+    while pages < _OCP_AGG_MAX_PAGES:
+        try:
+            q = supabase.table("onboarding_client_payment").select("invoice_amount").order("id")
+            if exclude_na_marked:
+                q = _ocp_query_exclude_marked_na(q)
+            if unpaid_only:
+                q = q.is_("payment_received_date", "null")
+            if na_marked_only:
+                if not _client_payment_marked_na_supported():
+                    break
+                q = q.eq("marked_na", True)
+            q = q.range(offset, offset + _OCP_AGG_PAGE_SIZE - 1)
+            r = q.execute()
+        except Exception as e:
+            err = str(e).lower()
+            if na_marked_only and "marked_na" in err and ("does not exist" in err or "42703" in err):
+                global _MARKED_NA_COLUMN_SUPPORTED
+                _MARKED_NA_COLUMN_SUPPORTED = False
+                return 0
+            _log(f"invoice amount aggregate page: {e}")
+            break
+        rows = r.data or []
+        if not rows:
+            break
+        total += sum(_parse_invoice_amount(row.get("invoice_amount")) for row in rows)
+        if len(rows) < _OCP_AGG_PAGE_SIZE:
+            break
+        offset += _OCP_AGG_PAGE_SIZE
+        pages += 1
+    return int(total)
+
+
+def _sum_all_raised_invoice_excl_na() -> int:
+    """Lifetime gross invoice amounts excluding NA-marked rows (every invoice_date)."""
+    if _client_payment_marked_na_supported():
+        return _sum_invoice_amount_pages(exclude_na_marked=True, unpaid_only=False, na_marked_only=False)
+    return _sum_invoice_amount_pages(exclude_na_marked=False, unpaid_only=False, na_marked_only=False)
+
+
+def _sum_unpaid_invoice_marked_na() -> int:
+    """Sum of unpaid invoice rows explicitly marked NA (excluded from due and lifetime)."""
+    if not _client_payment_marked_na_supported():
+        return 0
+    return _sum_invoice_amount_pages(exclude_na_marked=False, unpaid_only=True, na_marked_only=True)
+
+
 def _fetch_client_payment_rows_for_metrics(limit: int = 5000) -> list[dict]:
     """Load payment rows for dashboard KPIs and ageing; includes id/company for receive joins."""
     cols = _ocp_pay_rows_select_columns()
     try:
-        r = supabase.table("onboarding_client_payment").select(cols).limit(limit).execute()
+        base = supabase.table("onboarding_client_payment").select(cols)
+        base = _ocp_query_exclude_marked_na(base)
+        r = base.limit(limit).execute()
         return r.data or []
     except Exception as e:
         err = str(e).lower()
@@ -5772,17 +5872,23 @@ def _fetch_client_payment_rows_for_metrics(limit: int = 5000) -> list[dict]:
 
 
 def _sum_unpaid_client_payment_excluding_na(limit: int = 5000) -> int:
-    """Total Due (all unpaid raised invoices, any invoice date), excluding NA-marked rows."""
+    """Total Due — unpaid invoices excluding NA-marked (exact sum via pagination when NA column exists)."""
     try:
-        q = (
+        if _client_payment_marked_na_supported():
+            return int(
+                _sum_invoice_amount_pages(
+                    exclude_na_marked=True,
+                    unpaid_only=True,
+                    na_marked_only=False,
+                )
+            )
+        r = (
             supabase.table("onboarding_client_payment")
             .select("invoice_amount")
             .is_("payment_received_date", "null")
             .limit(limit)
+            .execute()
         )
-        if _client_payment_marked_na_supported():
-            q = q.eq("marked_na", False)
-        r = q.execute()
         return sum(_parse_invoice_amount(row.get("invoice_amount")) for row in (r.data or []))
     except Exception as e:
         err = str(e).lower()
@@ -5853,7 +5959,7 @@ def list_client_payment(
                 if nv == "na":
                     q = q.eq("marked_na", True)
                 else:
-                    q = q.eq("marked_na", False)
+                    q = _ocp_query_exclude_marked_na(q)
         q = q.range(offset, offset + page_size - 1)
         r = q.execute()
         items = r.data or []
@@ -5952,6 +6058,10 @@ def _client_payment_row_unpaid(row: dict) -> bool:
 
 def _client_payment_row_marked_na(row: dict) -> bool:
     v = row.get("marked_na")
+    if v is None or v is False:
+        return False
+    if isinstance(v, str) and v.strip().lower() in ("false", "f", "0", "no", "n", ""):
+        return False
     if v is True:
         return True
     if v in (1, 1.0):
@@ -6047,11 +6157,18 @@ def _compute_payment_ageing_kpis(
     allowed: frozenset[str] | None,
     receive_by_cp_id: dict[str, dict] | None = None,
 ) -> dict:
-    """Raised vs received from Payment Management.
+    """Raised vs received from Payment Management (India FY quarters).
 
-    Quarterly / monthly / genre breakdowns: invoice or payment dates fall in the stated windows.
-    **Overall card — raised:** sum of all invoice amounts company-wide excluding NA (any invoice date),
-    so marking NA always reduces this figure. **Overall — received:** still the current FY quarter only.
+    **Quarterly / Monthly cards:** unchanged — invoice-dated cohort + genre (strict period).
+
+    **overall_in_quarter (Overall card) — carry-forward:**
+    - **Raised** = invoices dated in the current FY quarter plus **unpaid** invoices dated **before**
+      this quarter starts (still no Payment Received saved). NA rows excluded.
+    - **Received** = all payment amounts with **payment date** in the current FY quarter (any invoice
+      date), excluding NA. Collecting last quarter’s invoice in this quarter increases Received here.
+
+    ``lifetime_raised_excl_na`` from this loop is capped by ``pay_rows`` length; payment-summary
+    replaces it with a paginated DB sum.
     """
     import calendar
     from datetime import date as date_cls
@@ -6064,7 +6181,9 @@ def _compute_payment_ageing_kpis(
 
     q_raised = q_received = 0
     m_month_raised = m_month_received = 0
-    o_received = 0
+    o_raised_quarter = 0
+    o_received_cash_in_fy_quarter = 0  # any invoice; payment date in current FY quarter
+    o_carried_unpaid_prior_quarters = 0  # unpaid, invoice dated before q_start (excl NA)
     m_in_q_raised = m_in_q_received = 0
     hy_in_q_raised = hy_in_q_received = 0
     gross_raised_excl_na = 0
@@ -6085,30 +6204,37 @@ def _compute_payment_ageing_kpis(
         if not is_na:
             gross_raised_excl_na += amt
 
-        # Raised is attributed by invoice date (NA rows excluded from quarter buckets).
+        # Cash received in current FY quarter — any invoice (carry-forward collections).
+        if not is_na and pay_d and q_start <= pay_d <= q_end:
+            o_received_cash_in_fy_quarter += rec_amt
+
+        # Unpaid backlog from invoices dated before this quarter (carries forward as "raised" lens).
+        if inv_d and inv_d < q_start and not is_na and not pay_d:
+            o_carried_unpaid_prior_quarters += amt
+
+        # Invoice-dated FY quarter bucket (all genres): cohort for quarter-dated invoices only.
         if inv_d and q_start <= inv_d <= q_end and not is_na:
+            o_raised_quarter += amt
+            # Genre stripes inside the quarter (still invoice-dated cohort for both sides).
             if g == "Q":
                 q_raised += amt
+                if pay_d:
+                    q_received += rec_amt
             elif g == "M":
                 m_in_q_raised += amt
+                if pay_d:
+                    m_in_q_received += rec_amt
             elif g == "HY":
                 hy_in_q_raised += amt
+                if pay_d:
+                    hy_in_q_received += rec_amt
 
         if inv_d and m_start <= inv_d <= m_end and g == "M" and not is_na:
             m_month_raised += amt
+            if pay_d:
+                m_month_received += rec_amt
 
-        # Received is attributed by payment received date.
-        if pay_d and q_start <= pay_d <= q_end:
-            o_received += rec_amt
-            if g == "Q":
-                q_received += rec_amt
-            elif g == "M":
-                m_in_q_received += rec_amt
-            elif g == "HY":
-                hy_in_q_received += rec_amt
-
-        if pay_d and m_start <= pay_d <= m_end and g == "M":
-            m_month_received += rec_amt
+    o_raised_overall_with_carry = o_raised_quarter + o_carried_unpaid_prior_quarters
 
     def pair(recv: int, raised: int) -> dict:
         return {"received": int(recv), "raised": int(raised)}
@@ -6119,9 +6245,11 @@ def _compute_payment_ageing_kpis(
         "month_period_label": today.strftime("%b %Y"),
         "quarterly_genre_q": pair(q_received, q_raised),
         "monthly_genre_m": pair(m_month_received, m_month_raised),
-        "overall_in_quarter": pair(o_received, gross_raised_excl_na),
+        "overall_in_quarter": pair(o_received_cash_in_fy_quarter, o_raised_overall_with_carry),
+        "overall_carried_unpaid_prior_quarters": int(o_carried_unpaid_prior_quarters),
         "monthly_in_quarter": pair(m_in_q_received, m_in_q_raised),
         "half_yearly_in_quarter": pair(hy_in_q_received, hy_in_q_raised),
+        "lifetime_raised_excl_na": int(gross_raised_excl_na),
     }
 
 
@@ -6142,8 +6270,7 @@ def _payment_ageing_report_payload():
     pay_rows: list[dict] = []
     try:
         pr = (
-            supabase.table("onboarding_client_payment")
-            .select(_ocp_pay_rows_select_columns())
+            _ocp_query_exclude_marked_na(supabase.table("onboarding_client_payment").select(_ocp_pay_rows_select_columns()))
             .limit(5000)
             .execute()
         )
@@ -6202,7 +6329,7 @@ def _payment_ageing_report_payload():
         rec_amt = _parse_invoice_amount((rec_row or {}).get("amount")) if rec_row else (amt if row.get("payment_received_date") else 0)
         if not _client_payment_row_marked_na(row):
             by_name[nm]["invoice_total"] += amt
-        if rec_amt > 0:
+        if rec_amt > 0 and not _client_payment_row_marked_na(row):
             by_name[nm]["received_total"] += rec_amt
         inv_d = _pa._parse_date(row.get("invoice_date")) or _pa._parse_date(row.get("timestamp"))
         fd = by_name[nm]["first_date"]
@@ -6211,7 +6338,7 @@ def _payment_ageing_report_payload():
                 by_name[nm]["first_date"] = inv_d
                 by_name[nm]["display_name"] = (row.get("company_name") or "").strip()
         pay_d = _pa._parse_date((rec_row or {}).get("payment_date")) or _pa._parse_date(row.get("payment_received_date"))
-        if inv_d and pay_d and pay_d >= inv_d:
+        if inv_d and pay_d and pay_d >= inv_d and not _client_payment_row_marked_na(row):
             fy0, q0 = _pa.fy_quarter_key(pay_d)
             qi = fyq_to_quarter_idx.get((fy0, q0))
             if qi is None:
@@ -6486,6 +6613,8 @@ def _payment_ageing_report_payload():
         # Keep count/list aligned with real payment rows received in current FY quarter.
         cq_by_name: dict[str, dict] = {}
         for row in pay_rows or []:
+            if _client_payment_row_marked_na(row):
+                continue
             nm = _norm_name_company(row.get("company_name"))
             if not nm:
                 continue
@@ -6559,8 +6688,7 @@ def _payment_ageing_report_payload():
     pay_rows: list[dict] = []
     try:
         pr = (
-            supabase.table("onboarding_client_payment")
-            .select(_ocp_pay_rows_select_columns())
+            _ocp_query_exclude_marked_na(supabase.table("onboarding_client_payment").select(_ocp_pay_rows_select_columns()))
             .limit(5000)
             .execute()
         )
@@ -6616,9 +6744,9 @@ def _payment_ageing_report_payload():
         received_amount = _parse_invoice_amount((rec_row or {}).get("amount")) if rec_row else (amount if row.get("payment_received_date") else 0)
         if not _client_payment_row_marked_na(row):
             agg["invoice_total"] += amount
-        agg["received_total"] += received_amount
+            agg["received_total"] += received_amount
         paid_d = _pa._parse_date((rec_row or {}).get("payment_date")) or _pa._parse_date(row.get("payment_received_date"))
-        if paid_d and paid_d >= inv_d:
+        if paid_d and paid_d >= inv_d and not _client_payment_row_marked_na(row):
             ageing_qkey = _pa.fy_quarter_key(paid_d)
             payment_quarter_key_set.add(ageing_qkey)
             agg["quarter_days"][ageing_qkey].append((paid_d - inv_d).days)
@@ -7018,9 +7146,20 @@ def client_payment_payment_summary(auth: dict = Depends(get_current_user)):
     except Exception as e:
         _log(f"payment summary receive rows: {e}")
     kpis = _compute_payment_ageing_kpis(pay_rows, None, receive_by_cp_id)
+    lifetime_excl = _sum_all_raised_invoice_excl_na()
+    na_unpaid_total = _sum_unpaid_invoice_marked_na()
+    kpis["lifetime_raised_excl_na"] = int(lifetime_excl)
+    kpis["na_marked_unpaid_invoice_total"] = int(na_unpaid_total)
+    kpis["kpi_scope_note"] = (
+        "Quarterly & Monthly cards are strict invoice-dated slices. Overall adds unpaid invoices dated "
+        "before this FY quarter until Payment Received is saved, and counts all receipts with payment "
+        "date in this FY quarter—even for older invoices. India FY quarters (Apr–Mar)."
+    )
     payload = {
         "total_due": _sum_unpaid_client_payment_excluding_na(),
         "raised_quarter": int((kpis.get("overall_in_quarter") or {}).get("raised") or 0),
+        "lifetime_raised_excl_na": int(lifetime_excl),
+        "na_marked_unpaid_invoice_total": int(na_unpaid_total),
         "kpis": kpis,
         "marked_na_supported": _client_payment_marked_na_supported(),
     }

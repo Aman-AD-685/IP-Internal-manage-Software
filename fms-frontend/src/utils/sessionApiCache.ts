@@ -165,6 +165,16 @@ export function invalidateAfterTicketMutation(ticketId?: string): void {
   if (ticketId) sessionApiCacheRemove(ticketGetLogicalKey(ticketId))
 }
 
+/** Other browser tabs listen for this key (storage event) to drop cached dashboard metrics. */
+export const DASHBOARD_CROSS_TAB_BUMP_KEY = 'fms:dashboard:metrics:bump'
+
 export function invalidateAfterDashboardPaymentSubmit(): void {
   sessionApiCacheClearLogicalPrefix('dashboard:')
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(DASHBOARD_CROSS_TAB_BUMP_KEY, String(Date.now()))
+    }
+  } catch {
+    /* private mode / quota */
+  }
 }
