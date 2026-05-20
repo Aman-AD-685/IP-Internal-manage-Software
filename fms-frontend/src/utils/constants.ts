@@ -21,6 +21,8 @@ export const ROLE_DISPLAY_NAMES: Record<string, string> = {
 export const SECTION_LABELS: Record<string, string> = {
   dashboard: 'Dashboard',
   dashboard_kpi: 'Dashboard - KPI',
+  improvement: 'Improvement',
+  improvement_i1: 'I - 1',
   support_dashboard: 'Support Dashboard',
   all_tickets: 'All Tickets',
   chores_bugs: 'Chores & Bugs',
@@ -52,6 +54,8 @@ export const SECTION_LABELS: Record<string, string> = {
 export const PERMISSION_SECTION_KEYS: readonly string[] = [
   'dashboard',
   'dashboard_kpi',
+  'improvement',
+  'improvement_i1',
   'support_dashboard',
   'all_tickets',
   'chores_bugs',

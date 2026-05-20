@@ -204,6 +204,7 @@ from app.feature_approval_reminder_routes import feature_approval_reminder_route
 from app.cron_email_routes import cron_email_router
 from app.approval_email_pages import approval_public_router
 from app.escalation_email_routes import escalation_email_router
+from app.improvement_suggestions_routes import improvement_router
 
 app.include_router(feature_approval_reminder_router)
 app.include_router(feature_approval_reminder_router, prefix="/api")
@@ -213,6 +214,8 @@ app.include_router(escalation_email_router)
 app.include_router(escalation_email_router, prefix="/api")
 app.include_router(cron_email_router)
 app.include_router(cron_email_router, prefix="/api")
+app.include_router(improvement_router)
+app.include_router(improvement_router, prefix="/api")
 
 
 @app.on_event("startup")
@@ -1605,6 +1608,7 @@ def list_tickets(
     type_filter: str | None = None,  # For section=chores-bugs: chore | bug (Type of Request filter)
     search_all_sections: bool = False,   # When True + search present: ignore section/type, search all tickets
     mine_only: bool = False,  # When True: only tickets created_by current user (export / operator scope)
+    export_date_range: bool = False,  # Export: all chore/bug rows in date range (ignore queue/status sub-filters)
     auth: dict = Depends(get_current_user),
 ):
     page = max(1, int(page or 1))
@@ -1650,17 +1654,20 @@ def list_tickets(
             q = q.in_("type", types_list)
         q = q.not_.is_("quality_solution", "null")
     elif apply_section_filter and section == "chores-bugs":
-        q = _apply_chores_bugs_pending_filters(q, type_filter, status_2_filter)
+        if export_date_range:
+            # Date-range export: every chore/bug with created_at in range (not only open-queue subset)
+            q = q.in_("type", ["chore", "bug"])
+        else:
+            q = _apply_chores_bugs_pending_filters(q, type_filter, status_2_filter)
     elif apply_section_filter and section == "approval-status":
         # Feature requests: only Pending and Unapproved (exclude Approved)
         q = q.eq("type", "feature")
         q = q.or_("staging_planned.is.null,live_review_status.eq.completed")
         if approval_filter == "pending":
             q = q.is_("approval_status", "null")
-        elif approval_filter == "unapproved":
-            q = q.eq("approval_status", "unapproved")
-        elif approval_filter == "rejected":
-            q = q.eq("approval_status", "rejected")
+        elif approval_filter in ("unapproved", "rejected"):
+            # Unapprove filter includes legacy "rejected" status (no separate Rejected filter in UI)
+            q = q.or_("approval_status.eq.unapproved,approval_status.eq.rejected")
         elif approval_filter == "hold":
             q = q.eq("approval_status", "hold")
         else:
@@ -1874,6 +1881,29 @@ def update_ticket(ticket_id: str, payload: UpdateTicketRequest, auth: dict = Dep
             }).execute()
         except Exception:
             pass
+        st_notify = data.get("approval_status")
+        if st_notify in ("approved", "rejected", "hold"):
+            try:
+                from app.feature_approval_submitter_notify import fire_submitter_approval_notification
+
+                trn = (
+                    supabase.table("tickets")
+                    .select("reference_no, title, type")
+                    .eq("id", ticket_id)
+                    .limit(1)
+                    .execute()
+                )
+                if trn.data and trn.data[0].get("type") == "feature":
+                    fire_submitter_approval_notification(
+                        ticket_id,
+                        status=st_notify,
+                        reference_no=trn.data[0].get("reference_no"),
+                        title=trn.data[0].get("title"),
+                        remarks=data.get("remarks"),
+                        source="ui",
+                    )
+            except Exception:
+                pass
     # Level 3 (user): one-time edit for Stage 1, 3, 4. Stage 2 stays editable multiple times for all users.
     if role == "user":
         updated = r.data[0]
@@ -1990,7 +2020,14 @@ def create_approval_tokens(
     tokens_out = []
     from app.public_urls import build_approval_email_action_url
 
+    token_str: str | None = None
     for action in ("approve", "reject", "hold"):
+        if token_str:
+            tokens_out.append({
+                "action": action,
+                "url": build_approval_email_action_url(token_str, action),
+            })
+            continue
         try:
             row = supabase.table("approval_tokens").insert({
                 "ticket_id": ticket_id,
@@ -2000,12 +2037,20 @@ def create_approval_tokens(
             if row.data and len(row.data) > 0:
                 token = row.data[0].get("token")
                 if token:
+                    token_str = str(token)
                     tokens_out.append({
                         "action": action,
-                        "url": build_approval_email_action_url(str(token), action),
+                        "url": build_approval_email_action_url(token_str, action),
                     })
         except Exception:
             continue
+    if token_str:
+        for action in ("approve", "reject", "hold"):
+            if not any(t.get("action") == action for t in tokens_out):
+                tokens_out.append({
+                    "action": action,
+                    "url": build_approval_email_action_url(token_str, action),
+                })
     return {"ticket_id": ticket_id, "links": tokens_out, "expires_in_days": 7}
 
 
@@ -10474,9 +10519,9 @@ def _map_role(name: str) -> str:
 # Section keys for user_section_permissions (Edit User matrix + login).
 # Dashboard KPI subsections come from app.dashboard_kpi_sections (auto-merged after dashboard_kpi).
 _BASE_SECTION_KEYS = [
-    "dashboard", "dashboard_kpi", "support_dashboard", "all_tickets", "chores_bugs", "staging", "feature",
-    "approval_status", "completed_chores_bugs", "rejected_tickets", "completed_feature",
-    "solution", "task", "success_performance", "success_comp_perform",
+    "dashboard", "dashboard_kpi", "improvement", "improvement_i1", "support_dashboard", "all_tickets",
+    "chores_bugs", "staging", "feature", "approval_status", "completed_chores_bugs", "rejected_tickets",
+    "completed_feature", "solution", "task", "success_performance", "success_comp_perform",
     "client_to_lead", "leads", "onboarding", "onboarding_payment_status", "client_payment",
     "training", "db_client", "settings", "users",
 ]
@@ -10486,6 +10531,8 @@ SECTION_KEYS = merge_section_keys(_BASE_SECTION_KEYS)
 _SECTION_LABELS_BASE: dict[str, str] = {
     "dashboard": "Dashboard",
     "dashboard_kpi": "Dashboard - KPI (page)",
+    "improvement": "Improvement (submit suggestion)",
+    "improvement_i1": "I - 1 (improvement board)",
     "support_dashboard": "Support Dashboard",
     "all_tickets": "All Tickets",
     "chores_bugs": "Chores & Bugs",

@@ -291,14 +291,18 @@ def fetch_pending_feature_tickets() -> list[dict[str, Any]]:
 def _create_email_approval_links(ticket_id: str) -> dict[str, str]:
     """One-time approve / reject / hold links for reminder email (7-day expiry).
 
-    Each action gets its own token row so Hold works independently of Approve/Reject
-    (a failed hold insert must not block the other buttons).
+    Uses a single token row per ticket; the ?action= query selects approve/reject/hold
+    so all three buttons appear even when only one insert succeeds.
     """
     expires = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
     from app.public_urls import build_approval_email_action_url
 
     links: dict[str, str] = {}
+    token_str: str | None = None
     for action in ("approve", "reject", "hold"):
+        if token_str:
+            links[action] = build_approval_email_action_url(token_str, action)
+            continue
         try:
             ins = (
                 supabase.table("approval_tokens")
@@ -308,9 +312,14 @@ def _create_email_approval_links(ticket_id: str) -> dict[str, str]:
             row = (ins.data or [None])[0]
             token = row.get("token") if row else None
             if token:
-                links[action] = build_approval_email_action_url(str(token), action)
+                token_str = str(token)
+                links[action] = build_approval_email_action_url(token_str, action)
         except Exception as e:
             _notify(f"approval token create {ticket_id} action={action}: {e}")
+    if token_str:
+        for action in ("approve", "reject", "hold"):
+            if action not in links:
+                links[action] = build_approval_email_action_url(token_str, action)
     return links
 
 

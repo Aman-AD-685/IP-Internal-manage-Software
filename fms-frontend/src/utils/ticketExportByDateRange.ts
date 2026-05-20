@@ -20,22 +20,24 @@ function unwrapTicketList(response: unknown): { rows: Ticket[]; total: number } 
   return { rows: [], total: 0 }
 }
 
-/** Paginate GET /tickets until all rows for params are loaded. */
+/**
+ * Paginate GET /tickets until a short page is returned.
+ * Do not stop when `total` is reached — Supabase/axios often omits or underestimates count.
+ */
 export async function fetchAllTicketsPages(baseParams: ListParams): Promise<Ticket[]> {
   const all: Ticket[] = []
   let page = 1
-  const pageSize = 100
+  const pageSize = 200
   for (;;) {
     const response = await ticketsApi.list({
       ...baseParams,
       page,
       page_size: pageSize,
-      limit: pageSize,
       skipCache: true,
     })
-    const { rows: chunk, total } = unwrapTicketList(response)
+    const { rows: chunk } = unwrapTicketList(response)
     all.push(...chunk)
-    if (chunk.length < pageSize || all.length >= total) break
+    if (chunk.length < pageSize) break
     page += 1
     if (page > 500) break
   }
