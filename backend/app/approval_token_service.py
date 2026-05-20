@@ -66,6 +66,27 @@ def execute_approval_by_token(token: str, action: str, remarks: str | None = Non
         pass
 
     ticket_id = row["ticket_id"]
+
+    tck = (
+        supabase.table("tickets")
+        .select("approval_status, reference_no")
+        .eq("id", ticket_id)
+        .limit(1)
+        .execute()
+    )
+    if not tck.data:
+        raise HTTPException(status_code=404, detail="Ticket not found.")
+    current_status = tck.data[0].get("approval_status")
+    if current_status not in (None, ""):
+        ref = (tck.data[0].get("reference_no") or "") or str(ticket_id)[:8]
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Feature request {ref} is no longer pending approval "
+                f"(current status: {current_status}). This {action} link cannot be used."
+            ),
+        )
+
     remarks_clean = (remarks or "").strip()
     if action in ("reject", "hold") and not remarks_clean:
         label = "rejecting" if action == "reject" else "placing on hold"

@@ -7,16 +7,13 @@ from fastapi import APIRouter, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 
 from app.approval_token_service import execute_approval_by_token
-from app.public_urls import get_public_api_base, is_loopback_url
+from app.public_urls import get_public_api_base
 
 approval_public_router = APIRouter(tags=["approval-public"])
 
 
-def _email_action_post_url(request: Request) -> str:
-    """Absolute POST target — works behind Render proxy and avoids relative-path issues."""
-    base = str(request.base_url).rstrip("/")
-    if not is_loopback_url(base):
-        return f"{base}/approval/email-action"
+def _email_action_post_url(_request: Request) -> str:
+    """Always POST to the same public backend base as Approve/Reject email links."""
     return f"{get_public_api_base()}/approval/email-action"
 
 
@@ -49,8 +46,14 @@ def _page_shell(title: str, body: str, *, ok: bool = True) -> str:
 </head><body><div class="card">{body}<p class="muted">You can close this window.</p></div></body></html>"""
 
 
-def _success_html(message: str) -> str:
-    body = f'<div class="ok">✓</div><h1>Done</h1><p>{html.escape(message)}</p>'
+def _success_html(message: str, *, hold: bool = False) -> str:
+    if hold:
+        body = (
+            f'<div class="ok" style="color:#f59e0b;font-size:2rem;margin-bottom:12px">&#9208;</div>'
+            f"<h1>On hold</h1><p>{html.escape(message)}</p>"
+        )
+        return _page_shell("Feature on hold", body, ok=True)
+    body = f'<div class="ok">&#10003;</div><h1>Done</h1><p>{html.escape(message)}</p>'
     return _page_shell("Approval complete", body, ok=True)
 
 
@@ -163,7 +166,9 @@ async def approval_email_action_post(
         return HTMLResponse(form_html(token, post_url, "Please enter remarks."), status_code=400)
     try:
         out = execute_approval_by_token(token, action_norm, remarks=remarks)
-        return HTMLResponse(_success_html(out.get("message") or "Saved."))
+        msg = out.get("message") or "Saved."
+        is_hold = action_norm == "hold" or out.get("status") == "hold"
+        return HTMLResponse(_success_html(msg, hold=is_hold))
     except HTTPException as e:
         detail = e.detail if isinstance(e.detail, str) else str(e.detail)
         form_html = _reject_form_html if action_norm == "reject" else _hold_form_html

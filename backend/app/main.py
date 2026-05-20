@@ -1604,6 +1604,7 @@ def list_tickets(
     status_2_filter: str | None = None,  # For section=chores-bugs: pending | completed | staging | hold (Stage 2 status)
     type_filter: str | None = None,  # For section=chores-bugs: chore | bug (Type of Request filter)
     search_all_sections: bool = False,   # When True + search present: ignore section/type, search all tickets
+    mine_only: bool = False,  # When True: only tickets created_by current user (export / operator scope)
     auth: dict = Depends(get_current_user),
 ):
     page = max(1, int(page or 1))
@@ -1695,6 +1696,8 @@ def list_tickets(
         q = q.eq("company_id", company_id)
     if priority:
         q = q.eq("priority", priority)
+    if mine_only:
+        q = q.eq("created_by", auth["id"])
     if date_from:
         q = q.gte("created_at", date_from)
     if date_to:
@@ -1985,21 +1988,24 @@ def create_approval_tokens(
     expires = (datetime.utcnow() + timedelta(days=7)).isoformat()
     base = _frontend_base_url()
     tokens_out = []
-    for action in ("approve", "reject", "hold"):
-        row = supabase.table("approval_tokens").insert({
-            "ticket_id": ticket_id,
-            "action": action,
-            "expires_at": expires,
-        }).execute()
-        if row.data and len(row.data) > 0:
-            token = row.data[0].get("token")
-            if token:
-                from app.public_urls import build_approval_email_action_url
+    from app.public_urls import build_approval_email_action_url
 
-                tokens_out.append({
-                    "action": action,
-                    "url": build_approval_email_action_url(str(token), action),
-                })
+    for action in ("approve", "reject", "hold"):
+        try:
+            row = supabase.table("approval_tokens").insert({
+                "ticket_id": ticket_id,
+                "action": action,
+                "expires_at": expires,
+            }).execute()
+            if row.data and len(row.data) > 0:
+                token = row.data[0].get("token")
+                if token:
+                    tokens_out.append({
+                        "action": action,
+                        "url": build_approval_email_action_url(str(token), action),
+                    })
+        except Exception:
+            continue
     return {"ticket_id": ticket_id, "links": tokens_out, "expires_in_days": 7}
 
 
@@ -3327,6 +3333,10 @@ def dashboard_kpi(
         target_pending = 1
         total_cb = 0
         support_fms_weekly_pct = 0
+        support_fms_monthly_pct = 0
+        support_fms_resp_health = 100
+        support_fms_comp_health = 100
+        support_fms_pend_health = 100
         response_delay_details = []
         completion_delay_details = []
         pending_details = []
@@ -3430,10 +3440,17 @@ def dashboard_kpi(
                 # Target = total chores & bugs for this week (same as Support Dashboard weekly stats)
                 total_cb = len(week_tickets)
                 target_pending = max(total_cb, 1)
-                support_fms_weekly_pct = round(((total_cb - pending_count) / total_cb * 100) if total_cb else 0)
+                week_metrics = _compute_support_fms_week_metrics(tickets, range_start, range_end)
+                support_fms_weekly_pct = week_metrics["weekly_pct"]
+                support_fms_resp_health = week_metrics["response_health"]
+                support_fms_comp_health = week_metrics["completion_health"]
+                support_fms_pend_health = week_metrics["pending_health"]
             except Exception as e:
                 _log(f"dashboard/kpi support FMS: {e}")
                 support_fms_weekly_pct = 0
+                support_fms_resp_health = 100
+                support_fms_comp_health = 100
+                support_fms_pend_health = 100
 
         # ----- Success KPI (Rimpa): ALL Success module data; selected week vs fixed targets 16/1/25/2 -----
         from app.dashboard_success_kpi import compute_success_kpi_for_dashboard
@@ -3527,22 +3544,19 @@ def dashboard_kpi(
                 done_d = sum(1 for t in week_list_w if _delegation_task_done(t))
                 del_pct = round((done_d / total_d) * 100) if total_d else 0
                 weekly_progress_delegation.append(del_pct)
-                # Support FMS % for this week (same formula: (total - pending) / total * 100)
-                week_tickets_w = []
-                for t in tickets:
-                    d_arrival_w = _parse_iso_to_date(t.get("query_arrival_at") or t.get("created_at"))
-                    if d_arrival_w is not None and rs <= d_arrival_w <= re:
-                        week_tickets_w.append(t)
-                total_cb_w = len(week_tickets_w)
-                pending_w = 0
-                for t in week_tickets_w:
-                    st = t.get("status") or ""
-                    if _is_pending(st) and not _is_resolved(st, t.get("status_4")):
-                        pending_w += 1
-                sup_pct = round(((total_cb_w - pending_w) / total_cb_w * 100) if total_cb_w else 0)
+                # Support FMS % = average of response, completion, and pending pillar health %
+                sup_pct = _compute_support_fms_week_metrics(tickets, rs, re)["weekly_pct"]
                 weekly_progress_support_fms.append(sup_pct)
         except Exception as e:
             _log(f"dashboard/kpi weeklyProgress: {e}")
+
+        support_fms_monthly_pct = (
+            round(sum(weekly_progress_support_fms) / len(weekly_progress_support_fms))
+            if weekly_progress_support_fms
+            else 0
+        )
+        if is_akash:
+            support_fms_monthly_pct = 0
 
         ch_done = sum(1 for r in checklist_rows if (r.get("status") or "").lower() == "done")
         ch_pending = sum(1 for r in checklist_rows if (r.get("status") or "").lower() != "done")
@@ -3723,11 +3737,6 @@ def dashboard_kpi(
                 "dailyLogMonthApplied": bool(daily_agg_month.get("has_rows")),
             }
             akash_kpi["kpiDailyLogEditor"] = _kpi_daily_log_email_allowed(auth.get("email"))
-        support_fms_monthly_pct = round(
-            ((target_pending - pending_count) / target_pending * 100) if target_pending else 0
-        )
-        if is_akash:
-            support_fms_monthly_pct = 0
 
         if (name or "").strip().lower() == "adrija":
             from app.dashboard_success_kpi import _format_dashboard_week_label
@@ -3821,21 +3830,28 @@ def dashboard_kpi(
                     "value": response_delay_count,
                     "target": total_cb,
                     "percentage": f"{response_delay_count}/{total_cb or 0}",
+                    "healthPercent": support_fms_resp_health,
+                    "status": _support_fms_pillar_status(response_delay_count),
                     "details": response_delay_details,
                 },
                 "completionDelay": {
                     "value": completion_delay_count,
                     "target": stage2_completed_in_week,
                     "percentage": f"{completion_delay_count}/{stage2_completed_in_week}",
+                    "healthPercent": support_fms_comp_health,
+                    "status": _support_fms_pillar_status(completion_delay_count),
                     "details": completion_delay_details,
                 },
                 "pendingChores": {
                     "value": pending_count,
-                    "target": max(target_pending, 1),
-                    "percentage": f"{pending_count}/{max(target_pending, 1)}",
+                    "target": total_cb,
+                    "percentage": f"{pending_count}/{total_cb or 0}",
+                    "healthPercent": support_fms_pend_health,
+                    "status": _support_fms_pillar_status(pending_count),
                     "details": pending_details,
                 },
                 "weeklyPercentage": support_fms_weekly_pct,
+                "monthlyPercentage": support_fms_monthly_pct,
             },
             "successKpi": success_kpi,
             "akashKpi": akash_kpi,
@@ -4034,6 +4050,87 @@ def _has_completion_delay(
         return False, ""
     except Exception:
         return False, ""
+
+
+def _support_fms_pillar_health(bad_count: int, total: int) -> int:
+    """On-time / healthy % for one Support FMS pillar (0–100). Empty denominator => 100%."""
+    if total <= 0:
+        return 100
+    return round(((total - bad_count) / total) * 100)
+
+
+def _support_fms_pillar_status(bad_count: int) -> str | None:
+    """Show Good when there are zero delays/pending items in the pillar."""
+    return "Good" if bad_count == 0 else None
+
+
+def _compute_support_fms_week_metrics(
+    tickets: list,
+    range_start: date,
+    range_end: date,
+) -> dict:
+    """Aggregate Support FMS counts and blended weekly % for a Mon–Sun KPI week."""
+    week_tickets: list = []
+    for t in tickets:
+        d_arrival = _parse_iso_to_date(t.get("query_arrival_at") or t.get("created_at"))
+        if d_arrival is not None and range_start <= d_arrival <= range_end:
+            week_tickets.append(t)
+
+    response_delay_count = 0
+    pending_count = 0
+    for t in week_tickets:
+        has_resp, _ = _has_response_delay(
+            t.get("query_arrival_at") or t.get("created_at"),
+            t.get("query_response_at"),
+        )
+        if has_resp:
+            response_delay_count += 1
+        status = t.get("status") or ""
+        if _is_pending(status) and not _is_resolved(status, t.get("status_4")):
+            pending_count += 1
+
+    stage2_completed_tickets: list = []
+    for t in tickets:
+        if not _stage2_marked_completed(t.get("status_2")):
+            continue
+        if not (str(t.get("actual_2") or "").strip()):
+            continue
+        d2 = _parse_iso_to_date(t.get("actual_2"))
+        if d2 is not None and range_start <= d2 <= range_end:
+            stage2_completed_tickets.append(t)
+
+    completion_delay_count = 0
+    for t in stage2_completed_tickets:
+        has_comp, _ = _has_completion_delay(
+            resolved_at=t.get("actual_4"),
+            created_at=t.get("created_at"),
+            ticket_type=t.get("type"),
+            planned_2=t.get("planned_2"),
+            actual_2=t.get("actual_2"),
+            status_2=t.get("status_2"),
+            actual_1=t.get("actual_1"),
+        )
+        if has_comp:
+            completion_delay_count += 1
+
+    total_cb = len(week_tickets)
+    stage2_n = len(stage2_completed_tickets)
+    resp_h = _support_fms_pillar_health(response_delay_count, total_cb)
+    comp_h = _support_fms_pillar_health(completion_delay_count, stage2_n)
+    pend_h = _support_fms_pillar_health(pending_count, total_cb)
+    weekly_pct = round((resp_h + comp_h + pend_h) / 3)
+
+    return {
+        "response_delay_count": response_delay_count,
+        "completion_delay_count": completion_delay_count,
+        "pending_count": pending_count,
+        "total_cb": total_cb,
+        "stage2_completed_in_week": stage2_n,
+        "weekly_pct": weekly_pct,
+        "response_health": resp_h,
+        "completion_health": comp_h,
+        "pending_health": pend_h,
+    }
 
 
 def _format_seconds_duration(sec: float) -> str:

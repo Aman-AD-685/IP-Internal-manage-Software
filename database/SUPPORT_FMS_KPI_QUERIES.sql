@@ -1,0 +1,88 @@
+-- Support FMS KPI (Shreyasi dashboard) — reference queries
+-- Logic is implemented in backend/app/main.py (_compute_support_fms_week_metrics).
+-- Run in Supabase SQL editor; adjust :week_start / :week_end (date) for the KPI Mon–Sun week.
+
+-- ---------------------------------------------------------------------------
+-- 1) Chores & bugs in a week (denominator for Response Delay + Pending)
+--    Bucket: query_arrival_at, else created_at
+-- ---------------------------------------------------------------------------
+-- SELECT id, reference_no, type, status, status_4,
+--        query_arrival_at, query_response_at, created_at
+-- FROM tickets
+-- WHERE type IN ('chore', 'bug')
+--   AND COALESCE(
+--         (query_arrival_at AT TIME ZONE 'UTC')::date,
+--         (created_at AT TIME ZONE 'UTC')::date
+--       ) BETWEEN :week_start AND :week_end;
+
+-- ---------------------------------------------------------------------------
+-- 2) Response delay count (SLA 30 minutes; mirrors _has_response_delay)
+--    Delay if no query_response_at OR response > 30 min after arrival
+-- ---------------------------------------------------------------------------
+-- WITH week_tickets AS (
+--   SELECT *
+--   FROM tickets
+--   WHERE type IN ('chore', 'bug')
+--     AND COALESCE(
+--           (query_arrival_at AT TIME ZONE 'UTC')::date,
+--           (created_at AT TIME ZONE 'UTC')::date
+--         ) BETWEEN :week_start AND :week_end
+-- )
+-- SELECT COUNT(*) AS response_delay_count
+-- FROM week_tickets wt
+-- WHERE wt.query_arrival_at IS NOT NULL
+--   AND (
+--     wt.query_response_at IS NULL
+--     OR EXTRACT(EPOCH FROM (wt.query_response_at - wt.query_arrival_at)) / 60.0 > 30
+--   );
+
+-- ---------------------------------------------------------------------------
+-- 3) Stage 2 completed in week (denominator for Completion Delay)
+--    Bucket: actual_2 date; status_2 indicates Stage 2 completed
+-- ---------------------------------------------------------------------------
+-- SELECT COUNT(*) AS stage2_completed_in_week
+-- FROM tickets
+-- WHERE type IN ('chore', 'bug')
+--   AND status_2 IS NOT NULL
+--   AND LOWER(TRIM(status_2)) IN ('completed', 'done', 'closed')
+--   AND actual_2 IS NOT NULL
+--   AND (actual_2 AT TIME ZONE 'UTC')::date BETWEEN :week_start AND :week_end;
+
+-- ---------------------------------------------------------------------------
+-- 4) Completion delay (Stage 2 TAT > 1 calendar day from planned_2 or actual_1)
+-- ---------------------------------------------------------------------------
+-- SELECT COUNT(*) AS completion_delay_count
+-- FROM tickets t
+-- WHERE type IN ('chore', 'bug')
+--   AND status_2 IS NOT NULL
+--   AND LOWER(TRIM(status_2)) IN ('completed', 'done', 'closed')
+--   AND actual_2 IS NOT NULL
+--   AND (actual_2 AT TIME ZONE 'UTC')::date BETWEEN :week_start AND :week_end
+--   AND COALESCE(t.planned_2, t.actual_1) IS NOT NULL
+--   AND EXTRACT(EPOCH FROM (t.actual_2 - COALESCE(t.planned_2, t.actual_1))) > 86400;
+
+-- ---------------------------------------------------------------------------
+-- 5) Pending chores & bugs (open / in-progress style statuses, not resolved)
+-- ---------------------------------------------------------------------------
+-- WITH week_tickets AS (
+--   SELECT status, status_4
+--   FROM tickets
+--   WHERE type IN ('chore', 'bug')
+--     AND COALESCE(
+--           (query_arrival_at AT TIME ZONE 'UTC')::date,
+--           (created_at AT TIME ZONE 'UTC')::date
+--         ) BETWEEN :week_start AND :week_end
+-- )
+-- SELECT COUNT(*) AS pending_count
+-- FROM week_tickets
+-- WHERE LOWER(COALESCE(status, '')) ~ '(pending|open|in progress|in-progress|assigned|active|new|received)'
+--   AND NOT (
+--     LOWER(COALESCE(status, '')) ~ '(resolved|closed|completed|done)'
+--   );
+
+-- ---------------------------------------------------------------------------
+-- Percentage formulas (computed in API, not stored)
+-- ---------------------------------------------------------------------------
+-- Pillar health %  = ROUND((total - bad_count) * 100.0 / NULLIF(total, 0))  -- 100 if total=0
+-- Weekly Support FMS % = ROUND((resp_health + comp_health + pend_health) / 3)
+-- Monthly Support FMS % = ROUND(AVG(weekly_support_fms_pct)) over calendar weeks 1..N in month

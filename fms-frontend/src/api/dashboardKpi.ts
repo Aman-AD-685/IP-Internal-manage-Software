@@ -48,6 +48,10 @@ export interface SupportFmsSection {
   value: number
   target: number
   percentage?: string
+  /** Pillar on-time % (0 delays/pending => 100). */
+  healthPercent?: number
+  /** "Good" when value is 0 (no delays/pending in this pillar). */
+  status?: string | null
   details?: SupportFmsDelayItem[]
 }
 
@@ -247,6 +251,8 @@ export interface DashboardKpiResponse {
     completionDelay: SupportFmsSection
     pendingChores: SupportFmsSection
     weeklyPercentage?: number
+    /** Month average of weekly Support FMS % (weeks 1–N in selected month). */
+    monthlyPercentage?: number
   }
   successKpi?: SuccessKpiResponse
   akashKpi?: AkashKpiResponse | null

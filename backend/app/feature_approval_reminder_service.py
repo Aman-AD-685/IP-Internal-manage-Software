@@ -289,27 +289,40 @@ def fetch_pending_feature_tickets() -> list[dict[str, Any]]:
 
 
 def _create_email_approval_links(ticket_id: str) -> dict[str, str]:
-    """One-time approve/reject links for reminder email (7-day expiry)."""
+    """One-time approve / reject / hold links for reminder email (7-day expiry).
+
+    Each action gets its own token row so Hold works independently of Approve/Reject
+    (a failed hold insert must not block the other buttons).
+    """
     expires = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
     from app.public_urls import build_approval_email_action_url
 
     links: dict[str, str] = {}
-    try:
-        ins = supabase.table("approval_tokens").insert(
-            [
-                {"ticket_id": ticket_id, "action": "approve", "expires_at": expires},
-                {"ticket_id": ticket_id, "action": "reject", "expires_at": expires},
-                {"ticket_id": ticket_id, "action": "hold", "expires_at": expires},
-            ]
-        ).execute()
-        for row in ins.data or []:
-            action = (row.get("action") or "").strip().lower()
-            token = row.get("token")
-            if action in ("approve", "reject", "hold") and token:
+    for action in ("approve", "reject", "hold"):
+        try:
+            ins = (
+                supabase.table("approval_tokens")
+                .insert({"ticket_id": ticket_id, "action": action, "expires_at": expires})
+                .execute()
+            )
+            row = (ins.data or [None])[0]
+            token = row.get("token") if row else None
+            if token:
                 links[action] = build_approval_email_action_url(str(token), action)
-    except Exception as e:
-        _notify(f"approval token create {ticket_id}: {e}")
+        except Exception as e:
+            _notify(f"approval token create {ticket_id} action={action}: {e}")
     return links
+
+
+def _email_action_button(url: str, label: str, *, gradient: str) -> str:
+    """Render an email action button only when url is a real one-time approval link."""
+    if "/approval/email-action" not in (url or ""):
+        return ""
+    return (
+        f"<a href=\"{html.escape(url)}\" style=\"display:inline-block;margin:2px 4px;padding:8px 14px;"
+        f"background:{gradient};color:#fff;text-decoration:none;border-radius:8px;"
+        f"font-size:12px;font-weight:700;\">{html.escape(label)}</a>"
+    )
 
 
 def _desc_preview(text: str | None, max_len: int = 160) -> str:
@@ -350,9 +363,31 @@ def build_reminder_html(pending: list[dict[str, Any]], tz_name: str) -> str:
     for t in pending:
         tid = str(t["id"])
         links = _create_email_approval_links(tid)
-        approve_url = links.get("approve", _ticket_link(tid))
-        reject_url = links.get("reject", _ticket_link(tid))
-        hold_url = links.get("hold", _ticket_link(tid))
+        action_buttons = "".join(
+            [
+                _email_action_button(
+                    links.get("approve", ""),
+                    "Approve",
+                    gradient="linear-gradient(135deg,#10b981,#059669)",
+                ),
+                _email_action_button(
+                    links.get("reject", ""),
+                    "Rejected",
+                    gradient="linear-gradient(135deg,#f43f5e,#be123c)",
+                ),
+                _email_action_button(
+                    links.get("hold", ""),
+                    "Hold",
+                    gradient="linear-gradient(135deg,#f59e0b,#d97706)",
+                ),
+            ]
+        )
+        if not action_buttons.strip():
+            action_buttons = (
+                f'<span style="color:#94a3b8;font-size:12px;">'
+                f"Open in app: <a href=\"{html.escape(_ticket_link(tid))}\" style=\"color:#38bdf8;\">"
+                f"{html.escape(_ticket_ref(t))}</a></span>"
+            )
         company = (t.get("company_name") or "").strip() or "—"
         rows.append(
             "<tr style=\"border-bottom:1px solid rgba(56,189,248,.15);\">"
@@ -362,17 +397,7 @@ def build_reminder_html(pending: list[dict[str, Any]], tz_name: str) -> str:
             f"<td style=\"padding:14px 10px;color:#94a3b8;font-size:12px;line-height:1.45;\">"
             f"{html.escape(_desc_preview(t.get('description')))}</td>"
             f"<td style=\"padding:14px 10px;color:#cbd5e1;\">{html.escape(_requested_by_label(t, user_map))}</td>"
-            "<td style=\"padding:14px 10px;white-space:nowrap;\">"
-            f"<a href=\"{html.escape(approve_url)}\" style=\"display:inline-block;margin:2px 4px;padding:8px 14px;"
-            "background:linear-gradient(135deg,#10b981,#059669);color:#fff;text-decoration:none;border-radius:8px;"
-            "font-size:12px;font-weight:700;\">Approve</a>"
-            f"<a href=\"{html.escape(reject_url)}\" style=\"display:inline-block;margin:2px 4px;padding:8px 14px;"
-            "background:linear-gradient(135deg,#f43f5e,#be123c);color:#fff;text-decoration:none;border-radius:8px;"
-            "font-size:12px;font-weight:700;\">Rejected</a>"
-            f"<a href=\"{html.escape(hold_url)}\" style=\"display:inline-block;margin:2px 4px;padding:8px 14px;"
-            "background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;text-decoration:none;border-radius:8px;"
-            "font-size:12px;font-weight:700;\">Hold</a>"
-            "</td></tr>"
+            f"<td style=\"padding:14px 10px;white-space:nowrap;\">{action_buttons}</td></tr>"
         )
     body_rows = "\n".join(rows)
     return f"""<!DOCTYPE html>
