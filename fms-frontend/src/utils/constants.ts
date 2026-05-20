@@ -236,6 +236,8 @@ export const API_ENDPOINTS = {
     CREATE: '/onboarding/client-payment',
     UPDATE: (id: string) => `/onboarding/client-payment/${id}`,
     PAYMENT_AGEING_REPORT: '/onboarding/client-payment/payment-ageing-report',
+    /** KPI cards + dashboard payment totals (NA rows excluded). */
+    PAYMENT_SUMMARY: '/onboarding/client-payment/payment-summary',
   },
   LEADS: {
     LIST: '/leads',

@@ -11,6 +11,7 @@ import { TableWithSkeletonLoading } from '../../components/common/skeletons'
 import { DEFAULT_INFINITE_CHUNK, useInfiniteScrollChunk } from '../../hooks/useInfiniteScrollChunk'
 import { exportRowsToCsv, type ExportColumn } from '../../utils/exportCsv'
 import { PaymentAmountKpiCards } from '../../components/onboarding/PaymentAmountKpiCards'
+import { invalidateAfterDashboardPaymentSubmit } from '../../utils/sessionApiCache'
 
 const { Title, Text } = Typography
 
@@ -311,6 +312,8 @@ export function ClientPaymentPage() {
       await apiClient.patch(`/onboarding/client-payment/${record.id}/marked-na`, { marked_na: marked })
       message.success(marked ? 'Marked as NA — removed from list and Total raised' : 'Restored to active list')
       setMarkedNaSupported(true)
+      invalidateAfterDashboardPaymentSubmit()
+      window.dispatchEvent(new CustomEvent('client-payment-na-changed'))
       setKpiRefreshKey((k) => k + 1)
       setDetailOpen(false)
       setSelectedRecord(null)

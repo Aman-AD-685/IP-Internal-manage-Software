@@ -252,6 +252,20 @@ def _get_cache_for_ttl(ttl: int) -> TTLCache:
         return cache
 
 
+def _invalidate_ttl_cache_key_prefix(prefix: str) -> None:
+    """Remove entries from in-process TTL caches whose key starts with ``prefix`` (e.g. list cache after writes)."""
+    buckets: list[TTLCache] = [_cache_default]
+    with _cache_lock:
+        buckets.extend(list(_cache_by_ttl.values()))
+    for c in buckets:
+        for k in list(c.keys()):
+            if isinstance(k, str) and k.startswith(prefix):
+                try:
+                    del c[k]
+                except KeyError:
+                    pass
+
+
 def cached(ttl: int, key_prefix: str = ""):
     def _decorator(func: Callable[..., Any]):
         cache = _get_cache_for_ttl(ttl)
@@ -2361,6 +2375,7 @@ def dashboard_metrics(auth: dict = Depends(get_current_user)):
     custom_total_due = 0
     custom_total_due_quarter = 0
     custom_raised_quarter = 0
+    custom_raised_all = 0  # Gross raised (all invoices, incl. paid), excludes NA — pairs with Payment card Total Due
     custom_pending_delegation = 0
 
     custom_full_emails = {"ad@ip.com", "ayush@industryprime.com"}
@@ -2374,35 +2389,42 @@ def dashboard_metrics(auth: dict = Depends(get_current_user)):
             today = date_cls.today()
             fy, q = _pa.fy_quarter_key(today)
             q_start, q_end = _pa.quarter_date_bounds(fy, q)
-            # Received amounts: trailing 12 months by payment/anchor date (see M-Comp / completed lists).
             recv_window_start = today - timedelta(days=365)
 
-            pr = (
-                supabase.table("onboarding_client_payment")
-                .select(
-                    "invoice_amount,invoice_date,timestamp,genre,payment_received_date"
-                    + (",marked_na" if _client_payment_marked_na_supported() else "")
+            custom_total_due = _sum_unpaid_client_payment_excluding_na()
+            pay_rows = _fetch_client_payment_rows_for_metrics()
+
+            receive_by_cp_id: dict[str, dict] = {}
+            try:
+                rr = (
+                    supabase.table("onboarding_client_payment_receive")
+                    .select("client_payment_id,amount,payment_date")
+                    .limit(5000)
+                    .execute()
                 )
-                .limit(5000)
-                .execute()
-            )
-            pay_rows = pr.data or []
+                for rec in rr.data or []:
+                    cid = str(rec.get("client_payment_id") or "").strip()
+                    if cid:
+                        receive_by_cp_id[cid] = rec
+            except Exception as e:
+                _log(f"dashboard payment receive rows: {e}")
 
             for row in pay_rows:
                 amt = _parse_invoice_amount(row.get("invoice_amount"))
                 is_paid = not _client_payment_row_unpaid(row)
                 inv_d = _pa._parse_date(row.get("invoice_date")) or _pa._parse_date(row.get("timestamp"))
-                if inv_d and q_start <= inv_d <= q_end and not _client_payment_row_marked_na(row):
+                is_na = _client_payment_row_marked_na(row)
+                if not is_na:
+                    custom_raised_all += amt
+
+                if inv_d and q_start <= inv_d <= q_end and not is_na:
                     custom_raised_quarter += amt
                     if not is_paid:
                         custom_total_due_quarter += amt
 
-                # Total Due: all unpaid raised invoices (same scope as Payment Management "open" list),
-                # not limited to the current fiscal quarter — invoice date can be any period.
-                if not is_paid and not _client_payment_row_marked_na(row):
-                    custom_total_due += amt
+                if is_paid or is_na:
                     continue
-    
+
                 anchor_d = _client_payment_received_quarter_anchor(row)
                 if not anchor_d or not (recv_window_start <= anchor_d <= today):
                     continue
@@ -2416,8 +2438,12 @@ def dashboard_metrics(auth: dict = Depends(get_current_user)):
                     custom_received_half_yearly += amt
                 elif g == "Y":
                     custom_received_yearly += amt
-        except Exception:
-            pass
+
+            # Align dashboard "Total Raised" with Client Payment Overall card (same KPI helper).
+            kpis = _compute_payment_ageing_kpis(pay_rows, None, receive_by_cp_id)
+            custom_raised_quarter = int((kpis.get("overall_in_quarter") or {}).get("raised") or custom_raised_quarter)
+        except Exception as e:
+            _log(f"dashboard payment metrics: {e}")
 
         if auth_email in custom_full_emails:
             try:
@@ -2447,6 +2473,7 @@ def dashboard_metrics(auth: dict = Depends(get_current_user)):
         "custom_total_due": custom_total_due,
         "custom_total_due_quarter": custom_total_due_quarter,
         "custom_raised_quarter": custom_raised_quarter,
+        "custom_raised_all": custom_raised_all,
         "custom_pending_delegation": custom_pending_delegation,
         "response_delay": response_delay,
         "completion_delay": completion_delay,
@@ -2591,6 +2618,8 @@ def dashboard_detail(
             _enrich_client_payment_list_items(pay_rows)
             for rowp in pay_rows:
                 if not _client_payment_row_unpaid(rowp):
+                    continue
+                if _client_payment_row_marked_na(rowp):
                     continue
                 amt = _parse_invoice_amount(rowp.get("invoice_amount"))
                 inv_d = _pa._parse_date(rowp.get("invoice_date")) or _pa._parse_date(rowp.get("timestamp"))
@@ -5715,15 +5744,64 @@ def _client_payment_marked_na_supported() -> bool:
 
 
 def _ocp_list_select_columns() -> str:
-    if _client_payment_marked_na_supported():
-        return f"{_OCP_LIST_COLUMNS_BASE},marked_na"
-    return _OCP_LIST_COLUMNS_BASE
+    """Always request marked_na when present (NA KPIs and list filters depend on it)."""
+    return f"{_OCP_LIST_COLUMNS_BASE},marked_na"
 
 
 def _ocp_pay_rows_select_columns() -> str:
-    if _client_payment_marked_na_supported():
-        return f"{_OCP_PAY_ROWS_COLUMNS_BASE},marked_na"
-    return _OCP_PAY_ROWS_COLUMNS_BASE
+    return f"{_OCP_PAY_ROWS_COLUMNS_BASE},marked_na"
+
+
+def _fetch_client_payment_rows_for_metrics(limit: int = 5000) -> list[dict]:
+    """Load payment rows for dashboard KPIs and ageing; includes id/company for receive joins."""
+    cols = _ocp_pay_rows_select_columns()
+    try:
+        r = supabase.table("onboarding_client_payment").select(cols).limit(limit).execute()
+        return r.data or []
+    except Exception as e:
+        err = str(e).lower()
+        if "marked_na" in err and ("does not exist" in err or "42703" in err):
+            global _MARKED_NA_COLUMN_SUPPORTED
+            _MARKED_NA_COLUMN_SUPPORTED = False
+            r = (
+                supabase.table("onboarding_client_payment").select(_OCP_PAY_ROWS_COLUMNS_BASE).limit(limit).execute()
+            )
+            return r.data or []
+        _log(f"client payment metrics rows: {e}")
+        return []
+
+
+def _sum_unpaid_client_payment_excluding_na(limit: int = 5000) -> int:
+    """Total Due (all unpaid raised invoices, any invoice date), excluding NA-marked rows."""
+    try:
+        q = (
+            supabase.table("onboarding_client_payment")
+            .select("invoice_amount")
+            .is_("payment_received_date", "null")
+            .limit(limit)
+        )
+        if _client_payment_marked_na_supported():
+            q = q.eq("marked_na", False)
+        r = q.execute()
+        return sum(_parse_invoice_amount(row.get("invoice_amount")) for row in (r.data or []))
+    except Exception as e:
+        err = str(e).lower()
+        if "marked_na" in err and ("does not exist" in err or "42703" in err):
+            global _MARKED_NA_COLUMN_SUPPORTED
+            _MARKED_NA_COLUMN_SUPPORTED = False
+            try:
+                r = (
+                    supabase.table("onboarding_client_payment")
+                    .select("invoice_amount")
+                    .is_("payment_received_date", "null")
+                    .limit(limit)
+                    .execute()
+                )
+                return sum(_parse_invoice_amount(row.get("invoice_amount")) for row in (r.data or []))
+            except Exception:
+                return 0
+        _log(f"client payment unpaid sum: {e}")
+        return 0
 
 
 _LIST_CLIENT_PAYMENT_LIMIT = 500
@@ -5876,6 +5954,8 @@ def _client_payment_row_marked_na(row: dict) -> bool:
     v = row.get("marked_na")
     if v is True:
         return True
+    if v in (1, 1.0):
+        return True
     if isinstance(v, str) and v.strip().lower() in ("true", "t", "1", "yes"):
         return True
     return False
@@ -5967,7 +6047,12 @@ def _compute_payment_ageing_kpis(
     allowed: frozenset[str] | None,
     receive_by_cp_id: dict[str, dict] | None = None,
 ) -> dict:
-    """Raised vs received from Payment Management. Overall includes Q, M, HY (and Y) for invoices raised in the current FY quarter."""
+    """Raised vs received from Payment Management.
+
+    Quarterly / monthly / genre breakdowns: invoice or payment dates fall in the stated windows.
+    **Overall card — raised:** sum of all invoice amounts company-wide excluding NA (any invoice date),
+    so marking NA always reduces this figure. **Overall — received:** still the current FY quarter only.
+    """
     import calendar
     from datetime import date as date_cls
 
@@ -5979,9 +6064,10 @@ def _compute_payment_ageing_kpis(
 
     q_raised = q_received = 0
     m_month_raised = m_month_received = 0
-    o_raised = o_received = 0
+    o_received = 0
     m_in_q_raised = m_in_q_received = 0
     hy_in_q_raised = hy_in_q_received = 0
+    gross_raised_excl_na = 0
 
     for row in pay_rows or []:
         nm = _norm_name_company(row.get("company_name"))
@@ -5996,9 +6082,11 @@ def _compute_payment_ageing_kpis(
         g = _normalize_client_payment_genre(row.get("genre"))
         is_na = _client_payment_row_marked_na(row)
 
-        # Raised is attributed by invoice date (NA rows excluded from Total raised).
+        if not is_na:
+            gross_raised_excl_na += amt
+
+        # Raised is attributed by invoice date (NA rows excluded from quarter buckets).
         if inv_d and q_start <= inv_d <= q_end and not is_na:
-            o_raised += amt
             if g == "Q":
                 q_raised += amt
             elif g == "M":
@@ -6031,7 +6119,7 @@ def _compute_payment_ageing_kpis(
         "month_period_label": today.strftime("%b %Y"),
         "quarterly_genre_q": pair(q_received, q_raised),
         "monthly_genre_m": pair(m_month_received, m_month_raised),
-        "overall_in_quarter": pair(o_received, o_raised),
+        "overall_in_quarter": pair(o_received, gross_raised_excl_na),
         "monthly_in_quarter": pair(m_in_q_received, m_in_q_raised),
         "half_yearly_in_quarter": pair(hy_in_q_received, hy_in_q_raised),
     }
@@ -6526,7 +6614,8 @@ def _payment_ageing_report_payload():
         rec_row = receive_by_cp_id.get(cp_id) if cp_id else None
         amount = _parse_invoice_amount(row.get("invoice_amount"))
         received_amount = _parse_invoice_amount((rec_row or {}).get("amount")) if rec_row else (amount if row.get("payment_received_date") else 0)
-        agg["invoice_total"] += amount
+        if not _client_payment_row_marked_na(row):
+            agg["invoice_total"] += amount
         agg["received_total"] += received_amount
         paid_d = _pa._parse_date((rec_row or {}).get("payment_date")) or _pa._parse_date(row.get("payment_received_date"))
         if paid_d and paid_d >= inv_d:
@@ -6806,6 +6895,7 @@ def create_client_payment(payload: dict, auth: dict = Depends(get_current_user))
         r = supabase.table("onboarding_client_payment").insert(row).execute()
         created = (r.data or [{}])[0]
         created["timestamp"] = now
+        _invalidate_ttl_cache_key_prefix("onboarding:client-payment:")
         return created
     except HTTPException:
         raise
@@ -6892,6 +6982,9 @@ def patch_client_payment_marked_na(
         if not updated:
             raise HTTPException(404, "Raised Invoice not found after update")
         _enrich_client_payment_list_items([updated])
+        global _MARKED_NA_COLUMN_SUPPORTED
+        _MARKED_NA_COLUMN_SUPPORTED = True
+        _invalidate_ttl_cache_key_prefix("onboarding:client-payment:")
         return updated
     except HTTPException:
         raise
@@ -6904,6 +6997,37 @@ def patch_client_payment_marked_na(
             )
         _log(f"client payment marked_na: {e}")
         raise HTTPException(400, str(e)[:200])
+
+
+@api_router.get("/onboarding/client-payment/payment-summary")
+def client_payment_payment_summary(auth: dict = Depends(get_current_user)):
+    """Single source for Payment KPI cards and dashboard Payment totals (NA rows excluded)."""
+    pay_rows = _fetch_client_payment_rows_for_metrics()
+    receive_by_cp_id: dict[str, dict] = {}
+    try:
+        rr = (
+            supabase.table("onboarding_client_payment_receive")
+            .select("client_payment_id,amount,payment_date")
+            .limit(5000)
+            .execute()
+        )
+        for rec in rr.data or []:
+            cid = str(rec.get("client_payment_id") or "").strip()
+            if cid:
+                receive_by_cp_id[cid] = rec
+    except Exception as e:
+        _log(f"payment summary receive rows: {e}")
+    kpis = _compute_payment_ageing_kpis(pay_rows, None, receive_by_cp_id)
+    payload = {
+        "total_due": _sum_unpaid_client_payment_excluding_na(),
+        "raised_quarter": int((kpis.get("overall_in_quarter") or {}).get("raised") or 0),
+        "kpis": kpis,
+        "marked_na_supported": _client_payment_marked_na_supported(),
+    }
+    return JSONResponse(
+        content=payload,
+        headers={"Cache-Control": "no-store, no-cache, max-age=0, must-revalidate"},
+    )
 
 
 @api_router.put("/onboarding/client-payment/{client_payment_id}")
@@ -6983,6 +7107,7 @@ def update_client_payment(client_payment_id: str, payload: dict, auth: dict = De
         if not updated:
             raise HTTPException(400, "Raised Invoice not found after update")
         _enrich_client_payment_list_items([updated])
+        _invalidate_ttl_cache_key_prefix("onboarding:client-payment:")
         return updated
     except HTTPException:
         raise

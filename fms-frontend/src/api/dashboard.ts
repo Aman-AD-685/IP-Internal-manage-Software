@@ -22,6 +22,8 @@ export interface DashboardMetrics {
   custom_total_due?: number
   custom_total_due_quarter?: number
   custom_raised_quarter?: number
+  /** Gross raised across all invoices (excl. NA); pairs with Payment card denominator */
+  custom_raised_all?: number
   custom_pending_delegation?: number
   response_delay: number
   completion_delay: number
@@ -69,11 +71,15 @@ export interface SuccessPerformanceListItem {
 }
 
 export const dashboardApi = {
-  getMetrics: async (): Promise<DashboardMetrics> => {
+  getMetrics: async (options?: { skipCache?: boolean }): Promise<DashboardMetrics> => {
     const key = 'dashboard:metrics'
-    const cached = sessionApiCacheGet<DashboardMetrics>(key)
-    if (cached) return cached
-    const r = await apiClient.get<DashboardMetrics>('/dashboard/metrics')
+    if (!options?.skipCache) {
+      const cached = sessionApiCacheGet<DashboardMetrics>(key)
+      if (cached) return cached
+    }
+    const r = await apiClient.get<DashboardMetrics>('/dashboard/metrics', {
+      params: options?.skipCache ? { _: Date.now() } : undefined,
+    })
     sessionApiCacheSet(key, r.data, API_CACHE_TTL_MS.dashboardMetrics)
     return r.data
   },
