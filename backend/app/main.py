@@ -5850,25 +5850,77 @@ def _sum_unpaid_invoice_marked_na() -> int:
     return _sum_invoice_amount_pages(exclude_na_marked=False, unpaid_only=True, na_marked_only=True)
 
 
+def _fetch_client_payment_receive_by_cp_id() -> dict[str, dict]:
+    """All payment-receive rows keyed by client_payment_id (paginated for production)."""
+    by_id: dict[str, dict] = {}
+    offset = 0
+    pages = 0
+    while pages < _OCP_AGG_MAX_PAGES:
+        try:
+            r = (
+                supabase.table("onboarding_client_payment_receive")
+                .select("client_payment_id,amount,payment_date")
+                .order("client_payment_id")
+                .range(offset, offset + _OCP_AGG_PAGE_SIZE - 1)
+                .execute()
+            )
+        except Exception as e:
+            _log(f"client payment receive page: {e}")
+            break
+        rows = r.data or []
+        if not rows:
+            break
+        for rec in rows:
+            cid = str(rec.get("client_payment_id") or "").strip()
+            if cid:
+                by_id[cid] = rec
+        if len(rows) < _OCP_AGG_PAGE_SIZE:
+            break
+        offset += _OCP_AGG_PAGE_SIZE
+        pages += 1
+    return by_id
+
+
 def _fetch_client_payment_rows_for_metrics(limit: int = 5000) -> list[dict]:
     """Load payment rows for dashboard KPIs and ageing; includes id/company for receive joins."""
     cols = _ocp_pay_rows_select_columns()
-    try:
-        base = supabase.table("onboarding_client_payment").select(cols)
-        base = _ocp_query_exclude_marked_na(base)
-        r = base.limit(limit).execute()
-        return r.data or []
-    except Exception as e:
-        err = str(e).lower()
-        if "marked_na" in err and ("does not exist" in err or "42703" in err):
-            global _MARKED_NA_COLUMN_SUPPORTED
-            _MARKED_NA_COLUMN_SUPPORTED = False
-            r = (
-                supabase.table("onboarding_client_payment").select(_OCP_PAY_ROWS_COLUMNS_BASE).limit(limit).execute()
-            )
-            return r.data or []
-        _log(f"client payment metrics rows: {e}")
-        return []
+    all_rows: list[dict] = []
+    offset = 0
+    pages = 0
+    if limit and int(limit) > 0:
+        max_pages = max(1, min(_OCP_AGG_MAX_PAGES, (int(limit) + _OCP_AGG_PAGE_SIZE - 1) // _OCP_AGG_PAGE_SIZE))
+    else:
+        max_pages = _OCP_AGG_MAX_PAGES
+
+    use_na_cols = True
+    while pages < max_pages:
+        try:
+            q = supabase.table("onboarding_client_payment").select(cols).order("id")
+            if use_na_cols:
+                q = _ocp_query_exclude_marked_na(q)
+            r = q.range(offset, offset + _OCP_AGG_PAGE_SIZE - 1).execute()
+        except Exception as e:
+            err = str(e).lower()
+            if use_na_cols and "marked_na" in err and ("does not exist" in err or "42703" in err):
+                global _MARKED_NA_COLUMN_SUPPORTED
+                _MARKED_NA_COLUMN_SUPPORTED = False
+                use_na_cols = False
+                cols = _OCP_PAY_ROWS_COLUMNS_BASE
+                offset = 0
+                pages = 0
+                all_rows = []
+                continue
+            _log(f"client payment metrics rows page: {e}")
+            break
+        rows = r.data or []
+        if not rows:
+            break
+        all_rows.extend(rows)
+        if len(rows) < _OCP_AGG_PAGE_SIZE:
+            break
+        offset += _OCP_AGG_PAGE_SIZE
+        pages += 1
+    return all_rows
 
 
 def _sum_unpaid_client_payment_excluding_na(limit: int = 5000) -> int:
@@ -7130,21 +7182,8 @@ def patch_client_payment_marked_na(
 @api_router.get("/onboarding/client-payment/payment-summary")
 def client_payment_payment_summary(auth: dict = Depends(get_current_user)):
     """Single source for Payment KPI cards and dashboard Payment totals (NA rows excluded)."""
-    pay_rows = _fetch_client_payment_rows_for_metrics()
-    receive_by_cp_id: dict[str, dict] = {}
-    try:
-        rr = (
-            supabase.table("onboarding_client_payment_receive")
-            .select("client_payment_id,amount,payment_date")
-            .limit(5000)
-            .execute()
-        )
-        for rec in rr.data or []:
-            cid = str(rec.get("client_payment_id") or "").strip()
-            if cid:
-                receive_by_cp_id[cid] = rec
-    except Exception as e:
-        _log(f"payment summary receive rows: {e}")
+    pay_rows = _fetch_client_payment_rows_for_metrics(limit=0)
+    receive_by_cp_id = _fetch_client_payment_receive_by_cp_id()
     kpis = _compute_payment_ageing_kpis(pay_rows, None, receive_by_cp_id)
     lifetime_excl = _sum_all_raised_invoice_excl_na()
     na_unpaid_total = _sum_unpaid_invoice_marked_na()

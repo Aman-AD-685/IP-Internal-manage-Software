@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Card, Col, Row, Typography } from 'antd'
+import { Alert, Card, Col, Row, Spin, Typography } from 'antd'
 import { apiClient } from '../../api/axios'
 import { API_ENDPOINTS } from '../../utils/constants'
 
@@ -26,6 +26,30 @@ export type PaymentAmountKpis = {
 }
 
 const fmt = (n: number) => n.toLocaleString('en-IN')
+
+type SummaryBody = {
+  kpis?: PaymentAmountKpis
+  lifetime_raised_excl_na?: number
+  na_marked_unpaid_invoice_total?: number
+  kpi_scope_note?: string
+}
+
+function mergeKpiBody(body: SummaryBody | undefined): PaymentAmountKpis | null {
+  const k = body?.kpis
+  if (!k) return null
+  return {
+    ...k,
+    lifetime_raised_excl_na:
+      typeof body?.lifetime_raised_excl_na === 'number'
+        ? body.lifetime_raised_excl_na
+        : k.lifetime_raised_excl_na,
+    na_marked_unpaid_invoice_total:
+      typeof body?.na_marked_unpaid_invoice_total === 'number'
+        ? body.na_marked_unpaid_invoice_total
+        : k.na_marked_unpaid_invoice_total,
+    kpi_scope_note: body?.kpi_scope_note ?? k.kpi_scope_note,
+  }
+}
 
 function KpiSummaryCard({
   heading,
@@ -60,7 +84,7 @@ function KpiSummaryCard({
 type Props = {
   /** When provided, cards render from this data (no fetch). */
   kpis?: PaymentAmountKpis | null
-  /** Fetch KPIs from payment-ageing-report API when true and kpis not passed. */
+  /** Fetch KPIs from payment-summary API when true and kpis not passed. */
   loadFromApi?: boolean
   /** Change to refetch KPIs (e.g. after marking invoice NA). */
   refreshKey?: number | string
@@ -68,46 +92,87 @@ type Props = {
 
 export function PaymentAmountKpiCards({ kpis: kpisProp, loadFromApi, refreshKey }: Props) {
   const [kpisFetched, setKpisFetched] = useState<PaymentAmountKpis | null>(null)
+  const [loading, setLoading] = useState(Boolean(loadFromApi && !kpisProp))
+  const [loadError, setLoadError] = useState<string | null>(null)
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     if (!loadFromApi) return
+    setLoading(true)
+    setLoadError(null)
     setKpisFetched(null)
-    apiClient
-      .get<{
-        kpis?: PaymentAmountKpis
-        lifetime_raised_excl_na?: number
-        na_marked_unpaid_invoice_total?: number
-      }>(API_ENDPOINTS.CLIENT_PAYMENT.PAYMENT_SUMMARY, {
-        params: { _: refreshKey ?? Date.now() },
-        headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+
+    const cacheBust = { _: refreshKey ?? Date.now() }
+    const noCacheHeaders = { 'Cache-Control': 'no-cache', Pragma: 'no-cache' }
+
+    const trySummary = async (): Promise<PaymentAmountKpis | null> => {
+      const r = await apiClient.get<SummaryBody>(API_ENDPOINTS.CLIENT_PAYMENT.PAYMENT_SUMMARY, {
+        params: cacheBust,
+        headers: noCacheHeaders,
       })
-      .then((r) => {
-        const body = r.data
-        const k = body?.kpis
-        if (!k) return
-        setKpisFetched({
-          ...k,
-          lifetime_raised_excl_na:
-            typeof body?.lifetime_raised_excl_na === 'number'
-              ? body.lifetime_raised_excl_na
-              : k.lifetime_raised_excl_na,
-          na_marked_unpaid_invoice_total:
-            typeof body?.na_marked_unpaid_invoice_total === 'number'
-              ? body.na_marked_unpaid_invoice_total
-              : k.na_marked_unpaid_invoice_total,
-        })
+      return mergeKpiBody(r.data)
+    }
+
+    const tryAgeingReport = async (): Promise<PaymentAmountKpis | null> => {
+      const r = await apiClient.get<SummaryBody>(API_ENDPOINTS.CLIENT_PAYMENT.PAYMENT_AGEING_REPORT, {
+        params: cacheBust,
+        headers: noCacheHeaders,
       })
-      .catch(() => setKpisFetched(null))
+      return mergeKpiBody(r.data)
+    }
+
+    try {
+      const fromSummary = await trySummary()
+      if (fromSummary) {
+        setKpisFetched(fromSummary)
+        return
+      }
+    } catch {
+      /* fall through to ageing report (older backends may lack payment-summary) */
+    }
+
+    try {
+      const fromAgeing = await tryAgeingReport()
+      if (fromAgeing) {
+        setKpisFetched(fromAgeing)
+        return
+      }
+    } catch {
+      /* both failed */
+    }
+
+    setLoadError(
+      'Payment totals could not be loaded. Redeploy the backend (Render) with the latest code, set VITE_API_BASE_URL to your API host on Vercel, then redeploy the frontend. See docs/CLIENT_PAYMENT_PRODUCTION.md.',
+    )
   }, [loadFromApi, refreshKey])
 
   useEffect(() => {
-    load()
+    void load().finally(() => setLoading(false))
   }, [load, refreshKey])
 
   const kpis = kpisProp ?? kpisFetched
 
   const lifetimeRaised = kpis?.lifetime_raised_excl_na
   const naUnpaidExcluded = kpis?.na_marked_unpaid_invoice_total
+
+  if (loadFromApi && loading) {
+    return (
+      <div style={{ marginBottom: 24, textAlign: 'center', padding: '32px 0' }}>
+        <Spin tip="Loading payment totals…" />
+      </div>
+    )
+  }
+
+  if (loadFromApi && loadError && !kpis) {
+    return (
+      <Alert
+        type="warning"
+        showIcon
+        style={{ marginBottom: 24 }}
+        message="Payment summary unavailable"
+        description={loadError}
+      />
+    )
+  }
 
   return (
     <Row gutter={[16, 16]}>
