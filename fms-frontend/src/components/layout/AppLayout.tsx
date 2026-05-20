@@ -3,7 +3,10 @@ import { useLocation } from 'react-router-dom'
 import { Layout } from 'antd'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
-import { SupportFormModal } from '../forms/SupportFormModal'
+import { SupportFormModal, type SupportFormPrefill } from '../forms/SupportFormModal'
+import { softSuggestionsApi } from '../../api/softSuggestions'
+import type { Ticket } from '../../api/tickets'
+import { message } from 'antd'
 import { AmiMascot } from '../common/AmiMascot'
 import { ROUTES, canViewDbClientDbDash, canViewPendingPaymentDetails } from '../../utils/constants'
 import { useRole } from '../../hooks/useRole'
@@ -20,6 +23,8 @@ interface AppLayoutProps {
 
 export const AppLayout = ({ children }: AppLayoutProps) => {
   const [supportModalOpen, setSupportModalOpen] = useState(false)
+  const [supportPrefill, setSupportPrefill] = useState<SupportFormPrefill | null>(null)
+  const [linkSoftSuggId, setLinkSoftSuggId] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const location = useLocation()
   const { user } = useAuth()
@@ -84,6 +89,11 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
         className="no-print"
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        onOpenSupportForm={(prefill, softSuggId) => {
+          setSupportPrefill(prefill)
+          setLinkSoftSuggId(softSuggId)
+          setSupportModalOpen(true)
+        }}
       />
       <Layout style={{ marginLeft: 0 }}>
         <Header
@@ -106,8 +116,25 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       </Layout>
       <SupportFormModal
         open={supportModalOpen}
-        onClose={() => setSupportModalOpen(false)}
-        onSuccess={() => setSupportModalOpen(false)}
+        prefill={supportPrefill}
+        onClose={() => {
+          setSupportModalOpen(false)
+          setSupportPrefill(null)
+          setLinkSoftSuggId(null)
+        }}
+        onSuccess={async (ticket?: Ticket) => {
+          if (linkSoftSuggId && ticket?.id) {
+            try {
+              await softSuggestionsApi.linkTicket(linkSoftSuggId, ticket.id)
+              message.success('Moved to Support — ticket linked')
+            } catch {
+              message.error('Ticket created but could not link suggestion row')
+            }
+          }
+          setSupportModalOpen(false)
+          setSupportPrefill(null)
+          setLinkSoftSuggId(null)
+        }}
       />
       <AmiMascot userName={user?.full_name || user?.email} />
     </Layout>
