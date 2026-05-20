@@ -18,16 +18,17 @@ STAGE_SECTION = {
 
 STANDARD_COLS = [
     "Reference",
+    "Company",
     "Title",
     "Description",
     "Assigned User",
-    "Current Stage",
     "Pending Since",
     "Time Delay",
 ]
 
 STAGE_COLS = [
     "Reference",
+    "Company",
     "Ticket Type",
     "Title",
     "Description",
@@ -45,20 +46,21 @@ def _table(columns: list[str], rows: list[list[str]]) -> str:
     if not rows:
         return '<p style="color:#94a3b8;font-size:13px;">No tickets in this section.</p>'
     th = "".join(
-        '<th style="padding:12px 10px;text-align:left;color:#38bdf8;font-size:11px;text-transform:uppercase;">'
+        '<th style="padding:11px 9px;text-align:left;color:#67e8f9;font-size:10px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid rgba(56,189,248,.25);white-space:nowrap;">'
         f"{_esc(c)}</th>"
         for c in columns
     )
     body = ""
     for row in rows:
         tds = "".join(
-            f'<td style="padding:12px 10px;color:#cbd5e1;font-size:13px;">{c}</td>' for c in row
+            f'<td style="padding:11px 9px;color:#e2e8f0;font-size:13px;vertical-align:top;line-height:1.45;border-bottom:1px solid rgba(148,163,184,.12);">{c}</td>'
+            for c in row
         )
-        body += f'<tr style="border-bottom:1px solid rgba(56,189,248,.12);">{tds}</tr>'
+        body += f'<tr>{tds}</tr>'
     return (
-        '<div style="overflow-x:auto;border-radius:12px;border:1px solid rgba(56,189,248,.2);margin-bottom:16px;">'
-        f'<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;min-width:600px;">'
-        f"<thead><tr style=\"background:rgba(15,23,42,.9);\">{th}</tr></thead><tbody>{body}</tbody></table></div>"
+        '<div style="overflow-x:auto;border-radius:12px;border:1px solid rgba(56,189,248,.22);margin-bottom:16px;">'
+        f'<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;min-width:680px;background:rgba(15,23,42,.35);">'
+        f"<thead><tr style=\"background:rgba(15,23,42,.95);\">{th}</tr></thead><tbody>{body}</tbody></table></div>"
     )
 
 
@@ -75,10 +77,10 @@ def build_timeframe_html(
         rows = [
             [
                 _esc(it.get("reference")),
+                _esc(it.get("company")),
                 _esc(it.get("title")),
                 _esc(it.get("description")),
                 _esc(it.get("assignee")),
-                f'<span style="display:inline-block;padding:4px 10px;border-radius:999px;background:{color}33;color:{color};font-size:11px;font-weight:700;">{_esc(it.get("stage_label"))}</span>',
                 _esc(it.get("pending_since")),
                 _esc(it.get("delay")),
             ]
@@ -90,14 +92,16 @@ def build_timeframe_html(
             + _table(STANDARD_COLS, rows)
         )
     inner = (
-        f'<p style="color:#bae6fd;font-size:14px;margin:0 0 16px;">'
+        f'<p style="color:#94a3b8;font-size:12px;margin:-8px 0 12px;">Within each timeframe, tickets are sorted by <strong style="color:#e2e8f0;">longest delay first</strong>. '
+        f"Demo&nbsp;C is excluded.</p>"
+        + f'<p style="color:#bae6fd;font-size:14px;margin:0 0 16px;">'
         f"<strong style=\"color:#fff;\">{total}</strong> open pending ticket(s) · "
         f'<strong style="color:#ef4444;">{critical_count}</strong> critical (72hr+)</p>'
         + "".join(sections)
     )
     return _email_shell(
         "[Pending Escalation Report] Tickets Pending in Different Timeframes",
-        "Grouped by delay: 24–48hr · 48–72hr · 72hr+",
+        "Grouped by delay band · Longest delay first in each section · Demo C excluded · Company on each row",
         "#38bdf8",
         inner,
     )
@@ -109,10 +113,10 @@ def build_critical_html(sections: dict[str, list[dict[str, Any]]], total: int) -
         rows = [
             [
                 _esc(it.get("reference")),
+                _esc(it.get("company")),
                 _esc(it.get("title")),
                 _esc(it.get("description")),
                 _esc(it.get("assignee")),
-                f'<span style="display:inline-block;padding:4px 10px;border-radius:999px;background:#ef444433;color:#ef4444;font-size:11px;font-weight:700;">{_esc(it.get("stage_label"))}</span>',
                 _esc(it.get("pending_since")),
                 _esc(it.get("delay")),
             ]
@@ -126,12 +130,13 @@ def build_critical_html(sections: dict[str, list[dict[str, Any]]], total: int) -
         '<div style="padding:14px 18px;margin-bottom:20px;border-radius:12px;border:2px solid #ef4444;'
         'background:linear-gradient(90deg,#450a0a,#1c1917);">'
         '<strong style="color:#fecaca;font-size:15px;">CRITICAL ESCALATION</strong>'
-        f'<p style="margin:8px 0 0;color:#fca5a5;font-size:13px;">{total} ticket(s) pending 72 hours or more — immediate attention required.</p></div>'
+        f'<p style="margin:8px 0 0;color:#fca5a5;font-size:13px;">{total} ticket(s) pending 72 hours or more — immediate attention required.</p>'
+        '<p style="margin:10px 0 0;color:#94a3b8;font-size:12px;">Within each group, <strong style="color:#fecaca;">longest delay first</strong>. Demo&nbsp;C excluded.</p></div>'
         + "".join(blocks)
     )
     return _email_shell(
         "[CRITICAL] Pending Escalation — 72hr+",
-        "High priority · Open tickets only",
+        "High priority · Longest delay first per section · Demo C excluded",
         "#ef4444",
         inner,
         critical=True,
@@ -143,6 +148,7 @@ def build_stage_html(stage_num: int, items: list[dict[str, Any]]) -> str:
     rows = [
         [
             _esc(it.get("reference")),
+            _esc(it.get("company")),
             _esc(it.get("ticket_type")),
             _esc(it.get("title")),
             _esc(it.get("description")),
@@ -154,7 +160,8 @@ def build_stage_html(stage_num: int, items: list[dict[str, Any]]) -> str:
     ]
     inner = (
         f'<p style="color:#bae6fd;font-size:14px;"><strong style="color:{color};">{len(items)}</strong> '
-        f"ticket(s) pending at {html.escape(title)}</p>"
+        f"ticket(s) pending at {html.escape(title)} · "
+        f'<span style="color:#94a3b8;font-size:12px;">Sorted by longest delay first · Demo&nbsp;C excluded</span></p>'
         + _table(STAGE_COLS, rows)
     )
     return _email_shell(

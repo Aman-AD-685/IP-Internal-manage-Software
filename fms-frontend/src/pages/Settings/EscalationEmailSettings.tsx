@@ -329,8 +329,9 @@ export function EscalationEmailSettings() {
           Advanced Pending Escalation &amp; Approval Email Configuration
         </Title>
         <Paragraph type="secondary">
-          Automated pending escalation for Chores, Bugs, and Staging. Configure recipients per flow, use external cron jobs on
-          production, or force-send instantly from here.
+          Automated pending escalation for Chores, Bugs, and Staging. Tickets are sorted by <strong>longest time delay first</strong>{' '}
+          in each table. <strong>Demo&nbsp;C</strong> company tickets are excluded. Company names are filled from the company directory
+          when the ticket has a <Text code>company_id</Text> but an empty name.
         </Paragraph>
 
         {emailDelivery && !emailDelivery.credentials_loaded && (
@@ -439,7 +440,7 @@ export function EscalationEmailSettings() {
                       cfg={byType.pending_timeframe}
                       stats={stats ?? undefined}
                       accent="#38bdf8"
-                      description="Chores, Bugs, Stage 2 pending, and Staging — grouped into 24–48hr, 48–72hr, and 72hr+ sections."
+                      description="Chores, Bugs, Stage 2 pending, and Staging — grouped into 24–48hr, 48–72hr, and 72hr+ sections. Email tables include Company, Reference, assignee, and delay."
                       onRefresh={load}
                     />
                   )}
@@ -452,7 +453,7 @@ export function EscalationEmailSettings() {
                       cfg={byType.critical_pending}
                       stats={stats ?? undefined}
                       accent="#ef4444"
-                      description="Only tickets pending 72hr+ — red alert layout with Chores, Bugs, and Staging sections."
+                      description="Only tickets pending 72hr+ — red alert layout with Chores, Bugs, and Staging sections. Each row lists Company with ticket details."
                       onRefresh={load}
                     />
                   )}
@@ -467,9 +468,9 @@ export function EscalationEmailSettings() {
                   {(['stage_2', 'stage_3', 'stage_4'] as const).map((key, i) => {
                     const accents = ['#eab308', '#f97316', '#ef4444']
                     const labels = [
-                      'Stage 2 pending tickets',
-                      'Stage 3 pending tickets',
-                      'Stage 4 pending tickets',
+                      'Stage 2 pending — email table includes Company per ticket',
+                      'Stage 3 pending — email table includes Company per ticket',
+                      'Stage 4 pending — email table includes Company per ticket',
                     ]
                     const cfg = byType[key]
                     if (!cfg) return null
