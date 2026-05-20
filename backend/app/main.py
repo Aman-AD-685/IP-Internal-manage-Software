@@ -205,6 +205,7 @@ from app.cron_email_routes import cron_email_router
 from app.approval_email_pages import approval_public_router
 from app.escalation_email_routes import escalation_email_router
 from app.improvement_suggestions_routes import improvement_router
+from app.soft_suggestions_routes import soft_suggestions_router
 
 app.include_router(feature_approval_reminder_router)
 app.include_router(feature_approval_reminder_router, prefix="/api")
@@ -216,6 +217,8 @@ app.include_router(cron_email_router)
 app.include_router(cron_email_router, prefix="/api")
 app.include_router(improvement_router)
 app.include_router(improvement_router, prefix="/api")
+app.include_router(soft_suggestions_router)
+app.include_router(soft_suggestions_router, prefix="/api")
 
 
 @app.on_event("startup")
@@ -10519,7 +10522,8 @@ def _map_role(name: str) -> str:
 # Section keys for user_section_permissions (Edit User matrix + login).
 # Dashboard KPI subsections come from app.dashboard_kpi_sections (auto-merged after dashboard_kpi).
 _BASE_SECTION_KEYS = [
-    "dashboard", "dashboard_kpi", "improvement", "improvement_i1", "support_dashboard", "all_tickets",
+    "dashboard", "dashboard_kpi", "improvement", "improvement_i1", "soft_sugg", "soft_sugg_details",
+    "support_dashboard", "all_tickets",
     "chores_bugs", "staging", "feature", "approval_status", "completed_chores_bugs", "rejected_tickets",
     "completed_feature", "solution", "task", "success_performance", "success_comp_perform",
     "client_to_lead", "leads", "onboarding", "onboarding_payment_status", "client_payment",
@@ -10533,6 +10537,8 @@ _SECTION_LABELS_BASE: dict[str, str] = {
     "dashboard_kpi": "Dashboard - KPI (page)",
     "improvement": "Improvement (submit suggestion)",
     "improvement_i1": "I - 1 (improvement board)",
+    "soft_sugg": "S - Sugg (submit)",
+    "soft_sugg_details": "Sugg Details (board)",
     "support_dashboard": "Support Dashboard",
     "all_tickets": "All Tickets",
     "chores_bugs": "Chores & Bugs",

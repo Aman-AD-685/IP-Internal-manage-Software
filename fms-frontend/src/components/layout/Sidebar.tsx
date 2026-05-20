@@ -1,4 +1,5 @@
-import { Menu, Drawer } from 'antd'
+import { Menu, Drawer, Button, message } from 'antd'
+import { CloseOutlined } from '@ant-design/icons'
 import {
   DashboardOutlined,
   FileTextOutlined,
@@ -25,6 +26,11 @@ import { useAuth } from '../../hooks/useAuth'
 import { ROUTES, canViewDbClientDbDash, canViewPendingPaymentDetails } from '../../utils/constants'
 import { useState, useEffect } from 'react'
 import { prefetchRouteData } from '../../utils/routePrefetch'
+import { canViewSection } from '../../utils/helpers'
+import type { UserRole } from '../../types/auth'
+import { SoftSuggFormModal } from '../softSugg/SoftSuggFormModal'
+import { SoftSuggDetailsModal } from '../softSugg/SoftSuggDetailsModal'
+import { buildSupportPrefillFromSoftSuggestion, type SoftSuggestion } from '../../api/softSuggestions'
 
 
 const isSupportPage = (pathname: string) =>
@@ -56,13 +62,30 @@ interface SidebarProps {
   className?: string
   open?: boolean
   onClose?: () => void
+  onOpenSupportForm?: (
+    prefill: import('../forms/SupportFormModal').SupportFormPrefill,
+    softSuggId: string,
+  ) => void
 }
 
-export const Sidebar = ({ className, open, onClose }: SidebarProps) => {
+export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: SidebarProps) => {
   const navigate = useNavigate()
   const location = useLocation()
-  const { canAccessApproval, canAccessSettings, canAccessUsers, canViewSectionByKey } = useRole()
+  const { canAccessApproval, canAccessSettings, canAccessUsers, canViewSectionByKey, role: userRole, isMasterAdmin } =
+    useRole()
   const { user } = useAuth()
+  const [softSuggOpen, setSoftSuggOpen] = useState(false)
+  const [suggDetailsOpen, setSuggDetailsOpen] = useState(false)
+  const canSoftSugg =
+    isMasterAdmin || canViewSection('soft_sugg', userRole as UserRole, user?.section_permissions)
+  const canSuggDetails =
+    isMasterAdmin || canViewSection('soft_sugg_details', userRole as UserRole, user?.section_permissions)
+
+  const handleMoveToSoft = (row: SoftSuggestion) => {
+    setSuggDetailsOpen(false)
+    onClose?.()
+    onOpenSupportForm?.(buildSupportPrefillFromSoftSuggestion(row), row.id)
+  }
   const [supportOpen, setSupportOpen] = useState(isSupportPage(location.pathname))
   const [taskOpen, setTaskOpen] = useState(isTaskPage(location.pathname))
   const [successOpen, setSuccessOpen] = useState(isSuccessPage(location.pathname))
@@ -359,16 +382,65 @@ export const Sidebar = ({ className, open, onClose }: SidebarProps) => {
     </>
   )
 
-  return (
-    <Drawer
-      title={null}
-      placement="left"
-      open={open}
-      onClose={onClose}
-      width={260}
-      styles={{ body: { padding: 0 } }}
+  const openSoftSugg = () => {
+    if (!canSoftSugg) {
+      message.warning('Enable "S - Sugg" under Users → Section permissions, then log in again.')
+      return
+    }
+    setSoftSuggOpen(true)
+  }
+  const openSuggDetails = () => {
+    if (!canSuggDetails) {
+      message.warning('Enable "Sugg Details" under Users → Section permissions, then log in again.')
+      return
+    }
+    setSuggDetailsOpen(true)
+  }
+
+  const drawerHeader = user ? (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '8px 0 4px',
+        flexWrap: 'wrap',
+        width: '100%',
+      }}
     >
-      {menuContent}
-    </Drawer>
+      <Button type="text" icon={<CloseOutlined />} onClick={onClose} aria-label="Close menu" />
+      <Button size="small" type="default" onClick={openSoftSugg}>
+        S - Sugg
+      </Button>
+      <Button size="small" type="default" onClick={openSuggDetails}>
+        Sugg Details
+      </Button>
+    </div>
+  ) : null
+
+  return (
+    <>
+      <Drawer
+        title={drawerHeader}
+        closable={false}
+        placement="left"
+        open={open}
+        onClose={onClose}
+        width={260}
+        styles={{ body: { padding: 0 } }}
+      >
+        {menuContent}
+      </Drawer>
+      {canSoftSugg ? (
+        <SoftSuggFormModal open={softSuggOpen} onClose={() => setSoftSuggOpen(false)} />
+      ) : null}
+      {canSuggDetails ? (
+        <SoftSuggDetailsModal
+          open={suggDetailsOpen}
+          onClose={() => setSuggDetailsOpen(false)}
+          onMoveToSoft={handleMoveToSoft}
+        />
+      ) : null}
+    </>
   )
 }

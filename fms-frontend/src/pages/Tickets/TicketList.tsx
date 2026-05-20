@@ -177,7 +177,7 @@ export const TicketList = () => {
   /** Stage filter: applies to table, Export and Print (filters current result set) */
   const [stageFilter, setStageFilter] = useState<string>('')
   /** Approval Status view: pending | unapproved (includes rejected) | hold */
-  const [approvalFilter, setApprovalFilter] = useState<string>('unapproved')
+  const [approvalFilter, setApprovalFilter] = useState<string>('pending')
   /** Chores & Bugs only: filter by Stage 2 status (pending | completed | staging | hold) */
   const [status2Filter, setStatus2Filter] = useState<string>('')
   /** Register of Tickets: mandatory status filter */
@@ -234,7 +234,7 @@ export const TicketList = () => {
     const urlDateFrom = searchParams.get('date_from') || new URLSearchParams(location.search).get('date_from') || ''
     const urlDateTo = searchParams.get('date_to') || new URLSearchParams(location.search).get('date_to') || ''
     const viewApproval = searchParams.get('view') === 'approval' || s === 'approval-status'
-    if (viewApproval) setApprovalFilter('unapproved')
+    if (viewApproval) setApprovalFilter('pending')
     setFilters((f) => {
       const next = { ...f }
       if (viewApproval) {
@@ -1284,7 +1284,7 @@ export const TicketList = () => {
               style={{ width: 160 }}
               value={approvalFilter}
               onChange={(v) => {
-                setApprovalFilter(v ?? 'unapproved')
+                setApprovalFilter(v ?? 'pending')
               }}
               getPopupContainer={() => document.body}
               options={[

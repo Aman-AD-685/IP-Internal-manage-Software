@@ -90,13 +90,24 @@ function formatApiError(detail: unknown, fallback: string): string {
   return fallback
 }
 
+export interface SupportFormPrefill {
+  title?: string
+  description?: string
+  type_of_request?: 'chore' | 'bug' | 'feature'
+  page_id?: string
+  attachment_url?: string
+  submitted_by?: string
+}
+
 interface SupportFormModalProps {
   open: boolean
   onClose: () => void
-  onSuccess?: () => void
+  onSuccess?: (ticket?: import('../../api/tickets').Ticket) => void
+  /** Prefill from Sugg Details → Move to Soft (skips draft restore). */
+  prefill?: SupportFormPrefill | null
 }
 
-export const SupportFormModal = ({ open, onClose, onSuccess }: SupportFormModalProps) => {
+export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportFormModalProps) => {
   const { user } = useAuth()
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
@@ -131,6 +142,32 @@ export const SupportFormModal = ({ open, onClose, onSuccess }: SupportFormModalP
         .then((list) => setCompanies(dedupeCompaniesForSelect(list)))
         .catch(() => setCompanies([]))
       supportApi.getPages().then(setPages).catch(() => setPages([]))
+
+      if (prefill) {
+        skipDraftSaveRef.current = true
+        isLoadingDraftRef.current = true
+        const t = prefill.type_of_request || 'chore'
+        setRequestType(t)
+        setTypeFeature(t === 'feature')
+        if (prefill.attachment_url) {
+          setAttachmentUrl(prefill.attachment_url)
+          setAttachmentFileList([{ uid: prefill.attachment_url, name: 'Link', url: prefill.attachment_url }])
+        }
+        form.setFieldsValue({
+          title: prefill.title ?? '',
+          description: prefill.description ?? '',
+          type_of_request: t,
+          page_id: prefill.page_id,
+          submitted_by: prefill.submitted_by ?? user?.full_name ?? '',
+          attachment_url: prefill.attachment_url,
+        })
+        setTimeout(() => {
+          skipDraftSaveRef.current = false
+          isLoadingDraftRef.current = false
+        }, 300)
+        return
+      }
+
       form.setFieldsValue({ submitted_by: user?.full_name ?? '' })
       skipDraftSaveRef.current = true
       isLoadingDraftRef.current = true
@@ -180,7 +217,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess }: SupportFormModalP
           }, 500)
         })
     }
-  }, [open, user?.full_name])
+  }, [open, user?.full_name, prefill])
 
   const companyId = Form.useWatch('company_id', form)
   useEffect(() => {
@@ -235,7 +272,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess }: SupportFormModalP
       const values = await form.validateFields()
       setLoading(true)
       const finalAttachmentUrl = attachmentUrl ?? toStr(values.attachment_url) ?? undefined
-      await ticketsApi.create({
+      const createRes = (await ticketsApi.create({
         title: toStr(values.title) ?? '',
         description: toStr(values.description),
         type: (toStr(values.type_of_request) ?? 'chore') as 'feature' | 'chore' | 'bug',
@@ -253,14 +290,20 @@ export const SupportFormModal = ({ open, onClose, onSuccess }: SupportFormModalP
         customer_questions: toStr(values.customer_questions),
         query_response_at: toISODate(values.query_response_at),
         why_feature: toStr(values.why_feature),
-      })
+      })) as { data?: import('../../api/tickets').Ticket } | import('../../api/tickets').Ticket
+      const created =
+        createRes && typeof createRes === 'object' && 'data' in createRes && createRes.data
+          ? createRes.data
+          : (createRes as import('../../api/tickets').Ticket)
       message.success('Support ticket created')
-      await draftsApi.deleteSupportTicketDraft().catch(() => {})
+      if (!prefill) {
+        await draftsApi.deleteSupportTicketDraft().catch(() => {})
+      }
       form.resetFields()
       setAttachmentFileList([])
       setAttachmentUrl(null)
+      onSuccess?.(created)
       onClose()
-      onSuccess?.()
       window.dispatchEvent(new CustomEvent('support-ticket-created'))
     } catch (e: any) {
       if (e && typeof e === 'object' && 'errorFields' in e) return
