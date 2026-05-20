@@ -431,12 +431,13 @@ def _collect_cors_origins() -> list[str]:
     return out
 
 _cors_origins_list = _collect_cors_origins()
+_cors_allow_origins = _cors_origins_list if _cors_origins_list else ([FRONTEND_ORIGIN] if FRONTEND_ORIGIN != "*" else ["*"])
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_ORIGIN],
+    allow_origins=_cors_allow_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Cron-Secret"],
+    allow_headers=["Authorization", "Content-Type", "X-Cron-Secret", "Cache-Control", "Pragma"],
 )
 
 # API router - routes work at BOTH / and /api (e.g. /users/me AND /api/users/me)
@@ -5792,9 +5793,55 @@ def _ocp_query_exclude_marked_na(q):
 # Safety cap when paginating all invoice rows from Supabase (1000 × 500 = 500k rows max).
 _OCP_AGG_PAGE_SIZE = 1000
 _OCP_AGG_MAX_PAGES = 500
-# Payment-summary must finish within HTTP timeout — avoid scanning entire tables per request.
-_PAYMENT_SUMMARY_PAY_ROW_LIMIT = 20000
-_PAYMENT_SUMMARY_RECEIVE_MAX_PAGES = 25
+# Payment-summary must finish within Render's ~30s HTTP limit (local uvicorn has no such cap).
+_PAYMENT_SUMMARY_PAY_ROW_LIMIT = 8000
+_PAYMENT_SUMMARY_RECEIVE_MAX_PAGES = 10
+_PAYMENT_SUMMARY_AGG_MAX_PAGES = 22
+_PAYMENT_SUMMARY_CACHE: dict[str, dict] = {}
+_PAYMENT_SUMMARY_CACHE_TTL_SEC = 60
+
+
+def _invalidate_payment_summary_cache() -> None:
+    _PAYMENT_SUMMARY_CACHE.clear()
+
+
+def _sum_payment_invoice_totals_combined(*, max_pages: int = _PAYMENT_SUMMARY_AGG_MAX_PAGES) -> dict[str, int]:
+    """One table scan for lifetime raised, unpaid excl. NA, and unpaid NA (faster than 3 separate scans)."""
+    cols = (
+        "invoice_amount,payment_received_date,marked_na"
+        if _client_payment_marked_na_supported()
+        else "invoice_amount,payment_received_date"
+    )
+    out = {"lifetime_raised_excl_na": 0, "total_due": 0, "na_marked_unpaid_invoice_total": 0}
+    offset = 0
+    pages = 0
+    page_cap = max(1, min(_OCP_AGG_MAX_PAGES, int(max_pages or _PAYMENT_SUMMARY_AGG_MAX_PAGES)))
+    while pages < page_cap:
+        try:
+            q = supabase.table("onboarding_client_payment").select(cols).order("id")
+            q = q.range(offset, offset + _OCP_AGG_PAGE_SIZE - 1)
+            r = q.execute()
+        except Exception as e:
+            _log(f"payment invoice totals combined page: {e}")
+            break
+        rows = r.data or []
+        if not rows:
+            break
+        for row in rows:
+            is_na = _client_payment_row_marked_na(row)
+            unpaid = _client_payment_row_unpaid(row)
+            amt = _parse_invoice_amount(row.get("invoice_amount"))
+            if not is_na:
+                out["lifetime_raised_excl_na"] += amt
+            if unpaid and is_na:
+                out["na_marked_unpaid_invoice_total"] += amt
+            elif unpaid and not is_na:
+                out["total_due"] += amt
+        if len(rows) < _OCP_AGG_PAGE_SIZE:
+            break
+        offset += _OCP_AGG_PAGE_SIZE
+        pages += 1
+    return {k: int(v) for k, v in out.items()}
 
 
 def _sum_invoice_amount_pages(
@@ -5802,12 +5849,14 @@ def _sum_invoice_amount_pages(
     exclude_na_marked: bool,
     unpaid_only: bool,
     na_marked_only: bool,
+    max_pages: int | None = None,
 ) -> int:
     """Sum invoice_amount with stable pagination by id."""
     total = 0
     offset = 0
     pages = 0
-    while pages < _OCP_AGG_MAX_PAGES:
+    page_cap = _OCP_AGG_MAX_PAGES if max_pages is None else max(1, min(_OCP_AGG_MAX_PAGES, int(max_pages)))
+    while pages < page_cap:
         try:
             q = supabase.table("onboarding_client_payment").select("invoice_amount").order("id")
             if exclude_na_marked:
@@ -7169,6 +7218,7 @@ def patch_client_payment_marked_na(
         global _MARKED_NA_COLUMN_SUPPORTED
         _MARKED_NA_COLUMN_SUPPORTED = True
         _invalidate_ttl_cache_key_prefix("onboarding:client-payment:")
+        _invalidate_payment_summary_cache()
         return updated
     except HTTPException:
         raise
@@ -7185,13 +7235,21 @@ def patch_client_payment_marked_na(
 
 def _build_payment_summary_payload() -> dict:
     """Payment KPI cards + totals. Capped pagination so production Render stays under HTTP timeout."""
+    import time as _time
+
+    cache_key = date.today().isoformat()
+    cached = _PAYMENT_SUMMARY_CACHE.get(cache_key)
+    if cached and (_time.time() - float(cached.get("ts") or 0)) < _PAYMENT_SUMMARY_CACHE_TTL_SEC:
+        return cached["payload"]
+
+    totals = _sum_payment_invoice_totals_combined(max_pages=_PAYMENT_SUMMARY_AGG_MAX_PAGES)
     pay_rows = _fetch_client_payment_rows_for_metrics(limit=_PAYMENT_SUMMARY_PAY_ROW_LIMIT)
     receive_by_cp_id = _fetch_client_payment_receive_by_cp_id(max_pages=_PAYMENT_SUMMARY_RECEIVE_MAX_PAGES)
     kpis = _compute_payment_ageing_kpis(pay_rows, None, receive_by_cp_id)
 
-    lifetime_excl = int(_sum_all_raised_invoice_excl_na())
-    na_unpaid_total = int(_sum_unpaid_invoice_marked_na())
-    total_due = int(_sum_unpaid_client_payment_excluding_na())
+    lifetime_excl = int(totals["lifetime_raised_excl_na"])
+    na_unpaid_total = int(totals["na_marked_unpaid_invoice_total"])
+    total_due = int(totals["total_due"])
 
     kpis["lifetime_raised_excl_na"] = lifetime_excl
     kpis["na_marked_unpaid_invoice_total"] = na_unpaid_total
@@ -7200,7 +7258,7 @@ def _build_payment_summary_payload() -> dict:
         "before this FY quarter until Payment Received is saved, and counts all receipts with payment "
         "date in this FY quarter—even for older invoices. India FY quarters (Apr–Mar)."
     )
-    return {
+    payload = {
         "total_due": total_due,
         "raised_quarter": int((kpis.get("overall_in_quarter") or {}).get("raised") or 0),
         "lifetime_raised_excl_na": lifetime_excl,
@@ -7208,6 +7266,8 @@ def _build_payment_summary_payload() -> dict:
         "kpis": kpis,
         "marked_na_supported": _client_payment_marked_na_supported(),
     }
+    _PAYMENT_SUMMARY_CACHE[cache_key] = {"ts": _time.time(), "payload": payload}
+    return payload
 
 
 @api_router.get("/onboarding/client-payment/payment-summary")
@@ -8652,6 +8712,7 @@ def save_client_payment_receive(client_payment_id: str, payload: dict, auth: dic
         _log(f"payment receive: {e}")
         raise HTTPException(400, str(e)[:200])
     supabase.table("onboarding_client_payment").update({"payment_received_date": payment_date}).eq("id", client_payment_id).execute()
+    _invalidate_payment_summary_cache()
     return {"data": {"party_name": party_name, "invoice_number": invoice_number, "amount": amount, "payment_date": payment_date}, "created_at": now_iso}
 
 # ---------- Training: Expected Day 0 = timestamp + 24h; Status = Pending / Done in X / Done, X delay ----------
