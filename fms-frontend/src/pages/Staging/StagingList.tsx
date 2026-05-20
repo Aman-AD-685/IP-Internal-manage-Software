@@ -17,6 +17,7 @@ import { PrintExport } from '../../components/common/PrintExport'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
 import { TextCellTooltip, tableCellEllipsisStyle } from '../../components/common/TextCellTooltip'
 import { useRole } from '../../hooks/useRole'
+import { dateRangeToIsoBounds, fetchAllTicketsPages } from '../../utils/ticketExportByDateRange'
 
 const { Option } = Select
 
@@ -270,6 +271,9 @@ const stagingTicketColumns = [
 
 export const StagingList = () => {
   const { isUser, isMasterAdmin } = useRole()
+  const scopeHint = isUser
+    ? 'Includes staging tickets you submitted, created within the selected date range.'
+    : 'Includes all staging tickets created within the selected date range.'
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [tickets, setTickets] = useState<Ticket[]>([])
@@ -280,7 +284,6 @@ export const StagingList = () => {
   const [referenceFilter, setReferenceFilter] = useState('')
   const [referenceFilterInput, setReferenceFilterInput] = useState('')
   const [allStagingTicketsForStageFilter, setAllStagingTicketsForStageFilter] = useState<Ticket[]>([])
-  const [exportTickets, setExportTickets] = useState<Ticket[]>([])
   const listFetchGeneration = useRef(0)
   const listPageRef = useRef(0)
   const listExhaustedRef = useRef(false)
@@ -437,8 +440,6 @@ export const StagingList = () => {
     return () => io.disconnect()
   }, [loading, tryLoadMoreTickets, tickets.length, total, stageFilter, allStagingTicketsForStageFilter.length])
 
-  const fetchAllForExport = async (): Promise<Ticket[]> => fetchAllStagingPages()
-
   const stagingStageLabels = ['Stage 1: Staging Planned', 'Stage 2: Live Planned', 'Stage 3: Review Planned']
   const ticketsForDisplay = tickets
   const stagedFilteredCount = useMemo(() => {
@@ -447,15 +448,27 @@ export const StagingList = () => {
   }, [allStagingTicketsForStageFilter, stageFilter, total])
   const getStageForExport = (t: Record<string, unknown>) => getStagingCurrentStage(t as Parameters<typeof getStagingCurrentStage>[0])
   const exportColumns = [...TICKET_EXPORT_COLUMNS]
-  const exportRows = (exportTickets.length > 0 ? exportTickets : ticketsForDisplay).map((t) => buildTicketExportRow(t as unknown as Record<string, unknown>, getStageForExport))
-
-  const handleExportClick = async () => {
-    const allTickets = await fetchAllForExport()
-    const filteredForExport = stageFilter
-      ? allTickets.filter((t) => getStagingCurrentStage(t).stageLabel === stageFilter)
-      : allTickets
-    setExportTickets(filteredForExport)
-  }
+  const fetchExportRowsByDateRange = useCallback(
+    async (dateFrom: string, dateTo: string) => {
+      const bounds = dateRangeToIsoBounds(dateFrom, dateTo)
+      const allTickets = await fetchAllTicketsPages({
+        section: 'staging',
+        sort_by: 'created_at',
+        sort_order: 'desc',
+        date_from: bounds.date_from,
+        date_to: bounds.date_to,
+        ...(referenceFilter ? { reference_filter: referenceFilter } : {}),
+        ...(isUser ? { mine_only: true } : {}),
+      })
+      const filtered = stageFilter
+        ? allTickets.filter((t) => getStagingCurrentStage(t).stageLabel === stageFilter)
+        : allTickets
+      return filtered.map((t) =>
+        buildTicketExportRow(t as unknown as Record<string, unknown>, getStageForExport),
+      )
+    },
+    [referenceFilter, stageFilter, isUser],
+  )
 
   return (
     <div style={{ maxWidth: 1400, margin: '0 auto' }}>
@@ -463,7 +476,15 @@ export const StagingList = () => {
         <Title level={2} className="page-main-heading" style={{ margin: 0 }}>
           Staging
         </Title>
-        <PrintExport pageTitle="Staging" exportData={{ columns: exportColumns, rows: exportRows }} exportFilename="staging_tickets" onExportClick={handleExportClick} />
+        <PrintExport
+          pageTitle="Staging"
+          dateRangeExport={{
+            columns: exportColumns,
+            filename: 'staging_tickets',
+            scopeHint,
+            fetchRows: fetchExportRowsByDateRange,
+          }}
+        />
       </div>
       <Card>
         <Space style={{ marginBottom: 16 }} wrap>

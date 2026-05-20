@@ -190,6 +190,8 @@ export const ticketsApi = {
     sort_by?: string
     sort_order?: string
     skipCache?: boolean
+    /** When true, only tickets created by the logged-in user. */
+    mine_only?: boolean
   }): Promise<ApiResponse<PaginatedResponse<Ticket>>> => {
     const listKey = ticketsListLogicalKey(params as object | undefined)
     const skipCache = !!(params as { skipCache?: boolean } | undefined)?.skipCache

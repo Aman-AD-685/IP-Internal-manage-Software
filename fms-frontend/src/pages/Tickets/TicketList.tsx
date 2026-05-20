@@ -37,6 +37,7 @@ import type { Ticket } from '../../api/tickets'
 import type { Company } from '../../api/support'
 import { ROUTES } from '../../utils/constants'
 import { sessionApiCacheClearLogicalPrefix } from '../../utils/sessionApiCache'
+import { dateRangeToIsoBounds, fetchAllTicketsPages } from '../../utils/ticketExportByDateRange'
 import { formatPriorityLabel, getPriorityTagColor, TICKET_PRIORITY_OPTIONS } from '../../utils/ticketPriority'
 
 const { Title, Text } = Typography
@@ -121,6 +122,9 @@ function unwrapTicketListPayload(
 export const TicketList = () => {
   const navigate = useNavigate()
   const { canAccessApproval, isUser, isMasterAdmin } = useRole()
+  const scopeHint = isUser
+    ? 'Includes tickets you submitted, created within the selected date range.'
+    : 'Includes all tickets in this section created within the selected date range.'
   const [loading, setLoading] = useState(true)
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [allTicketsForStageFilter, setAllTicketsForStageFilter] = useState<Ticket[]>([])
@@ -134,7 +138,6 @@ export const TicketList = () => {
   const totalRef = useRef(0)
   const scrollRootRef = useRef<HTMLDivElement>(null)
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null)
-  const [exportTickets, setExportTickets] = useState<Ticket[]>([])
   const [searchParams] = useSearchParams()
   const location = useLocation()
   const typeFromUrl = searchParams.get('type') || new URLSearchParams(location.search).get('type') || ''
@@ -288,7 +291,11 @@ export const TicketList = () => {
   }, [])
 
   const getTicketsListParams = useCallback(
-    (pageNum: number, limitSize: number, options?: { skipCache?: boolean }) => ({
+    (
+      pageNum: number,
+      limitSize: number,
+      options?: { skipCache?: boolean; dateFrom?: string; dateTo?: string; mineOnly?: boolean },
+    ) => ({
       page: pageNum,
       page_size: limitSize,
       ...(options?.skipCache ? { skipCache: true } : {}),
@@ -328,8 +335,17 @@ export const TicketList = () => {
       ...(isApprovalSection && { section: 'approval-status', approval_filter: approvalFilter }),
       ...(filters.company_ids?.length ? { company_ids: filters.company_ids } : {}),
       ...(filters.priority && { priority: filters.priority }),
-      ...(filters.date_from && { date_from: filters.date_from }),
-      ...(filters.date_to && { date_to: filters.date_to }),
+      ...(options?.dateFrom
+        ? { date_from: options.dateFrom }
+        : filters.date_from
+          ? { date_from: filters.date_from }
+          : {}),
+      ...(options?.dateTo
+        ? { date_to: options.dateTo }
+        : filters.date_to
+          ? { date_to: filters.date_to }
+          : {}),
+      ...(options?.mineOnly ? { mine_only: true } : {}),
       sort_by: filters.sort_by,
       sort_order: filters.sort_order,
     }),
@@ -556,8 +572,6 @@ export const TicketList = () => {
     return () => io.disconnect()
   }, [loading, tryLoadMoreTickets, tickets.length, total, allTicketsForStageFilter.length, stageClientInfinite])
 
-  const fetchAllForExport = async (): Promise<Ticket[]> => fetchAllTicketsWithFilters()
-
   const refetchList = useCallback(() => {
     if ((showStageFilter && stageFilter) || (showStageFilterForFeature && stageFilter)) {
       void fetchAllTicketsForStageFilter()
@@ -628,34 +642,67 @@ export const TicketList = () => {
       ? (t: Record<string, unknown>) => getFeatureCurrentStage(t as Parameters<typeof getFeatureCurrentStage>[0])
       : undefined
 
-  const handleExportClick = async () => {
-    const allTickets = await fetchAllForExport()
-    let filteredForExport =
-      showStageFilter && stageFilter
-        ? allTickets.filter((t) => getChoresBugsCurrentStage(t).stageLabel === stageFilter)
-        : showStageFilterForFeature && stageFilter
-          ? allTickets.filter((t) => getFeatureCurrentStage(t).stageLabel === stageFilter)
-          : allTickets
-    if (typeFromUrl === 'feature' || sectionFromUrl === 'completed-feature') {
-      filteredForExport = [...filteredForExport].sort((a, b) => {
-        const refCompare = (b.reference_no || '').localeCompare(a.reference_no || '', undefined, { numeric: true })
-        if (refCompare !== 0) return refCompare
-        const tA = a.created_at ? new Date(a.created_at).getTime() : 0
-        const tB = b.created_at ? new Date(b.created_at).getTime() : 0
-        return tB - tA
+  const applyExportSectionFilters = useCallback(
+    (allTickets: Ticket[]) => {
+      let filteredForExport =
+        showStageFilter && stageFilter
+          ? allTickets.filter((t) => getChoresBugsCurrentStage(t).stageLabel === stageFilter)
+          : showStageFilterForFeature && stageFilter
+            ? allTickets.filter((t) => getFeatureCurrentStage(t).stageLabel === stageFilter)
+            : allTickets
+      if (typeFromUrl === 'feature' || sectionFromUrl === 'completed-feature') {
+        filteredForExport = [...filteredForExport].sort((a, b) => {
+          const refCompare = (b.reference_no || '').localeCompare(a.reference_no || '', undefined, { numeric: true })
+          if (refCompare !== 0) return refCompare
+          const tA = a.created_at ? new Date(a.created_at).getTime() : 0
+          const tB = b.created_at ? new Date(b.created_at).getTime() : 0
+          return tB - tA
+        })
+      }
+      if (isRegisterSection) {
+        filteredForExport = filteredForExport.filter((t) => {
+          const kindOk = registerTypeFilters.length === 0 || registerTypeFilters.includes(String(t.type || ''))
+          if (!kindOk) return false
+          if (registerStatusFilter === 'all') return true
+          const s = getRegisterStatusLabel(t)
+          return registerStatusFilter === 'completed' ? s === 'Completed' : s === 'Rejected'
+        })
+      }
+      return filteredForExport
+    },
+    [
+      showStageFilter,
+      stageFilter,
+      showStageFilterForFeature,
+      typeFromUrl,
+      sectionFromUrl,
+      isRegisterSection,
+      registerTypeFilters,
+      registerStatusFilter,
+    ],
+  )
+
+  const fetchExportRowsByDateRange = useCallback(
+    async (dateFrom: string, dateTo: string) => {
+      const bounds = dateRangeToIsoBounds(dateFrom, dateTo)
+      let allTickets = await fetchAllTicketsPages({
+        ...getTicketsListParams(1, 100, {
+          skipCache: true,
+          dateFrom: bounds.date_from,
+          dateTo: bounds.date_to,
+          mineOnly: isUser,
+        }),
       })
-    }
-    if (isRegisterSection) {
-      filteredForExport = filteredForExport.filter((t) => {
-        const kindOk = registerTypeFilters.length === 0 || registerTypeFilters.includes(String(t.type || ''))
-        if (!kindOk) return false
-        if (registerStatusFilter === 'all') return true
-        const s = getRegisterStatusLabel(t)
-        return registerStatusFilter === 'completed' ? s === 'Completed' : s === 'Rejected'
-      })
-    }
-    setExportTickets(filteredForExport)
-  }
+      if (isChoresBugs) {
+        allTickets = keepOnlyChoresAndBugs(allTickets)
+      }
+      const filtered = applyExportSectionFilters(allTickets)
+      return filtered.map((t) =>
+        buildTicketExportRow(t as unknown as Record<string, unknown>, getStageForExport),
+      )
+    },
+    [getTicketsListParams, isUser, isChoresBugs, applyExportSectionFilters, getStageForExport],
+  )
 
   const wrapStyle = { whiteSpace: 'normal' as const, wordBreak: 'break-word' as const }
 
@@ -1178,7 +1225,6 @@ export const TicketList = () => {
   const isCompletedChoresBugs = sectionFromUrl === 'completed-chores-bugs'
 
   const exportColumns = [...TICKET_EXPORT_COLUMNS]
-  const exportRows = (exportTickets.length > 0 ? exportTickets : ticketsForDisplay).map((t) => buildTicketExportRow(t as unknown as Record<string, unknown>, getStageForExport))
 
   return (
     <div style={{ maxWidth: 1600, margin: '0 auto' }}>
@@ -1197,7 +1243,15 @@ export const TicketList = () => {
         >
           {pageTitle}
         </Title>
-        <PrintExport pageTitle={pageTitle} exportData={{ columns: exportColumns, rows: exportRows }} exportFilename={`tickets_${sectionFromUrl || 'all'}`} onExportClick={handleExportClick} />
+        <PrintExport
+          pageTitle={pageTitle}
+          dateRangeExport={{
+            columns: exportColumns,
+            filename: `tickets_${sectionFromUrl || typeFromUrl || 'all'}`,
+            scopeHint,
+            fetchRows: fetchExportRowsByDateRange,
+          }}
+        />
       </Space>
 
       <Card style={cardStyle} bodyStyle={{ padding: 24 }}>

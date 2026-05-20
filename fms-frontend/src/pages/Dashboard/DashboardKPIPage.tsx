@@ -1089,7 +1089,18 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
 
             {/* Support FMS – Shreyasi only; clickable cards open detail modal; show Weekly % in title */}
             {supportFMS && selectedPerson === 'Shreyasi' && (
-              <Card className="kpi-section-card kpi-section-card--support-fms" title={<Space><CustomerServiceOutlined /><span className="support-fms-heading">Support FMS (Weekly: {supportFMS.weeklyPercentage ?? 0}%)</span></Space>}>
+              <Card
+                className="kpi-section-card kpi-section-card--support-fms"
+                title={
+                  <Space>
+                    <CustomerServiceOutlined />
+                    <span className="support-fms-heading">
+                      Support FMS (Weekly: {supportFMS.weeklyPercentage ?? 0}% · Monthly:{' '}
+                      {supportFMS.monthlyPercentage ?? monthly?.supportFMS ?? 0}%)
+                    </span>
+                  </Space>
+                }
+              >
                 <Row gutter={[16, 16]}>
                   <Col xs={24} md={8}>
                     <Card
@@ -1104,12 +1115,27 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                       style={{ cursor: 'pointer', borderTop: '3px solid #FFC107' }}
                       extra={((supportFMS.responseDelay?.details?.length) ?? 0) > 0 ? <UnorderedListOutlined title="Click to view list" /> : null}
                     >
-                      <Text strong style={{ color: '#FFC107' }}>{supportFMS.responseDelay?.value ?? 0}</Text> / {supportFMS.responseDelay?.target ?? 0}
-                      {supportFMS.responseDelay?.percentage != null && (
-                        <Text type="secondary"> ({supportFMS.responseDelay.percentage})</Text>
-                      )}
+                      {supportFMS.responseDelay?.status === 'Good' ? (
+                        <Text strong style={{ color: '#52c41a', fontSize: 16 }}>
+                          Good
+                        </Text>
+                      ) : null}
+                      <div style={{ marginTop: supportFMS.responseDelay?.status === 'Good' ? 4 : 0 }}>
+                        <Text strong style={{ color: supportFMS.responseDelay?.status === 'Good' ? undefined : '#FFC107' }}>
+                          {supportFMS.responseDelay?.value ?? 0}
+                        </Text>{' '}
+                        / {supportFMS.responseDelay?.target ?? 0}
+                        {supportFMS.responseDelay?.percentage != null && (
+                          <Text type="secondary"> ({supportFMS.responseDelay.percentage})</Text>
+                        )}
+                        {supportFMS.responseDelay?.healthPercent != null && (
+                          <Text type="secondary"> · {supportFMS.responseDelay.healthPercent}%</Text>
+                        )}
+                      </div>
                       {((supportFMS.responseDelay?.details?.length) ?? 0) > 0 && (
-                        <div style={{ marginTop: 8, fontSize: 12, color: '#FFC107' }}>Click to view list ({supportFMS.responseDelay!.details!.length})</div>
+                        <div style={{ marginTop: 8, fontSize: 12, color: '#FFC107' }}>
+                          Click to view list ({supportFMS.responseDelay!.details!.length})
+                        </div>
                       )}
                     </Card>
                   </Col>
@@ -1126,10 +1152,23 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                       style={{ cursor: 'pointer', borderTop: '3px solid #FFC107' }}
                       extra={((supportFMS.completionDelay?.details?.length) ?? 0) > 0 ? <UnorderedListOutlined title="Click to view list" /> : null}
                     >
-                      <Text strong style={{ color: '#FFC107' }}>{supportFMS.completionDelay?.value ?? 0}</Text> / {supportFMS.completionDelay?.target ?? 0}
-                      {supportFMS.completionDelay?.percentage != null && (
-                        <Text type="secondary"> ({supportFMS.completionDelay.percentage})</Text>
-                      )}
+                      {supportFMS.completionDelay?.status === 'Good' ? (
+                        <Text strong style={{ color: '#52c41a', fontSize: 16 }}>
+                          Good
+                        </Text>
+                      ) : null}
+                      <div style={{ marginTop: supportFMS.completionDelay?.status === 'Good' ? 4 : 0 }}>
+                        <Text strong style={{ color: supportFMS.completionDelay?.status === 'Good' ? undefined : '#FFC107' }}>
+                          {supportFMS.completionDelay?.value ?? 0}
+                        </Text>{' '}
+                        / {supportFMS.completionDelay?.target ?? 0}
+                        {supportFMS.completionDelay?.percentage != null && (
+                          <Text type="secondary"> ({supportFMS.completionDelay.percentage})</Text>
+                        )}
+                        {supportFMS.completionDelay?.healthPercent != null && (
+                          <Text type="secondary"> · {supportFMS.completionDelay.healthPercent}%</Text>
+                        )}
+                      </div>
                       {((supportFMS.completionDelay?.details?.length) ?? 0) > 0 && (
                         <div style={{ marginTop: 8, fontSize: 12, color: '#FFC107' }}>Click to view list ({supportFMS.completionDelay!.details!.length})</div>
                       )}
@@ -1148,10 +1187,23 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                       style={{ cursor: 'pointer', borderTop: '3px solid #FFC107' }}
                       extra={((supportFMS.pendingChores?.details?.length) ?? 0) > 0 ? <UnorderedListOutlined title="Click to view list" /> : null}
                     >
-                      <Text strong style={{ color: '#FFC107' }}>{supportFMS.pendingChores?.value ?? 0}</Text> / {supportFMS.pendingChores?.target ?? 0}
-                      {supportFMS.pendingChores?.percentage != null && (
-                        <Text type="secondary"> ({supportFMS.pendingChores.percentage})</Text>
-                      )}
+                      {supportFMS.pendingChores?.status === 'Good' ? (
+                        <Text strong style={{ color: '#52c41a', fontSize: 16 }}>
+                          Good
+                        </Text>
+                      ) : null}
+                      <div style={{ marginTop: supportFMS.pendingChores?.status === 'Good' ? 4 : 0 }}>
+                        <Text strong style={{ color: supportFMS.pendingChores?.status === 'Good' ? undefined : '#FFC107' }}>
+                          {supportFMS.pendingChores?.value ?? 0}
+                        </Text>{' '}
+                        / {supportFMS.pendingChores?.target ?? 0}
+                        {supportFMS.pendingChores?.percentage != null && (
+                          <Text type="secondary"> ({supportFMS.pendingChores.percentage})</Text>
+                        )}
+                        {supportFMS.pendingChores?.healthPercent != null && (
+                          <Text type="secondary"> · {supportFMS.pendingChores.healthPercent}%</Text>
+                        )}
+                      </div>
                       {((supportFMS.pendingChores?.details?.length) ?? 0) > 0 && (
                         <div style={{ marginTop: 8, fontSize: 12, color: '#FFC107' }}>Click to view list ({supportFMS.pendingChores!.details!.length})</div>
                       )}
