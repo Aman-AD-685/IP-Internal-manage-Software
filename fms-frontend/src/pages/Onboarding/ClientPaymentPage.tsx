@@ -18,6 +18,12 @@ const { Title, Text } = Typography
 /** Edit submitted Client Payment responses within this many days of submit (must match backend). */
 const CLIENT_PAYMENT_EDIT_DAYS = 150
 
+/** Clears cached dashboard metrics and signals Dashboard (same tab) to refetch live totals (due / received). */
+function invalidateDashboardPaymentMetrics() {
+  invalidateAfterDashboardPaymentSubmit()
+  window.dispatchEvent(new CustomEvent('client-payment-na-changed'))
+}
+
 interface ClientPaymentRecord {
   id: string
   timestamp: string
@@ -312,8 +318,7 @@ export function ClientPaymentPage() {
       await apiClient.patch(`/onboarding/client-payment/${record.id}/marked-na`, { marked_na: marked })
       message.success(marked ? 'Marked as NA — removed from list and Total raised' : 'Restored to active list')
       setMarkedNaSupported(true)
-      invalidateAfterDashboardPaymentSubmit()
-      window.dispatchEvent(new CustomEvent('client-payment-na-changed'))
+      invalidateDashboardPaymentMetrics()
       setKpiRefreshKey((k) => k + 1)
       setDetailOpen(false)
       setSelectedRecord(null)
@@ -902,6 +907,7 @@ export function ClientPaymentPage() {
       const data = { party_name: values.party_name, invoice_number: String(values.invoice_number || '').trim(), amount: Number(values.amount), payment_date: (values.payment_date as Dayjs).format('YYYY-MM-DD') }
       apiClient.post(`/onboarding/client-payment/${selectedRecord.id}/payment-receive`, { data }).then(() => {
         message.success('Payment Receive Details saved – invoice completed')
+        invalidateDashboardPaymentMetrics()
         setPaymRecModalOpen(false)
         setDetailOpen(false)
         setSelectedRecord(null)

@@ -24,6 +24,8 @@ export interface DashboardMetrics {
   custom_raised_quarter?: number
   /** Gross raised across all invoices (excl. NA); pairs with Payment card denominator */
   custom_raised_all?: number
+  /** Cash received in current India FY quarter — matches Client Payment Overall / carry-forward logic */
+  custom_received_in_fy_quarter?: number
   custom_pending_delegation?: number
   response_delay: number
   completion_delay: number
