@@ -12393,6 +12393,7 @@ def _cron_secret_matches(request: Request) -> bool:
     hdr = (request.headers.get("X-Cron-Secret") or request.headers.get("x-cron-secret") or "").strip()
     auth_hdr = (request.headers.get("Authorization") or request.headers.get("authorization") or "").strip()
     bearer = auth_hdr[7:].strip() if auth_hdr.lower().startswith("bearer ") else ""
+    query_secret = (request.query_params.get("secret") or "").strip()
     for key in (
         "CHECKLIST_CRON_SECRET",
         "FEATURE_APPROVAL_CRON_SECRET",
@@ -12402,9 +12403,22 @@ def _cron_secret_matches(request: Request) -> bool:
         "ESCALATION_CRON_SECRET",
     ):
         secret = (os.getenv(key) or "").strip()
-        if secret and (hdr == secret or bearer == secret):
+        if secret and (hdr == secret or bearer == secret or query_secret == secret):
             return True
     return False
+
+
+def _cron_email_started_response(job_label: str) -> dict:
+    """Immediate HTTP response for cron-job.org (avoids 30s client timeout)."""
+    return {
+        "status": "started",
+        "ok": True,
+        "message": (
+            f"{job_label} started in background. "
+            "cron-job.org should show Success within a few seconds. "
+            "Check Render logs for emails_sent and Postmark errors."
+        ),
+    }
 
 
 async def _send_checklist_reminder_email(to_email: str, task_names: list[str], doer_name: str) -> tuple[bool, str | None]:
@@ -12413,31 +12427,15 @@ async def _send_checklist_reminder_email(to_email: str, task_names: list[str], d
     if not to_email:
         return False, "No recipient email"
 
+    from app.checklist_delegation_email_templates import build_checklist_reminder_html
     from app.utils.email import send_email_detail
 
-    safe_name = html_module.escape(str(doer_name or "User"))
-    task_items = "".join(f"<li>{html_module.escape(str(n))}</li>" for n in task_names)
-    html_content = f"""
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"></head>
-<body>
-  <h3>You have pending checklist tasks</h3>
-  <p>Hi {safe_name},</p>
-  <p>You have <strong>{len(task_names)}</strong> task(s) due today:</p>
-  <ul>
-    {task_items}
-  </ul>
-  <p>Please log in to complete them.</p>
-</body>
-</html>
-"""
-    plain_fallback = f"You have {len(task_names)} task(s) due today:\n\n" + "\n".join(f"  - {n}" for n in task_names) + "\n\nPlease log in to complete them."
+    html_content, plain_fallback = build_checklist_reminder_html(doer_name, task_names)
 
     ok, err = await send_email_detail(
         to_email=to_email,
         subject="Checklist: Tasks due today",
-        html_content=html_content.strip(),
+        html_content=html_content,
         plain_fallback=plain_fallback,
     )
     if ok:
@@ -12630,7 +12628,16 @@ async def send_checklist_daily_reminders(
     """
     force_resend = request.query_params.get("force", "").strip().lower() in ("1", "true", "yes")
     if _cron_secret_matches(request):
-        return await _run_checklist_reminders_impl(force_resend=force_resend)
+
+        async def _cron_checklist_job() -> None:
+            try:
+                result = await _run_checklist_reminders_impl(force_resend=force_resend)
+                _log(f"Checklist cron finished: {result}")
+            except Exception as e:
+                _log(f"Checklist cron error: {e}")
+
+        background_tasks.add_task(_cron_checklist_job)
+        return _cron_email_started_response("Checklist daily reminder")
     if auth:
         role = _get_role_from_profile(auth["id"])
         if role not in ("admin", "master_admin"):
@@ -12702,30 +12709,15 @@ async def _send_delegation_reminder_email(to_email: str, task_titles: list[str],
     if not to_email:
         return False, "No recipient email"
 
+    from app.checklist_delegation_email_templates import build_delegation_reminder_html
     from app.utils.email import send_email_detail
 
-    task_items = "".join(f"<li>{t}</li>" for t in task_titles)
-    html_content = f"""
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"></head>
-<body>
-  <h3>You have pending delegation tasks</h3>
-  <p>Hi {assignee_name or "User"},</p>
-  <p>You have <strong>{len(task_titles)}</strong> delegation task(s) due or overdue:</p>
-  <ul>
-    {task_items}
-  </ul>
-  <p>Please log in to complete them.</p>
-</body>
-</html>
-"""
-    plain_fallback = f"You have {len(task_titles)} delegation task(s) due or overdue:\n\n" + "\n".join(f"  - {t}" for t in task_titles) + "\n\nPlease log in to complete them."
+    html_content, plain_fallback = build_delegation_reminder_html(assignee_name, task_titles)
 
     ok, err = await send_email_detail(
         to_email=to_email,
         subject="Delegation: Pending tasks due",
-        html_content=html_content.strip(),
+        html_content=html_content,
         plain_fallback=plain_fallback,
     )
     if ok:
@@ -12882,7 +12874,16 @@ async def send_delegation_daily_reminders(
     """
     force_resend = request.query_params.get("force", "").strip().lower() in ("1", "true", "yes")
     if _cron_secret_matches(request):
-        return await _run_delegation_reminders_impl(force_resend=force_resend)
+
+        async def _cron_delegation_job() -> None:
+            try:
+                result = await _run_delegation_reminders_impl(force_resend=force_resend)
+                _log(f"Delegation cron finished: {result}")
+            except Exception as e:
+                _log(f"Delegation cron error: {e}")
+
+        background_tasks.add_task(_cron_delegation_job)
+        return _cron_email_started_response("Delegation daily reminder")
     if auth:
         role = _get_role_from_profile(auth["id"])
         if role not in ("admin", "master_admin"):
@@ -12901,20 +12902,35 @@ async def send_delegation_daily_reminders(
 # Sent to admin, master_admin, approver roles only
 # ---------------------------------------------------------------------------
 
-async def _send_pending_digest_email(to_email: str, body: str, recipient_name: str) -> tuple[bool, str | None]:
+async def _send_pending_digest_email(
+    to_email: str,
+    recipient_name: str,
+    *,
+    checklist_lines: list[str],
+    delegation_lines: list[str],
+    chores_bug_lines: list[str],
+    feature_lines: list[str],
+) -> tuple[bool, str | None]:
     """Send pending digest via Postmark (utils/email). Returns (ok, error)."""
     to_email = (to_email or "").strip()
     if not to_email:
         return False, "No recipient email"
+    from app.checklist_delegation_email_templates import build_pending_digest_html
     from app.utils.email import send_email_detail
 
     subject = "Pending Task Reminder – Checklist, Delegation & Support"
-    html = f"<html><body><pre style='font-family:sans-serif;font-size:14px'>{body}</pre></body></html>"
+    html_content, plain_fallback = build_pending_digest_html(
+        recipient_name,
+        checklist_lines=checklist_lines,
+        delegation_lines=delegation_lines,
+        chores_bug_lines=chores_bug_lines,
+        feature_lines=feature_lines,
+    )
     ok, err = await send_email_detail(
         to_email=to_email,
         subject=subject,
-        html_content=html,
-        plain_fallback=body,
+        html_content=html_content,
+        plain_fallback=plain_fallback,
     )
     if ok:
         _log(f"Pending digest sent to {to_email}")
@@ -12994,22 +13010,20 @@ async def _run_pending_digest_impl(*, force_resend: bool = False) -> dict:
                         key = (str(task["id"]), d.isoformat())
                         if not comp.get(key):
                             doer = assignee_name(task.get("doer_id"))
-                            checklist_lines.append(f"  - {task.get('task_name')} (Doer: {doer})")
+                            checklist_lines.append(f"{task.get('task_name')} · Doer: {doer}")
                         break
         except Exception as e:
             _log(f"Pending digest checklist: {e}")
-            checklist_lines = ["  (Error loading)"]
-        checklist_section = "\n".join(checklist_lines) if checklist_lines else "  (None)"
+            checklist_lines = ["(Error loading checklist)"]
 
         delegation_lines = []
         try:
             del_r = supabase.table("delegation_tasks").select("id, title, assignee_id, due_date").in_("status", ["pending", "in_progress"]).lte("due_date", today.isoformat()).execute()
             for t in del_r.data or []:
                 assignee = assignee_name(t.get("assignee_id"))
-                delegation_lines.append(f"  - {t.get('title')} (Assignee: {assignee}, Due: {t.get('due_date')})")
+                delegation_lines.append(f"{t.get('title')} · Assignee: {assignee} · Due: {t.get('due_date')}")
         except Exception:
-            delegation_lines = ["  (Table not created or error)"]
-        delegation_section = "\n".join(delegation_lines) if delegation_lines else "  (None)"
+            delegation_lines = ["(Error loading delegation)"]
 
         chores_bug_lines = []
         try:
@@ -13027,11 +13041,10 @@ async def _run_pending_digest_impl(*, force_resend: bool = False) -> dict:
                     ref = t.get("reference_no") or t.get("id", "")[:8]
                     title = (t.get("title") or "")[:50]
                     assignee = assignee_name(t.get("assignee_id"))
-                    chores_bug_lines.append(f"  [{label}] {ref} {title} (Assignee: {assignee})")
+                    chores_bug_lines.append(f"[{label}] {ref} — {title} · {assignee}")
         except Exception as e:
             _log(f"Pending digest chores&bug: {e}")
-            chores_bug_lines = ["  (Error loading)"]
-        chores_bug_section = "\n".join(chores_bug_lines) if chores_bug_lines else "  (None)"
+            chores_bug_lines = ["(Error loading chores & bug)"]
 
         feature_lines = []
         try:
@@ -13049,38 +13062,10 @@ async def _run_pending_digest_impl(*, force_resend: bool = False) -> dict:
                     ref = t.get("reference_no") or t.get("id", "")[:8]
                     title = (t.get("title") or "")[:50]
                     assignee = assignee_name(t.get("assignee_id"))
-                    feature_lines.append(f"  [{label}] {ref} {title} (Assignee: {assignee})")
+                    feature_lines.append(f"[{label}] {ref} — {title} · {assignee}")
         except Exception as e:
             _log(f"Pending digest feature: {e}")
-            feature_lines = ["  (Error loading)"]
-        feature_section = "\n".join(feature_lines) if feature_lines else "  (None)"
-
-        body = f"""Pending Task Reminder – {today.isoformat()}
-
-This digest is sent to Admin, Master Admin, and Approver roles.
-
----
-1. CHECKLIST & DELEGATION – Pending Tasks
----
-Checklist (due today, not completed):
-{checklist_section}
-
-Delegation (pending, due today or overdue):
-{delegation_section}
-
----
-2. SUPPORT – Chores & Bug (by Stage, Assignee)
----
-{chores_bug_section}
-
----
-3. SUPPORT – Feature (by Stage, Assignee)
----
-{feature_section}
-
----
-Please log in to review and take action.
-"""
+            feature_lines = ["(Error loading feature tickets)"]
 
         pending_ids = [uid for uid in level12_ids if uid not in already_sent]
         sent_count = 0
@@ -13091,7 +13076,14 @@ Please log in to review and take action.
             name = u.get("name", "User")
             if not email:
                 continue
-            ok_send, err = await _send_pending_digest_email(email, body, name)
+            ok_send, err = await _send_pending_digest_email(
+                email,
+                name,
+                checklist_lines=checklist_lines,
+                delegation_lines=delegation_lines,
+                chores_bug_lines=chores_bug_lines,
+                feature_lines=feature_lines,
+            )
             if ok_send:
                 try:
                     supabase.table("pending_reminder_sent").insert({
@@ -13150,7 +13142,16 @@ async def send_pending_digest(
     """
     force_resend = request.query_params.get("force", "").strip().lower() in ("1", "true", "yes")
     if _cron_secret_matches(request):
-        return await _run_pending_digest_impl(force_resend=force_resend)
+
+        async def _cron_pending_digest_job() -> None:
+            try:
+                result = await _run_pending_digest_impl(force_resend=force_resend)
+                _log(f"Pending digest cron finished: {result}")
+            except Exception as e:
+                _log(f"Pending digest cron error: {e}")
+
+        background_tasks.add_task(_cron_pending_digest_job)
+        return _cron_email_started_response("Pending reminder digest")
     if auth:
         role = _get_role_from_profile(auth["id"])
         if role not in ("admin", "master_admin"):

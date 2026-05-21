@@ -69,6 +69,16 @@ Checklist and delegation URLs are correct:
 
 Without the header you get **401** and **no email**.
 
+Optional: append `?secret=YOUR_SECRET` to the URL if your cron provider cannot send custom headers (less secure than `X-Cron-Secret`).
+
+### Failed (timeout) (30 s)
+
+cron-job.org stops waiting after **30 seconds**. The API used to send every email **before** returning HTTP — on a cold Render instance that often exceeds 30s, so the job shows **Failed** even though work may still run.
+
+**After deploying the latest backend:** cron endpoints return **`{"status":"started"}`** in a few seconds and finish emails in the background. You should see **Successful** on cron-job.org; open **Render → Logs** for `emails_sent` and Postmark errors.
+
+Optional on cron-job.org: **EDIT job → Advanced → Request timeout → 90 seconds** (not required once the backend is updated).
+
 ### “Successful” on cron-job.org but no mail
 
 The job ran, but the API may return `email_sent: false` because:

@@ -60,9 +60,9 @@ function AppTitle() {
   const { pathname } = useLocation()
   useEffect(() => {
     const titles: Record<string, string> = {
-      [ROUTES.LOGIN]: "Login",
+      [ROUTES.LOGIN]: "Login — Industry Prime FMS",
       [ROUTES.RESET_PASSWORD]: "Reset password",
-      [ROUTES.REGISTER]: "Register",
+      [ROUTES.REGISTER]: "Register — Industry Prime",
       [ROUTES.DASHBOARD]: "Dashboard",
       [ROUTES.DASHBOARD_KPI]: "Dashboard - KPI",
       [ROUTES.SUCCESS_DASHBOARD]: "Success Dashboard",
@@ -94,7 +94,13 @@ function AppTitle() {
       [ROUTES.ACCESS_DENIED]: "Access denied",
     }
     const page = titles[pathname] || (pathname.startsWith("/tickets") ? "Ticket" : pathname.startsWith("/client-to-lead/leads/") ? "Lead Detail" : pathname.startsWith("/onboarding") ? "Onboarding" : APP_NAME)
-    document.title = `${APP_NAME} - ${page}`
+    const isPublicAuth =
+      pathname === ROUTES.LOGIN ||
+      pathname === ROUTES.REGISTER ||
+      pathname === ROUTES.RESET_PASSWORD
+    document.title = isPublicAuth
+      ? page
+      : `${APP_NAME} - ${page}`
   }, [pathname])
   return null
 }

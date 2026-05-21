@@ -50,7 +50,8 @@ def _cron_or_admin(request: Request, auth: dict | None = Depends(get_current_use
     ).strip()
     hdr = (request.headers.get("X-Cron-Secret") or request.headers.get("x-cron-secret") or "").strip()
     bearer = _extract_bearer(request)
-    if secret and (hdr == secret or bearer == secret):
+    query_secret = (request.query_params.get("secret") or "").strip()
+    if secret and (hdr == secret or bearer == secret or query_secret == secret):
         return {"cron": True}
     if auth and _role(auth["id"]) in ("admin", "master_admin"):
         return auth
@@ -131,7 +132,8 @@ def _cron_or_admin_for_check(request: Request) -> bool:
     ).strip()
     hdr = (request.headers.get("X-Cron-Secret") or request.headers.get("x-cron-secret") or "").strip()
     bearer = _extract_bearer(request)
-    return bool(secret and (hdr == secret or bearer == secret))
+    query_secret = (request.query_params.get("secret") or "").strip()
+    return bool(secret and (hdr == secret or bearer == secret or query_secret == secret))
 
 
 @feature_approval_reminder_router.get("/feature-approval-reminders/recipients")
@@ -256,10 +258,9 @@ async def _run_reminder_core(
     force_flag: bool,
     sync: bool,
 ) -> dict:
-    # External cron: run to completion and return real outcome (not fire-and-forget).
+    # External cron: return immediately (cron-job.org 30s timeout on cold Render).
     if _ctx.get("cron"):
-        result = await run_feature_approval_reminder_batch(force=force_flag)
-        return _cron_run_response(result)
+        return _queue_reminder_batch(background_tasks, force=force_flag)
     if sync:
         result = await run_feature_approval_reminder_batch(force=force_flag)
         if result.get("ok") is False:
