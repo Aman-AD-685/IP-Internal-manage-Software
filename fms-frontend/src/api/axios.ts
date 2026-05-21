@@ -261,6 +261,18 @@ apiClient.interceptors.response.use(
       }
     }
 
+    if (error.response?.status === 429) {
+      const body = error.response?.data as { detail?: string; retry_after_sec?: number } | undefined
+      const wait = body?.retry_after_sec
+      const hint =
+        typeof body?.detail === "string"
+          ? body.detail
+          : "Too many requests. Please wait a moment and try again."
+      const err = new Error(wait ? `${hint} (retry in ~${wait}s)` : hint)
+      err.name = "RateLimitError"
+      return Promise.reject(err)
+    }
+
     if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
       const reqUrl = originalRequest.url || ""
       // Wrong password / public auth — never treat as expired session or run refresh (avoids delays & bogus "timeout" UX)

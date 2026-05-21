@@ -21,6 +21,9 @@ build/
 *.log
 backend/backend_errors.log
 
+# Compound Engineering review artifacts (local only)
+.context/compound-engineering/
+
 # IDE and OS
 .vscode/
 .idea/

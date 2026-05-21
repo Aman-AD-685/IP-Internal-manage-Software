@@ -11,24 +11,25 @@ import { dbClientOnbApi } from '../api/dbClientOnb'
 import { dashboardApi } from '../api/dashboard'
 import { supportDashboardApi } from '../api/supportDashboard'
 import { apiClient } from '../api/axios'
-import { DASHBOARD_KPI_NAMES, MONTHS, dashboardKpiApi } from '../api/dashboardKpi'
-import { dayjsFromIstNow, weekOfMonth } from '../pages/Dashboard/kpiWeekUtils'
+import { runPrefetchLimited } from './prefetchConcurrency'
 
 const inFlight = new Set<string>()
 const prefetched = new Set<string>()
 let idleBatchStarted = false
 let refreshTimer: number | null = null
 let trackedRouteKeys: string[] = []
-const TEN_MIN_MS = 10 * 60 * 1000
-const IMMEDIATE_WARM_COUNT = 10
-const IMMEDIATE_STEP_MS = 140
-const REFRESH_BATCH_SIZE = 6
+const TEN_MIN_MS = 20 * 60 * 1000
+/** Only warm a few routes right after login — avoids 10+ parallel API calls. */
+const IMMEDIATE_WARM_COUNT = 3
+const IMMEDIATE_STEP_MS = 500
+const REFRESH_BATCH_SIZE = 2
+const IDLE_STAGGER_MS = 400
 let refreshCursor = 0
 
 function fire(key: string, run: () => Promise<unknown>) {
   if (inFlight.has(key)) return
   inFlight.add(key)
-  void run().finally(() => inFlight.delete(key))
+  runPrefetchLimited(() => run().finally(() => inFlight.delete(key)))
 }
 
 export function prefetchRouteData(routeKey: string): void {
@@ -47,20 +48,8 @@ export function prefetchRouteData(routeKey: string): void {
     return
   }
 
+  // KPI routes are heavy (5× /dashboard/kpi) — load only when user opens that page.
   if (path === ROUTES.DASHBOARD_KPI || path === ROUTES.SUCCESS_DASHBOARD) {
-    fire('prefetch:dashboard-kpi', async () => {
-      const now = dayjsFromIstNow()
-      const year = String(now.year())
-      const month = MONTHS[now.month()] ?? 'Jan'
-      const week = `week ${weekOfMonth(now)}`
-      await Promise.all([
-        ...DASHBOARD_KPI_NAMES.map((name) =>
-          dashboardKpiApi.getData({ name, month, year, week }),
-        ),
-        dashboardKpiApi.getKpiDailyLog(now.year(), now.month() + 1),
-        dashboardKpiApi.getAdrijaSocialKpiDaily(now.year(), now.month() + 1),
-      ])
-    })
     return
   }
 
@@ -231,7 +220,6 @@ function scheduleIdle(task: () => void) {
 function runImmediateWarmup(routeKeys: string[]) {
   const priority = [
     ROUTES.DASHBOARD,
-    ROUTES.DASHBOARD_KPI,
     ROUTES.SUPPORT_DASHBOARD,
     ROUTES.TICKETS,
     ROUTES.STAGING,
@@ -273,7 +261,7 @@ export function startIdleRoutePrefetch(routeKeys: string[]): void {
       window.setTimeout(() => {
         if (document.visibilityState === 'hidden') return
         prefetchRouteData(key)
-      }, index * 180)
+      }, index * IDLE_STAGGER_MS)
     })
   })
 

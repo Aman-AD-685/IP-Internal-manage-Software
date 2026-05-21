@@ -90,7 +90,21 @@ Run the statements in `docs/supabase_performance_indexes.sql` in Supabase SQL Ed
 
 ---
 
-## 8. Verifying
+## 8. Why the app feels slow (common causes)
+
+| Cause | What you see | Mitigation in repo |
+|-------|----------------|-------------------|
+| **Render cold start** | First request after idle takes 10–50s | Keep-alive cron on `GET /health`; paid always-on plan |
+| **Post-login API storm** | Spinners everywhere right after login | Throttled idle prefetch (`prefetchConcurrency.ts`), fewer warm routes, no KPI prefetch until opened |
+| **Dashboard KPI fan-out** | Main dashboard waits on 5× `/dashboard/kpi` | Batched loads (2 at a time) + 4 min session cache |
+| **Heavy aggregates** | Payment KPI / payment-summary slow | Server cache 60s, paginated scans; rate limit prevents retry storms |
+| **Rate limit (429)** | “Too many requests” after rapid navigation | Back off; limits are per-IP (auth 20/min, expensive 18/min, global 150/min) |
+
+Tune via env: `RATE_LIMIT_EXPENSIVE_MAX_REQUESTS`, `RATE_LIMIT_GLOBAL_MAX_REQUESTS`, `RATE_LIMIT_ENABLED=0` (disable).
+
+---
+
+## 9. Verifying
 
 - After deploying: open Client Payment list → open a row (drawer). Network tab should show one list request and one drawer request (instead of 4 for drawer).
 - Measure time-to-first-byte (TTFB) for list and drawer; aim &lt; 1 s each on a warm instance.
