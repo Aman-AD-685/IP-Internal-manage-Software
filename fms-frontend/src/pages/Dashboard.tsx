@@ -225,7 +225,9 @@ export const Dashboard = () => {
     const year = prev.year
     const week = `week ${prev.week}`
     setKpiSnapshotLoading(true)
-    void fetchDashboardKpiBatch(DASHBOARD_KPI_NAMES, { month, year, week }, 2)
+    const delayMs = 2500
+    const timer = window.setTimeout(() => {
+      void fetchDashboardKpiBatch(DASHBOARD_KPI_NAMES, { month, year, week }, 2)
       .then((results) => {
         const next: Partial<Record<DashboardKpiPerson, DashboardKpiResponse>> = {}
         for (const { name, res } of results) {
@@ -235,6 +237,8 @@ export const Dashboard = () => {
       })
       .catch(() => setKpiSnapshotByPerson({}))
       .finally(() => setKpiSnapshotLoading(false))
+    }, delayMs)
+    return () => window.clearTimeout(timer)
   }, [isCustomDashboardFullUser])
 
   useEffect(() => {
@@ -242,35 +246,41 @@ export const Dashboard = () => {
       setSuccessKpiPreviousWeek(null)
       return
     }
-    setSuccessPerformanceLoading(true)
-    const prev = getDefaultPreviousWeekFilter()
-    const month = MONTHS[prev.monthIndex] ?? MONTHS[0]
-    const { year, week: weekNum } = prev
-    const week = `week ${weekNum}`
-    void dashboardKpiApi
-      .getData({ name: 'Rimpa', month, year, week })
-      .then((res) => setSuccessKpiPreviousWeek(res?.successKpi ?? null))
-      .catch(() => setSuccessKpiPreviousWeek(null))
-      .finally(() => setSuccessPerformanceLoading(false))
+    const timer = window.setTimeout(() => {
+      setSuccessPerformanceLoading(true)
+      const prev = getDefaultPreviousWeekFilter()
+      const month = MONTHS[prev.monthIndex] ?? MONTHS[0]
+      const { year, week: weekNum } = prev
+      const week = `week ${weekNum}`
+      void dashboardKpiApi
+        .getData({ name: 'Rimpa', month, year, week })
+        .then((res) => setSuccessKpiPreviousWeek(res?.successKpi ?? null))
+        .catch(() => setSuccessKpiPreviousWeek(null))
+        .finally(() => setSuccessPerformanceLoading(false))
+    }, 3000)
+    return () => window.clearTimeout(timer)
   }, [isCustomDashboardFullUser])
 
   useEffect(() => {
-    setPaymentActionsLoading(true)
-    setActiveLeadsLoading(true)
-    const promises: Promise<void>[] = [
-      leadsApi.listActive().then((res) => setActiveLeads(res.leads || [])).catch(() => setActiveLeads([])),
-    ]
-    if (user) {
-      promises.push(
-        dashboardApi.getPaymentActions().then((res) => setPaymentActions(res.items || [])).catch(() => setPaymentActions([]))
-      )
-    } else {
-      setPaymentActions([])
-    }
-    Promise.all(promises).finally(() => {
-      setPaymentActionsLoading(false)
-      setActiveLeadsLoading(false)
-    })
+    const timer = window.setTimeout(() => {
+      setPaymentActionsLoading(true)
+      setActiveLeadsLoading(true)
+      const promises: Promise<void>[] = [
+        leadsApi.listActive().then((res) => setActiveLeads(res.leads || [])).catch(() => setActiveLeads([])),
+      ]
+      if (user) {
+        promises.push(
+          dashboardApi.getPaymentActions().then((res) => setPaymentActions(res.items || [])).catch(() => setPaymentActions([])),
+        )
+      } else {
+        setPaymentActions([])
+      }
+      void Promise.all(promises).finally(() => {
+        setPaymentActionsLoading(false)
+        setActiveLeadsLoading(false)
+      })
+    }, 1500)
+    return () => window.clearTimeout(timer)
   }, [user?.role, user?.email, user?.id])
 
   const isFullPaymentViewer =
@@ -384,26 +394,14 @@ export const Dashboard = () => {
     }
 
     try {
-      void ticketsApi
-        .list(DASHBOARD_EXPORT_TICKET_PARAMS)
-        .then((ticketsResVal) => applyTicketsListResponse(ticketsResVal, gen))
-        .catch(() => {
-          if (gen !== dashboardFetchGen.current) return
-          if (!cachedTickets) setAllFetchedTickets([])
-        })
-
-      const [metricsRes, trendsRes] = await Promise.allSettled([
-        dashboardApi.getMetrics(),
-        dashboardApi.getTrends(),
-      ])
+      const bootstrapRes = await dashboardApi.getBootstrap().catch(() => null)
       if (gen !== dashboardFetchGen.current) return
-      setMetrics(metricsRes.status === 'fulfilled' ? metricsRes.value : null)
-      if (trendsRes.status === 'fulfilled' && trendsRes.value?.data?.length) {
-        setTrendPoints(trendsRes.value.data)
-      } else if (trendsRes.status === 'fulfilled') {
-        setTrendPoints(trendsRes.value?.data ?? [])
-      } else if (!cachedTrends) {
-        setTrendPoints([])
+      if (bootstrapRes?.metrics) {
+        setMetrics(bootstrapRes.metrics)
+        setTrendPoints(Array.isArray(bootstrapRes.trends) ? bootstrapRes.trends : [])
+      } else {
+        setMetrics(null)
+        if (!cachedTrends) setTrendPoints([])
       }
     } catch (err) {
       console.error('Dashboard fetch error:', err)
@@ -415,6 +413,22 @@ export const Dashboard = () => {
         setLoading(false)
       }
     }
+
+    // Export tickets are not needed for KPI cards — load after first paint.
+    const scheduleDeferred =
+      typeof requestIdleCallback === 'function'
+        ? (cb: () => void) => requestIdleCallback(cb, { timeout: 4000 })
+        : (cb: () => void) => window.setTimeout(cb, 800)
+    scheduleDeferred(() => {
+      if (gen !== dashboardFetchGen.current) return
+      void ticketsApi
+        .list(DASHBOARD_EXPORT_TICKET_PARAMS)
+        .then((ticketsResVal) => applyTicketsListResponse(ticketsResVal, gen))
+        .catch(() => {
+          if (gen !== dashboardFetchGen.current) return
+          if (!cachedTickets) setAllFetchedTickets([])
+        })
+    })
   }
 
   useEffect(() => {

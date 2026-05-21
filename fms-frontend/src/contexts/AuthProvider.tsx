@@ -68,6 +68,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
       setToken(storedToken)
       setUser(normalizeUserSectionPermissions(storedUser))
+      // Paint app immediately from session; refresh profile in background (saves 1–3s on reload).
+      setIsLoading(false)
 
       try {
         const response = await authApi.getCurrentUser()
@@ -84,7 +86,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
             const currentToken = storage.getToken()
             if (currentToken) setToken(currentToken)
           }
-          setIsLoading(false)
           return
         }
 
@@ -101,8 +102,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           code === '503' || code === '502' || code === '504' || (code?.startsWith('5') ?? false)
 
         if (isNetworkOrUnreachable || isTransientServer) {
-          // Keep session: refresh/F5 must not log the user out when the API is briefly unreachable
-          setIsLoading(false)
           return
         }
 
@@ -111,7 +110,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           storage.clear()
           setToken(null)
           setUser(null)
-          setIsLoading(false)
           return
         }
 
@@ -128,7 +126,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
               storage.setUser(merged)
               const ct = storage.getToken()
               if (ct) setToken(ct)
-              setIsLoading(false)
               return
             }
           }
@@ -136,7 +133,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           storage.clear()
           setToken(null)
           setUser(null)
-          setIsLoading(false)
           return
         }
 
@@ -150,8 +146,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       } catch {
         // Unexpected: keep stored session
       }
-
-      setIsLoading(false)
     }
 
     initAuth()

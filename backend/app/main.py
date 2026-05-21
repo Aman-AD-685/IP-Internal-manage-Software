@@ -2224,13 +2224,28 @@ def activity_count(auth: dict = Depends(get_current_user)):
     return {"count": total}
 
 
-# ---------- Dashboard Metrics ----------
+# ---------- Dashboard Metrics (60s in-process cache per user email) ----------
+_DASH_METRICS_CACHE: TTLCache = TTLCache(maxsize=256, ttl=60)
+_DASH_TRENDS_CACHE: TTLCache = TTLCache(maxsize=8, ttl=120)
+_DASH_BOOTSTRAP_CACHE: TTLCache = TTLCache(maxsize=256, ttl=45)
+
+
+def invalidate_dashboard_read_caches() -> None:
+    _DASH_METRICS_CACHE.clear()
+    _DASH_TRENDS_CACHE.clear()
+    _DASH_BOOTSTRAP_CACHE.clear()
+
+
 @api_router.get("/dashboard/metrics")
 def dashboard_metrics(auth: dict = Depends(get_current_user)):
     """Live Supabase-powered dashboard metrics. Support Overview = Chores & Bug only."""
+    auth_email = (auth.get("email") or "").strip().lower() or "anon"
+    try:
+        return _DASH_METRICS_CACHE[auth_email]
+    except KeyError:
+        pass
     from datetime import timedelta
     now = datetime.utcnow()
-    auth_email = (auth.get("email") or "").strip().lower()
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     week_ago = now - timedelta(days=7)
     week_start = week_ago.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -2281,7 +2296,12 @@ def dashboard_metrics(auth: dict = Depends(get_current_user)):
 
     # Last week Chores & Bug tickets (for response_delay / completion_delay)
     try:
-        q = supabase.table("tickets").select("*").in_("type", types_chores_bugs).gte("created_at", week_start.isoformat())
+        q = (
+            supabase.table("tickets")
+            .select("id, assignee_id, created_at, status_4, actual_4, status, type")
+            .in_("type", types_chores_bugs)
+            .gte("created_at", week_start.isoformat())
+        )
         r = q.execute()
         week_tickets = r.data or []
     except Exception:
@@ -2439,7 +2459,7 @@ def dashboard_metrics(auth: dict = Depends(get_current_user)):
             except Exception:
                 custom_pending_delegation = 0
 
-    return {
+    payload = {
         "all_tickets": all_tickets,
         "pending_till_date": pending_till_date,
         "total_pending_bug_till_date": total_pending_bug_till_date,
@@ -2465,6 +2485,8 @@ def dashboard_metrics(auth: dict = Depends(get_current_user)):
         "staging_pending_feature": staging_pending_feature,
         "staging_pending_chores_bugs": staging_pending_chores_bugs,
     }
+    _DASH_METRICS_CACHE[auth_email] = payload
+    return payload
 
 
 @api_router.get("/dashboard/detail")
@@ -4874,6 +4896,10 @@ def dashboard_trends(auth: dict = Depends(get_current_user)):
     - response_delay: tickets with no assignee (same as dashboard cards).
     - completion_delay: Stage 2 TAT breach — ``_has_completion_delay`` (planned/actual vs SLA), not Stage 4.
     """
+    try:
+        return _DASH_TRENDS_CACHE["global"]
+    except KeyError:
+        pass
     now = datetime.utcnow()
     # Week windows are Monday 00:00:00 -> Sunday 23:59:59 (UTC), last 7 weeks including current week.
     current_week_start = now - timedelta(days=now.weekday())
@@ -4925,7 +4951,27 @@ def dashboard_trends(auth: dict = Depends(get_current_user)):
             )
         except Exception:
             data.append({"month": label, "response_delay": 0, "completion_delay": 0})
-    return {"data": data}
+    out = {"data": data}
+    _DASH_TRENDS_CACHE["global"] = out
+    return out
+
+
+@api_router.get("/dashboard/bootstrap")
+def dashboard_bootstrap(auth: dict = Depends(get_current_user)):
+    """One round-trip for main dashboard paint: metrics + trends (cached, parallel compute)."""
+    email = (auth.get("email") or "").strip().lower() or "anon"
+    try:
+        return _etag_json(_DASH_BOOTSTRAP_CACHE[email], max_age=45)
+    except KeyError:
+        pass
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        f_metrics = pool.submit(dashboard_metrics, auth)
+        f_trends = pool.submit(dashboard_trends, auth)
+        metrics = f_metrics.result()
+        trends = f_trends.result()
+    payload = {"metrics": metrics, "trends": trends.get("data") if isinstance(trends, dict) else []}
+    _DASH_BOOTSTRAP_CACHE[email] = payload
+    return _etag_json(payload, max_age=45)
 
 
 # ---------- Support Form Lookups ----------
