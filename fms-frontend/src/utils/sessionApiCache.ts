@@ -178,3 +178,15 @@ export function invalidateAfterDashboardPaymentSubmit(): void {
     /* private mode / quota */
   }
 }
+
+/** Success Performance NA toggle — refresh Success dashboard KPI and performance lists. */
+export function invalidateAfterPerformanceNaChange(): void {
+  sessionApiCacheClearLogicalPrefix('dashboard:')
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(DASHBOARD_CROSS_TAB_BUMP_KEY, String(Date.now()))
+    }
+  } catch {
+    /* private mode / quota */
+  }
+}

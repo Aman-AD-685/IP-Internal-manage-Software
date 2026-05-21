@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from app.kpi_calendar_week import get_kpi_calendar_week_range, kpi_max_week_index_in_month
+from app.performance_na import filter_performance_rows, performance_marked_na_company_ids
 from app.supabase_client import supabase
 
 SUCCESS_KPI_POC_TARGET = 16
@@ -152,6 +153,9 @@ def compute_success_kpi_for_dashboard(
         except Exception:
             pm_rows = []
 
+        pm_rows = filter_performance_rows(pm_rows, na_filter="exclude_na")
+        na_company_ids = performance_marked_na_company_ids()
+
         pm_by_id = {row.get("id"): row for row in pm_rows if row.get("id")}
         company_ids = {row.get("company_id") for row in pm_rows if row.get("company_id")}
         companies_map: dict[str, str] = {}
@@ -215,6 +219,7 @@ def compute_success_kpi_for_dashboard(
             row
             for row in pm_rows
             if _in_range(_parse_iso_to_date(row.get("created_at")), rs, re)
+            and not _pm_company_excluded(row)
         ]
         poc_company_keys = {
             _company_key(row.get("company_id"), companies_map.get(row.get("company_id"), ""))
@@ -235,6 +240,8 @@ def compute_success_kpi_for_dashboard(
             if str(t.get("training_status") or "").lower() != "yes":
                 continue
             pm_row = pm_by_id.get(t.get("performance_id"), {})
+            if _pm_company_excluded(pm_row):
+                continue
             k = _company_key(pm_row.get("company_id"), companies_map.get(pm_row.get("company_id"), ""))
             if k:
                 train_company_keys.add(k)
@@ -264,6 +271,12 @@ def compute_success_kpi_for_dashboard(
         except Exception:
             all_click_rows = []
 
+        def _pm_company_excluded(pm_row: dict | None) -> bool:
+            if not pm_row or not pm_row.get("id"):
+                return True
+            cid = str(pm_row.get("company_id") or "")
+            return bool(cid and cid in na_company_ids)
+
         def _count_clicks_in_range(wrs: date, wre: date) -> int:
             n = 0
             for row in all_click_rows:
@@ -280,6 +293,8 @@ def compute_success_kpi_for_dashboard(
             tf_row = tf_by_id.get(tf_id, {})
             tr = training_by_id.get(tf_row.get("training_id"))
             pm_row = pm_by_id.get(perf_for_training.get(tr.get("id")) if tr else None, {})
+            if _pm_company_excluded(pm_row):
+                continue
             k = _company_key(pm_row.get("company_id"), companies_map.get(pm_row.get("company_id"), ""))
             if k:
                 followup_company_keys.add(k)
@@ -291,6 +306,8 @@ def compute_success_kpi_for_dashboard(
             tf_row = tf_by_id.get(tf_id, {}) if tf_id else {}
             tr = training_by_id.get(tf_row.get("training_id")) if tf_row else None
             pm_row = pm_by_id.get(perf_for_training.get(tr.get("id")) if tr and tr.get("id") else None, {})
+            if _pm_company_excluded(pm_row):
+                continue
             k = _company_key(pm_row.get("company_id"), companies_map.get(pm_row.get("company_id"), ""))
             if k:
                 followup_company_keys.add(k)
@@ -313,6 +330,8 @@ def compute_success_kpi_for_dashboard(
             tf_row = tf_by_id.get(tf_id, {})
             tr = training_by_id.get(tf_row.get("training_id"))
             pm_row = pm_by_id.get(perf_for_training.get(tr.get("id")) if tr else None, {})
+            if _pm_company_excluded(pm_row):
+                continue
             k = _company_key(pm_row.get("company_id"), companies_map.get(pm_row.get("company_id"), ""))
             if k:
                 success_company_keys.add(k)
@@ -467,6 +486,8 @@ def compute_success_kpi_for_dashboard(
                 if str(t.get("training_status") or "").lower() != "yes":
                     continue
                 pm_row = pm_by_id.get(t.get("performance_id"), {})
+                if _pm_company_excluded(pm_row):
+                    continue
                 k = _company_key(pm_row.get("company_id"), companies_map.get(pm_row.get("company_id"), ""))
                 if k:
                     train_w_keys.add(k)
@@ -482,6 +503,8 @@ def compute_success_kpi_for_dashboard(
                 tf_row = tf_by_id.get(tf_id, {})
                 tr = training_by_id.get(tf_row.get("training_id"))
                 pm_row = pm_by_id.get(perf_for_training.get(tr.get("id")) if tr else None, {})
+                if _pm_company_excluded(pm_row):
+                    continue
                 k = _company_key(pm_row.get("company_id"), companies_map.get(pm_row.get("company_id"), ""))
                 if k:
                     fu_w_keys.add(k)
@@ -493,6 +516,8 @@ def compute_success_kpi_for_dashboard(
                 tf_row = tf_by_id.get(tf_id, {}) if tf_id else {}
                 tr = training_by_id.get(tf_row.get("training_id")) if tf_row else None
                 pm_row = pm_by_id.get(perf_for_training.get(tr.get("id")) if tr and tr.get("id") else None, {})
+                if _pm_company_excluded(pm_row):
+                    continue
                 k = _company_key(pm_row.get("company_id"), companies_map.get(pm_row.get("company_id"), ""))
                 if k:
                     fu_w_keys.add(k)
@@ -511,6 +536,8 @@ def compute_success_kpi_for_dashboard(
                 tf_row = tf_by_id.get(tf_id, {})
                 tr = training_by_id.get(tf_row.get("training_id"))
                 pm_row = pm_by_id.get(perf_for_training.get(tr.get("id")) if tr else None, {})
+                if _pm_company_excluded(pm_row):
+                    continue
                 k = _company_key(pm_row.get("company_id"), companies_map.get(pm_row.get("company_id"), ""))
                 if k:
                     inc_w_keys.add(k)

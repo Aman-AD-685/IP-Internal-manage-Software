@@ -41,6 +41,12 @@ from app.supabase_client import SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, SU
 from app.auth_middleware import get_current_user, get_current_user_optional
 from app import payment_ageing as _pa
 from app.dashboard_kpi_sections import DASHBOARD_KPI_PERMISSION_SECTIONS, merge_section_keys
+from app.performance_na import (
+    enrich_performance_rows_na,
+    filter_performance_rows,
+    performance_marked_na_supported,
+    reset_performance_marked_na_cache,
+)
 from app.kpi_calendar_week import (
     build_week_merge_meta,
     get_kpi_calendar_week_range,
@@ -10391,16 +10397,151 @@ def _batch_current_stages_for_performance_rows(rows: list, training_rows: list, 
             row["current_stage"] = f"Followup: {done}/{total} completed"
 
 
+@api_router.get("/success/performance/capabilities")
+def performance_monitoring_capabilities(auth: dict = Depends(get_current_user)):
+    """Fresh probe for marked_na column (use after running PERFORMANCE_MONITORING_MARKED_NA.sql)."""
+    reset_performance_marked_na_cache()
+    supported = performance_marked_na_supported()
+    return {
+        "marked_na_supported": supported,
+        "hint": None
+        if supported
+        else "Run database/PERFORMANCE_MONITORING_MARKED_NA.sql in Supabase, then NOTIFY pgrst reload schema.",
+    }
+
+
+@api_router.patch("/success/performance/{ticket_id}/marked-na")
+def patch_performance_marked_na(
+    ticket_id: str,
+    payload: dict,
+    auth: dict = Depends(get_current_user),
+):
+    """Mark or unmark a Performance Monitoring response as NA (company hidden from lists & Success KPI)."""
+    if not performance_marked_na_supported():
+        raise HTTPException(
+            400,
+            "NA marking is not enabled. Run database/PERFORMANCE_MONITORING_MARKED_NA.sql in Supabase, then retry.",
+        )
+    marked = payload.get("marked_na")
+    if not isinstance(marked, bool):
+        raise HTTPException(400, "marked_na must be true or false")
+    try:
+        r0 = (
+            supabase.table("performance_monitoring")
+            .select("id,company_id,reference_no")
+            .eq("id", ticket_id)
+            .limit(1)
+            .execute()
+        )
+        row0 = (r0.data or [None])[0]
+        if not row0:
+            raise HTTPException(404, "Performance response not found")
+        supabase.table("performance_monitoring").update({"marked_na": marked}).eq("id", ticket_id).execute()
+        r = (
+            supabase.table("performance_monitoring")
+            .select(
+                "id, company_id, message_owner, response, contact, reference_no, completion_status, created_at, marked_na"
+            )
+            .eq("id", ticket_id)
+            .limit(1)
+            .execute()
+        )
+        updated = (r.data or [None])[0]
+        if not updated:
+            raise HTTPException(404, "Performance response not found after update")
+        enrich_performance_rows_na([updated])
+        try:
+            c = supabase.table("companies").select("name").eq("id", updated.get("company_id")).maybe_single().execute()
+            updated["company_name"] = (c.data or {}).get("name", "")
+        except Exception:
+            updated["company_name"] = ""
+        return updated
+    except HTTPException:
+        raise
+    except Exception as e:
+        err = str(e).lower()
+        if "marked_na" in err and ("column" in err or "schema" in err or "42703" in err):
+            raise HTTPException(
+                400,
+                "Database column marked_na is missing. Run database/PERFORMANCE_MONITORING_MARKED_NA.sql in Supabase.",
+            )
+        _log(f"performance marked_na: {e}")
+        raise HTTPException(400, str(e)[:200])
+
+
+@api_router.patch("/success/performance/company/{company_id}/restore-na")
+def restore_performance_company_from_na(
+    company_id: str,
+    auth: dict = Depends(get_current_user),
+):
+    """Clear NA on all Performance Monitoring rows for this company (restore visibility & KPI counts)."""
+    if not performance_marked_na_supported():
+        raise HTTPException(
+            400,
+            "NA restore is not enabled. Run database/PERFORMANCE_MONITORING_MARKED_NA.sql in Supabase, then retry.",
+        )
+    try:
+        chk = (
+            supabase.table("performance_monitoring")
+            .select("id")
+            .eq("company_id", company_id)
+            .eq("marked_na", True)
+            .execute()
+        )
+        na_rows = chk.data or []
+        if not na_rows:
+            raise HTTPException(404, "No NA-marked responses found for this company")
+        restored_count = len(na_rows)
+        supabase.table("performance_monitoring").update({"marked_na": False}).eq("company_id", company_id).execute()
+        r = (
+            supabase.table("performance_monitoring")
+            .select(
+                "id, company_id, message_owner, response, contact, reference_no, completion_status, created_at, marked_na"
+            )
+            .eq("company_id", company_id)
+            .order("created_at", desc=True)
+            .limit(100)
+            .execute()
+        )
+        rows = r.data or []
+        enrich_performance_rows_na(rows)
+        company_name = ""
+        try:
+            c = supabase.table("companies").select("name").eq("id", company_id).maybe_single().execute()
+            company_name = (c.data or {}).get("name", "")
+        except Exception:
+            pass
+        return {
+            "company_id": company_id,
+            "company_name": company_name,
+            "restored_count": restored_count,
+            "items": rows,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        err = str(e).lower()
+        if "marked_na" in err and ("column" in err or "schema" in err or "42703" in err):
+            raise HTTPException(
+                400,
+                "Database column marked_na is missing. Run database/PERFORMANCE_MONITORING_MARKED_NA.sql in Supabase.",
+            )
+        _log(f"performance restore_na company: {e}")
+        raise HTTPException(400, str(e)[:200])
+
+
 @api_router.get("/success/performance/list")
 def list_performance_poc(
     completion_status: str | None = None,
+    na_filter: str = Query("exclude_na", description="exclude_na (default) | only_na | all"),
     auth: dict = Depends(get_current_user),
 ):
     """List performance monitoring tickets. Filter by completion_status=in_progress|completed. Includes total_percentage, has_training, feature_count."""
     try:
-        q = supabase.table("performance_monitoring").select(
-            "id, company_id, message_owner, response, contact, reference_no, completion_status, created_at"
-        )
+        cols = "id, company_id, message_owner, response, contact, reference_no, completion_status, created_at"
+        if performance_marked_na_supported():
+            cols += ",marked_na"
+        q = supabase.table("performance_monitoring").select(cols)
         if completion_status == "in_progress":
             # Include NULL so older/manual rows without status still show as "active"
             q = q.or_("completion_status.eq.in_progress,completion_status.is.null")
@@ -10408,7 +10549,9 @@ def list_performance_poc(
             q = q.eq("completion_status", "completed")
         # PostgREST default max rows is often 1000; raise cap so full Success list always returns
         r = q.order("created_at", desc=True).limit(10000).execute()
-        rows = r.data or []
+        rows = filter_performance_rows(r.data or [], na_filter=na_filter)
+        enrich_performance_rows_na(rows)
+        na_supported = performance_marked_na_supported()
         ticket_ids = [row.get("id") for row in rows if row.get("id")]
         # Enrich with training total_percentage and feature count (batched; no per-row _compute_current_stage)
         training_map = {}
@@ -10456,9 +10599,19 @@ def list_performance_poc(
             row["feature_count"] = feature_count_map.get(row.get("id"), 0)
             row["training_schedule_date"] = training_schedule_map.get(row.get("id"))
         _sort_performance_list_rows(rows)
-        return {"items": rows}
+        return {
+            "items": rows,
+            "marked_na_supported": na_supported,
+            "na_filter": (na_filter or "exclude_na").strip().lower(),
+        }
     except Exception as e:
         err = str(e).lower()
+        if "marked_na" in err and ("does not exist" in err or "42703" in err or "pgrst204" in err):
+            reset_performance_marked_na_cache()
+            raise HTTPException(
+                status_code=400,
+                detail="Column marked_na missing. Run database/PERFORMANCE_MONITORING_MARKED_NA.sql, then reload Supabase API schema.",
+            )
         if "does not exist" in err or "relation" in err:
             raise HTTPException(
                 status_code=503,
@@ -10509,12 +10662,14 @@ def get_performance_details(
         if not rows:
             raise HTTPException(status_code=404, detail="Ticket not found")
         row = rows[0]
+        enrich_performance_rows_na([row])
         company_id = row.get("company_id")
         company_name = ""
         if company_id:
             c = supabase.table("companies").select("name").eq("id", company_id).maybe_single().execute()
             company_name = (c.data or {}).get("name", "")
         row["company_name"] = company_name
+        row["marked_na_supported"] = performance_marked_na_supported()
         current_stage, pending_features = _compute_current_stage(ticket_id, row.get("completion_status", "in_progress"))
         row["current_stage"] = current_stage
         row["pending_features"] = pending_features
