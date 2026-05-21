@@ -14,11 +14,14 @@ import {
   InputNumber,
   Popover,
   Space,
+  Popconfirm,
+  Tag,
 } from 'antd'
 import dayjs from 'dayjs'
-import { PlusOutlined, LineChartOutlined, EditOutlined, FormOutlined } from '@ant-design/icons'
+import { PlusOutlined, LineChartOutlined, EditOutlined, FormOutlined, UndoOutlined } from '@ant-design/icons'
 import { API_BASE_URL } from '../../api/axios'
 import { storage } from '../../utils/storage'
+import { invalidateAfterPerformanceNaChange } from '../../utils/sessionApiCache'
 import { sortPerformanceRefOptions } from '../../utils/performanceRefs'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
 import { DEFAULT_INFINITE_CHUNK, useInfiniteScrollChunk } from '../../hooks/useInfiniteScrollChunk'
@@ -40,8 +43,12 @@ interface FeatureOption {
 }
 type ListPayload<T> = T[] | { data?: T[]; items?: T[] }
 
+/** API: exclude_na = Active list; only_na = NA-marked (restore here). */
+type PerformanceNaFilter = 'exclude_na' | 'only_na'
+
 interface POCItem {
   id: string
+  company_id?: string
   reference_no: string
   company_name: string
   message_owner: string
@@ -53,10 +60,13 @@ interface POCItem {
   has_training?: boolean
   feature_count?: number
   current_stage?: string
+  marked_na?: boolean
+  company_excluded_by_na?: boolean
 }
 
 interface TicketDetails {
   id: string
+  company_id?: string
   reference_no: string
   company_name: string
   message_owner: string
@@ -66,6 +76,8 @@ interface TicketDetails {
   total_percentage?: number | null
   current_stage: string
   pending_features: string[]
+  marked_na?: boolean
+  company_excluded_by_na?: boolean
   training?: Record<string, unknown>
   feature_ids: string[]
   features_locked?: boolean
@@ -119,12 +131,16 @@ export const PerformanceMonitoringPage = () => {
   const [detailsLoading, setDetailsLoading] = useState(false)
   const [filterRef, setFilterRef] = useState<string>('')
   const [filterCompany, setFilterCompany] = useState<string>('')
+  const [filterNa, setFilterNa] = useState<PerformanceNaFilter>('exclude_na')
+  const [markedNaSupported, setMarkedNaSupported] = useState(false)
+  const [naCompanyIds, setNaCompanyIds] = useState<Set<string>>(new Set())
+  const [naTogglingId, setNaTogglingId] = useState<string | null>(null)
 
-  useEffect(() => {
-    loadCompanies()
-    loadItems()
-    loadFeatures()
-  }, [])
+  const canRestoreCompany = (record: POCItem) =>
+    markedNaSupported &&
+    Boolean(record.company_id) &&
+    (record.company_excluded_by_na || record.marked_na) &&
+    filterNa === 'only_na'
 
   const fetchWithTimeout = (url: string, options: RequestInit = {}) => {
     const controller = new AbortController()
@@ -139,6 +155,34 @@ export const PerformanceMonitoringPage = () => {
     Authorization: `Bearer ${storage.getToken() ?? ''}`,
     'Content-Type': 'application/json',
   })
+
+  const loadCapabilities = async () => {
+    try {
+      const res = await fetchWithTimeout(`${API_BASE_URL}/success/performance/capabilities`, {
+        headers: getAuthHeaders(),
+      })
+      if (res.ok) {
+        const data = (await res.json()) as { marked_na_supported?: boolean; hint?: string }
+        setMarkedNaSupported(Boolean(data.marked_na_supported))
+        if (!data.marked_na_supported && data.hint) {
+          message.warning(data.hint, 8)
+        }
+      }
+    } catch {
+      /* list load will also set marked_na_supported */
+    }
+  }
+
+  useEffect(() => {
+    loadCompanies()
+    loadFeatures()
+    void loadNaCompanyIds()
+    void loadCapabilities()
+  }, [])
+
+  useEffect(() => {
+    loadItems()
+  }, [filterNa])
 
   const loadFollowupClicksForTfIds = async (tfIds: string[]) => {
     if (!tfIds.length) {
@@ -217,17 +261,51 @@ export const PerformanceMonitoringPage = () => {
     }
   }
 
-  const loadItems = async () => {
+  const loadNaCompanyIds = async () => {
+    try {
+      const [resOpen, resDone] = await Promise.all(
+        (['in_progress', 'completed'] as const).map((status) =>
+          fetchWithTimeout(
+            `${API_BASE_URL}/success/performance/list?completion_status=${status}&na_filter=only_na`,
+            { headers: getAuthHeaders() },
+          ),
+        ),
+      )
+      const ids = new Set<string>()
+      for (const res of [resOpen, resDone]) {
+        if (res.ok) {
+          const data = (await res.json()) as { items?: POCItem[] }
+          for (const i of data.items || []) {
+            if (i.company_id) ids.add(i.company_id)
+          }
+        }
+      }
+      setNaCompanyIds(ids)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const loadItems = async (naOverride?: PerformanceNaFilter) => {
     setLoading(true)
     setSetupError(null)
     const status = 'in_progress'
+    const naParam = naOverride ?? filterNa ?? 'exclude_na'
     try {
       const res = await fetchWithTimeout(
-        `${API_BASE_URL}/success/performance/list?completion_status=${status}`,
+        `${API_BASE_URL}/success/performance/list?completion_status=${status}&na_filter=${encodeURIComponent(naParam)}`,
         { headers: getAuthHeaders() }
       )
       if (res.ok) {
-        const data = await res.json()
+        const data = (await res.json()) as {
+          items?: POCItem[]
+          marked_na_supported?: boolean
+        }
+        if (data.marked_na_supported === true) {
+          setMarkedNaSupported(true)
+        } else if (data.marked_na_supported === false) {
+          setMarkedNaSupported(false)
+        }
         setItems(data.items || [])
       } else if (res.status === 503) {
         const err = await res.json().catch(() => ({}))
@@ -459,6 +537,79 @@ export const PerformanceMonitoringPage = () => {
     await submitFollowup(ticketFeatureId)
   }
 
+  const toggleMarkedNa = async (record: POCItem, marked: boolean) => {
+    if (!markedNaSupported) {
+      message.warning('Run database/PERFORMANCE_MONITORING_MARKED_NA.sql in Supabase first.')
+      return
+    }
+    setNaTogglingId(record.id)
+    try {
+      const res = await fetchWithTimeout(
+        `${API_BASE_URL}/success/performance/${record.id}/marked-na`,
+        {
+          method: 'PATCH',
+          headers: getAuthHeadersWithJson(),
+          body: JSON.stringify({ marked_na: marked }),
+        },
+      )
+      const data = (await res.json().catch(() => ({}))) as { detail?: string }
+      if (res.ok) {
+        message.success(
+          marked ? 'Marked NA — moved to NA list (hidden from KPIs)' : 'Restored — company is Active again',
+        )
+        invalidateAfterPerformanceNaChange()
+        if (!marked) {
+          setFilterNa('exclude_na')
+          await loadItems('exclude_na')
+        } else {
+          await loadItems()
+        }
+        await loadNaCompanyIds()
+      } else {
+        message.error(data?.detail || 'Failed to update NA')
+      }
+    } catch {
+      message.error('Failed to update NA')
+    } finally {
+      setNaTogglingId(null)
+    }
+  }
+
+  const restoreCompanyFromNa = async (record: POCItem) => {
+    const companyId = record.company_id
+    if (!companyId || !markedNaSupported) {
+      message.warning('Run database/PERFORMANCE_MONITORING_MARKED_NA.sql in Supabase first.')
+      return
+    }
+    setNaTogglingId(companyId)
+    try {
+      const res = await fetchWithTimeout(
+        `${API_BASE_URL}/success/performance/company/${encodeURIComponent(companyId)}/restore-na`,
+        { method: 'PATCH', headers: getAuthHeadersWithJson() },
+      )
+      const data = (await res.json().catch(() => ({}))) as { detail?: string; restored_count?: number; company_name?: string }
+      if (res.ok) {
+        const n = data.restored_count ?? 0
+        message.success(
+          n > 0
+            ? `Restored ${data.company_name || record.company_name || 'company'} (${n} response${n === 1 ? '' : 's'}) — visible in KPIs and lists again`
+            : `Restored ${data.company_name || record.company_name || 'company'}`,
+        )
+        invalidateAfterPerformanceNaChange()
+        setDetailModalOpen(false)
+        setFilterNa('exclude_na')
+        await loadNaCompanyIds()
+        await loadItems('exclude_na')
+      } else {
+        message.error(data?.detail || 'Failed to restore company')
+      }
+    } catch {
+      message.error('Failed to restore company')
+    } finally {
+      setNaTogglingId(null)
+    }
+  }
+
   const openViewDetails = async (record: POCItem) => {
     setSelectedItem(record)
     setDetailModalOpen(true)
@@ -480,9 +631,72 @@ export const PerformanceMonitoringPage = () => {
     }
   }
 
+  const renderActionNaControls = (record: POCItem) => {
+    if (canRestoreCompany(record)) {
+      return (
+        <Popconfirm
+          title={`Restore ${record.company_name || 'this company'}?`}
+          onConfirm={() => void restoreCompanyFromNa(record)}
+          okText="Restore"
+        >
+          <Button
+            type="link"
+            size="small"
+            icon={<UndoOutlined />}
+            loading={naTogglingId === record.company_id}
+            onClick={(e) => e.stopPropagation()}
+          >
+            Restore
+          </Button>
+        </Popconfirm>
+      )
+    }
+    if (filterNa !== 'only_na' && !record.marked_na && !record.company_excluded_by_na) {
+      return (
+        <Popconfirm
+          title="Mark NA? Company will be hidden from all Success pages and KPI."
+          onConfirm={() => {
+            if (!markedNaSupported) {
+              message.warning('Run STEP 0 + NOTIFY pgrst in Supabase, restart backend, then refresh.')
+              void loadCapabilities()
+              return
+            }
+            void toggleMarkedNa(record, true)
+          }}
+          okText="NA"
+        >
+          <span onClick={(e) => e.stopPropagation()}>
+            <Button
+              type="link"
+              size="small"
+              danger
+              loading={naTogglingId === record.id}
+              title={markedNaSupported ? 'Not required — exclude from KPI' : 'Run marked_na migration + schema reload in Supabase'}
+            >
+              NA
+            </Button>
+          </span>
+        </Popconfirm>
+      )
+    }
+    if (record.marked_na || record.company_excluded_by_na) {
+      return (
+        <Tag color="orange" style={{ margin: 0 }}>
+          NA
+        </Tag>
+      )
+    }
+    return null
+  }
+
   const tableColumns = [
     { title: 'Reference Number', dataIndex: 'reference_no', key: 'reference_no', width: 120 },
-    { title: 'Company Name', dataIndex: 'company_name', key: 'company_name', width: 160 },
+    {
+      title: 'Company Name',
+      dataIndex: 'company_name',
+      key: 'company_name',
+      width: 160,
+    },
     { title: 'Response', dataIndex: 'response', key: 'response', ellipsis: true, render: (v: string) => (v ? String(v).slice(0, 40) + (String(v).length > 40 ? '...' : '') : '-') },
     { title: 'Contact', dataIndex: 'contact', key: 'contact', width: 120 },
     {
@@ -524,21 +738,22 @@ export const PerformanceMonitoringPage = () => {
     {
       title: 'Actions',
       key: 'actions',
-      width: 220,
+      width: 120,
       render: (_: unknown, record: POCItem) => (
         <span onClick={(e) => e.stopPropagation()}>
-          <Button
-            type="link"
-            size="small"
-            icon={record.has_training ? <EditOutlined /> : <FormOutlined />}
-            onClick={() => openTrainingModal(record)}
-          >
-            {record.has_training ? 'Edit Training' : 'Training'}
-          </Button>
-          {record.feature_count != null && record.feature_count > 0 && (
-            <Button type="link" size="small" icon={<FormOutlined />} onClick={() => openFollowupModal(record)}>
-              Followup
+          {filterNa !== 'only_na' ? (
+            <Button
+              type="link"
+              size="small"
+              icon={record.has_training ? <EditOutlined /> : <FormOutlined />}
+              onClick={() => openTrainingModal(record)}
+            >
+              {record.has_training ? 'Edit Training' : 'Training'}
             </Button>
+          ) : (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Open row → Restore
+            </Text>
           )}
         </span>
       ),
@@ -575,9 +790,25 @@ export const PerformanceMonitoringPage = () => {
       </Title>
 
       <Card style={{ marginBottom: 24 }}>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setFormModalOpen(true)}>
-          Add POC Details
-        </Button>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setFormModalOpen(true)}>
+            Add POC Details
+          </Button>
+          <Select
+            value={filterNa}
+            onChange={(v) => setFilterNa((v as PerformanceNaFilter) || 'exclude_na')}
+            style={{ minWidth: 160 }}
+            options={[
+              { value: 'exclude_na', label: 'Active' },
+              { value: 'only_na', label: 'NA' },
+            ]}
+          />
+          {!markedNaSupported ? (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Run <Text code>database/PERFORMANCE_MONITORING_MARKED_NA.sql</Text> in Supabase to enable NA.
+            </Text>
+          ) : null}
+        </div>
       </Card>
 
       {setupError && (
@@ -610,6 +841,9 @@ export const PerformanceMonitoringPage = () => {
             options={[...new Set(items.map((i) => i.company_name).filter(Boolean))].sort().map((c) => ({ value: c, label: c }))}
           />
         </div>
+        <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12, fontSize: 12 }}>
+          Click a ticket row → <strong>NA</strong> appears to the right of <strong>Training</strong>. <strong>Active</strong> / <strong>NA</strong> filter above; Restore moves ticket back to Active.
+        </Typography.Text>
         <div ref={tableContainerRef}>
           <TableWithSkeletonLoading loading={loading} columns={9} rows={12}>
             <Table
@@ -624,7 +858,9 @@ export const PerformanceMonitoringPage = () => {
               pagination={false}
               locale={{
                 emptyText: !loading && !setupError
-                  ? 'No active companies. Use "Add POC Details" above to add one, or see Comp-Perform for completed companies.'
+                  ? filterNa === 'only_na'
+                    ? 'No NA tickets. Mark NA on Active tickets when follow-up is not required.'
+                    : 'No active companies. Use "Add POC Details" above to add one, or see Comp-Perform for completed companies.'
                   : undefined,
               }}
             />
@@ -657,7 +893,9 @@ export const PerformanceMonitoringPage = () => {
           <Form.Item name="company_id" label="Company Name" rules={[{ required: true, message: 'Select company' }]}>
             <Select
               placeholder="Select company"
-              options={companies.map((c) => ({ value: c.id, label: c.name }))}
+              options={companies
+                .filter((c) => !naCompanyIds.has(c.id))
+                .map((c) => ({ value: c.id, label: c.name }))}
               showSearch
               optionFilterProp="label"
             />
@@ -821,7 +1059,21 @@ export const PerformanceMonitoringPage = () => {
         {selectedItem && (
           <>
             {detailsLoading ? (
-              <p>Loading...</p>
+              <>
+                <p>Loading...</p>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 12 }}>
+                  {filterNa !== 'only_na' ? (
+                    <>
+                      <Button size="small" icon={<FormOutlined />} onClick={() => { setDetailModalOpen(false); openTrainingModal(selectedItem) }}>
+                        {selectedItem.has_training ? 'Edit Training' : 'Training'}
+                      </Button>
+                      {renderActionNaControls(selectedItem)}
+                    </>
+                  ) : (
+                    renderActionNaControls(selectedItem)
+                  )}
+                </div>
+              </>
             ) : detailsData ? (
               <>
                 <Descriptions column={1} bordered size="small" style={{ marginBottom: 16 }}>
@@ -838,14 +1090,31 @@ export const PerformanceMonitoringPage = () => {
                     )}
                   </Descriptions.Item>
                 </Descriptions>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-                  <Button size="small" icon={<FormOutlined />} onClick={() => { setDetailModalOpen(false); openTrainingModal(selectedItem) }}>
-                    {selectedItem.has_training ? 'Edit Training' : 'Training'}
-                  </Button>
-                  {selectedItem.feature_count != null && selectedItem.feature_count > 0 && (
-                    <Button size="small" icon={<FormOutlined />} onClick={() => { setDetailModalOpen(false); openFollowupModal(selectedItem) }}>
-                      Followup
-                    </Button>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+                  {filterNa !== 'only_na' && !(detailsData.company_excluded_by_na || detailsData.marked_na) ? (
+                    <>
+                      <Button size="small" icon={<FormOutlined />} onClick={() => { setDetailModalOpen(false); openTrainingModal(selectedItem) }}>
+                        {selectedItem.has_training ? 'Edit Training' : 'Training'}
+                      </Button>
+                      {renderActionNaControls({
+                        ...selectedItem,
+                        company_id: detailsData.company_id ?? selectedItem.company_id,
+                        marked_na: detailsData.marked_na ?? selectedItem.marked_na,
+                        company_excluded_by_na: detailsData.company_excluded_by_na ?? selectedItem.company_excluded_by_na,
+                      })}
+                      {selectedItem.feature_count != null && selectedItem.feature_count > 0 && (
+                        <Button size="small" icon={<FormOutlined />} onClick={() => { setDetailModalOpen(false); openFollowupModal(selectedItem) }}>
+                          Followup
+                        </Button>
+                      )}
+                    </>
+                  ) : (
+                    renderActionNaControls({
+                      ...selectedItem,
+                      company_id: detailsData.company_id ?? selectedItem.company_id,
+                      marked_na: detailsData.marked_na ?? selectedItem.marked_na,
+                      company_excluded_by_na: detailsData.company_excluded_by_na ?? selectedItem.company_excluded_by_na,
+                    })
                   )}
                 </div>
                 {detailsData.features_with_followups && detailsData.features_with_followups.length > 0 && (
@@ -868,12 +1137,26 @@ export const PerformanceMonitoringPage = () => {
                 )}
               </>
             ) : (
-              <Descriptions column={1} bordered size="small">
-                <Descriptions.Item label="Reference">{selectedItem.reference_no}</Descriptions.Item>
-                <Descriptions.Item label="Company">{selectedItem.company_name}</Descriptions.Item>
-                <Descriptions.Item label="Total Completion %">{selectedItem.total_percentage != null ? `${selectedItem.total_percentage}%` : '-'}</Descriptions.Item>
-                <Descriptions.Item label="Status">{selectedItem.completion_status === 'completed' ? 'Completed' : 'Active'}</Descriptions.Item>
-              </Descriptions>
+              <>
+                <Descriptions column={1} bordered size="small">
+                  <Descriptions.Item label="Reference">{selectedItem.reference_no}</Descriptions.Item>
+                  <Descriptions.Item label="Company">{selectedItem.company_name}</Descriptions.Item>
+                  <Descriptions.Item label="Total Completion %">{selectedItem.total_percentage != null ? `${selectedItem.total_percentage}%` : '-'}</Descriptions.Item>
+                  <Descriptions.Item label="Status">{selectedItem.completion_status === 'completed' ? 'Completed' : 'Active'}</Descriptions.Item>
+                </Descriptions>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 12 }}>
+                  {filterNa !== 'only_na' ? (
+                    <>
+                      <Button size="small" icon={<FormOutlined />} onClick={() => { setDetailModalOpen(false); openTrainingModal(selectedItem) }}>
+                        {selectedItem.has_training ? 'Edit Training' : 'Training'}
+                      </Button>
+                      {renderActionNaControls(selectedItem)}
+                    </>
+                  ) : (
+                    renderActionNaControls(selectedItem)
+                  )}
+                </div>
+              </>
             )}
           </>
         )}
