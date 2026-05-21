@@ -1,0 +1,40 @@
+# Ping Render /health so the web service stays warm (avoids 30–60s cold starts).
+# See docs/RENDER_KEEPALIVE_SETUP.md for cron-job.org alternative and setup.
+
+name: Render keep-alive
+
+on:
+  schedule:
+    # Every 5 minutes (GitHub minimum interval for scheduled workflows)
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: render-keepalive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Resolve health URL
+        id: url
+        run: |
+          DEFAULT="https://ip-internal-manage-software.onrender.com/health"
+          URL="${{ vars.RENDER_HEALTH_URL }}"
+          if [ -z "$URL" ]; then URL="$DEFAULT"; fi
+          echo "health_url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Pinging: $URL"
+
+      - name: GET /health (wake Render)
+        run: |
+          curl -fsS --max-time 90 \
+            -H "User-Agent: FMS-Render-KeepAlive/1.0 (+https://github.com/amandey688-png/IP-Internal-manage-Software)" \
+            "${{ steps.url.outputs.health_url }}"
+
+      - name: Log response body (optional)
+        if: success()
+        run: |
+          curl -fsS --max-time 90 "${{ steps.url.outputs.health_url }}" | head -c 500
+          echo ""

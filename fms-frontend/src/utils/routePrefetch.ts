@@ -20,7 +20,8 @@ let refreshTimer: number | null = null
 let trackedRouteKeys: string[] = []
 const TEN_MIN_MS = 20 * 60 * 1000
 /** Only warm a few routes right after login — avoids 10+ parallel API calls. */
-const IMMEDIATE_WARM_COUNT = 3
+/** Disabled — bootstrap on dashboard mount is enough; avoids competing with first paint. */
+const IMMEDIATE_WARM_COUNT = 0
 const IMMEDIATE_STEP_MS = 500
 const REFRESH_BATCH_SIZE = 2
 const IDLE_STAGGER_MS = 400
@@ -38,12 +39,7 @@ export function prefetchRouteData(routeKey: string): void {
 
   if (path === ROUTES.DASHBOARD) {
     fire('prefetch:dashboard', async () => {
-      await Promise.all([
-        dashboardApi.getMetrics(),
-        dashboardApi.getTrends(),
-        dashboardApi.getActivityCount(),
-        dashboardApi.getPaymentActions(),
-      ])
+      await dashboardApi.getBootstrap()
     })
     return
   }

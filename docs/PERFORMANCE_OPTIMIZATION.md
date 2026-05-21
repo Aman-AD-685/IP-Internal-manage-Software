@@ -70,7 +70,7 @@ Run the statements in `docs/supabase_performance_indexes.sql` in Supabase SQL Ed
 
 - **Problem**: Free/low-tier Render sleeps after inactivity; first request after idle can take 10–50+ seconds.
 - **Mitigations**:
-  1. **Keep-alive**: Cron (e.g. cron-job.org, Render cron) hitting `GET /health` every 5–10 minutes so the service stays warm.
+  1. **Keep-alive**: Use [RENDER_KEEPALIVE_SETUP.md](RENDER_KEEPALIVE_SETUP.md) — GitHub Action `render-keepalive.yml` or cron-job.org hitting `GET /health` every 5 minutes.
   2. **Upgrade**: Paid plan with always-on instance removes cold starts.
   3. **Document**: Add a `/health` or `/ping` endpoint that returns 200 and use it only for keep-alive (no heavy logic).
 
@@ -86,17 +86,20 @@ Run the statements in `docs/supabase_performance_indexes.sql` in Supabase SQL Ed
 - [x] Indexes script: `docs/supabase_performance_indexes.sql`.
 - [ ] Run index script in Supabase (manual).
 - [ ] Optional: in-memory or Redis cache for list_client_payment and dashboard metrics.
-- [ ] Optional: Keep-alive cron for Render.
+- [ ] Keep-alive for Render: enable [RENDER_KEEPALIVE_SETUP.md](RENDER_KEEPALIVE_SETUP.md) (GitHub Action or cron-job.org).
 
 ---
+
+See also: **[FAST_LOAD_AND_LOAD_BALANCER.md](FAST_LOAD_AND_LOAD_BALANCER.md)** (bootstrap API, deferral, NGINX when needed).
 
 ## 8. Why the app feels slow (common causes)
 
 | Cause | What you see | Mitigation in repo |
 |-------|----------------|-------------------|
 | **Render cold start** | First request after idle takes 10–50s | Keep-alive cron on `GET /health`; paid always-on plan |
-| **Post-login API storm** | Spinners everywhere right after login | Throttled idle prefetch (`prefetchConcurrency.ts`), fewer warm routes, no KPI prefetch until opened |
-| **Dashboard KPI fan-out** | Main dashboard waits on 5× `/dashboard/kpi` | Batched loads (2 at a time) + 4 min session cache |
+| **Post-login API storm** | Spinners everywhere right after login | 12s delayed prefetch; `GET /dashboard/bootstrap` (one call) |
+| **Dashboard KPI fan-out** | Main dashboard waits on 5× `/dashboard/kpi` | Deferred 2.5s after metrics; batched (2) + session cache |
+| **Auth blocking shell** | Full-page spinner on reload | Session user shown immediately; `/auth/me` in background |
 | **Heavy aggregates** | Payment KPI / payment-summary slow | Server cache 60s, paginated scans; rate limit prevents retry storms |
 | **Rate limit (429)** | “Too many requests” after rapid navigation | Back off; limits are per-IP (auth 20/min, expensive 18/min, global 150/min) |
 

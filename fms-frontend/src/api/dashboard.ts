@@ -73,6 +73,29 @@ export interface SuccessPerformanceListItem {
 }
 
 export const dashboardApi = {
+  /** Single request for metrics + trends (fast first paint). */
+  getBootstrap: async (options?: { skipCache?: boolean }): Promise<{
+    metrics: DashboardMetrics
+    trends: TrendPoint[]
+  }> => {
+    const key = 'dashboard:bootstrap'
+    if (!options?.skipCache) {
+      const cached = sessionApiCacheGet<{ metrics: DashboardMetrics; trends: TrendPoint[] }>(key)
+      if (cached?.metrics) return cached
+    }
+    const r = await apiClient.get<{ metrics: DashboardMetrics; trends: TrendPoint[] }>('/dashboard/bootstrap', {
+      params: options?.skipCache ? { _: Date.now() } : undefined,
+    })
+    const body = {
+      metrics: r.data.metrics,
+      trends: Array.isArray(r.data.trends) ? r.data.trends : [],
+    }
+    sessionApiCacheSet(key, body, API_CACHE_TTL_MS.dashboardMetrics)
+    sessionApiCacheSet('dashboard:metrics', body.metrics, API_CACHE_TTL_MS.dashboardMetrics)
+    sessionApiCacheSet('dashboard:trends', { data: body.trends }, API_CACHE_TTL_MS.dashboardTrends)
+    return body
+  },
+
   getMetrics: async (options?: { skipCache?: boolean }): Promise<DashboardMetrics> => {
     const key = 'dashboard:metrics'
     if (!options?.skipCache) {

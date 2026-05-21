@@ -69,6 +69,7 @@ _AUTH_PATHS = {
 # Prefixes — heaviest endpoints (DB scans, multi-table KPI builds)
 _EXPENSIVE_PREFIXES = (
     "/onboarding/client-payment/payment-summary",
+    "/dashboard/bootstrap",
     "/dashboard/kpi",
     "/dashboard/soumya-kpi",
     "/dashboard/metrics",
