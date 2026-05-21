@@ -18,6 +18,7 @@ from app.escalation_email_templates import (
     build_timeframe_html,
 )
 from app.reminder_utils import get_chores_bugs_stage, get_staging_feature_stage, is_chores_bug_pending
+from app.ticket_na import apply_exclude_ticket_na, ticket_marked_na
 from app.supabase_client import supabase
 from app.utils.email import send_email_detail
 
@@ -469,13 +470,12 @@ def _enabled_recipients(configuration_type: str) -> list[str]:
 def _fetch_escalation_tickets() -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     try:
-        cb = (
+        cb = apply_exclude_ticket_na(
             supabase.table("tickets")
             .select(TICKET_SELECT)
             .in_("type", ["chore", "bug"])
             .is_("quality_solution", "null")
-            .execute()
-        )
+        ).execute()
         rows.extend(cb.data or [])
     except Exception as e:
         _notify(f"fetch chores/bugs: {e}")
@@ -494,7 +494,7 @@ def _fetch_escalation_tickets() -> list[dict[str, Any]]:
                 seen.add(str(t["id"]))
     except Exception as e:
         _notify(f"fetch staging: {e}")
-    open_ts = [t for t in rows if _is_open_ticket(t)]
+    open_ts = [t for t in rows if _is_open_ticket(t) and not ticket_marked_na(t)]
     _hydrate_missing_company_names(open_ts)
     return [t for t in open_ts if not _ticket_is_demo_c_excluded(t)]
 

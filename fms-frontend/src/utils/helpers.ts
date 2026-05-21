@@ -198,6 +198,7 @@ export const getFeatureCurrentStage = (t: {
   if (t.approval_status === 'rejected') return { stageLabel: 'Approval (rejected)', status: 'rejected' }
   if (t.approval_status === 'hold') return { stageLabel: 'Approval (hold)', status: 'hold' }
   if (t.approval_status === 'unapproved') return { stageLabel: 'Approval (unapproved)', status: 'unapproved' }
+  if (t.status_2 === 'na') return { stageLabel: 'NA', status: 'na' }
   if (t.status_2 !== 'completed') {
     return { stageLabel: 'Stage 1', status: t.status_2 || 'pending' }
   }
@@ -225,6 +226,17 @@ export const getChoresBugsCurrentStage = (t: {
   const SLA_2H = 2 * 3600
   const SLA_1D = 24 * 3600
   const now = Date.now()
+
+  if (t.status_2 === 'na') {
+    return {
+      stageNum: 2,
+      stageLabel: 'NA',
+      planned: fmt(t.actual_1 || t.planned_2),
+      actual: fmt(t.actual_2),
+      status: 'na',
+      timeDelay: '-',
+    }
+  }
 
   if (!t.status_1) {
     const p = planned1 ? new Date(planned1).getTime() : 0

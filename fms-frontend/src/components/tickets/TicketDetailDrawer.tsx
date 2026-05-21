@@ -396,7 +396,7 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
                 onStatusChange={(v) => {
                   const nowIso = new Date().toISOString()
                   const updates: Partial<Ticket> = { status_2: v as Ticket['status_2'] }
-                  if (v === 'completed' || v === 'staging' || v === 'hold') {
+                  if (v === 'completed' || v === 'staging' || v === 'hold' || v === 'na') {
                     updates.actual_1 = nowIso
                     if (v === 'completed') {
                       updates.planned_2 = nowIso

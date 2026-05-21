@@ -47,6 +47,7 @@ from app.performance_na import (
     performance_marked_na_supported,
     reset_performance_marked_na_cache,
 )
+from app.ticket_na import apply_exclude_ticket_na, filter_out_ticket_na, ticket_marked_na
 from app.kpi_calendar_week import (
     build_week_merge_meta,
     get_kpi_calendar_week_range,
@@ -1595,6 +1596,7 @@ def _apply_chores_bugs_pending_filters(q, type_filter: str | None = None, status
     else:
         q = _apply_exclude_active_staging_filter(q)
         q = q.or_("status_2.is.null,status_2.neq.staging")
+        q = apply_exclude_ticket_na(q)
     return q
 
 
@@ -1628,7 +1630,7 @@ def list_tickets(
     page_size: int = Query(50, le=200),
     section: str | None = None,
     approval_filter: str | None = None,  # For section=approval-status: pending | unapproved | all
-    status_2_filter: str | None = None,  # For section=chores-bugs: pending | completed | staging | hold (Stage 2 status)
+    status_2_filter: str | None = None,  # chores-bugs / feature: pending | completed | staging | hold | na | rejected
     type_filter: str | None = None,  # For section=chores-bugs: chore | bug (Type of Request filter)
     search_all_sections: bool = False,   # When True + search present: ignore section/type, search all tickets
     mine_only: bool = False,  # When True: only tickets created_by current user (export / operator scope)
@@ -1712,6 +1714,9 @@ def list_tickets(
             q = q.eq("approval_status", "approved")
             q = q.or_("staging_planned.is.null,live_review_status.eq.completed")
             q = q.or_("live_status.is.null,live_status.neq.completed")
+            feat_s2 = (status_2_filter or "").strip().lower()
+            if feat_s2:
+                q = q.eq("status_2", feat_s2)
     elif type and not apply_section_filter:
         # type=feature when no section (e.g. /tickets?type=feature) - only APPROVED features
         q = q.eq("type", type)
@@ -1719,6 +1724,9 @@ def list_tickets(
             q = q.eq("approval_status", "approved")
             q = q.or_("staging_planned.is.null,live_review_status.eq.completed")
             q = q.or_("live_status.is.null,live_status.neq.completed")
+            feat_s2 = (status_2_filter or "").strip().lower()
+            if feat_s2:
+                q = q.eq("status_2", feat_s2)
     if company_ids:
         ids = [x.strip() for x in company_ids if x and x.strip()]
         if ids:
@@ -1747,6 +1755,8 @@ def list_tickets(
             q = q.ilike("reference_no", f"%{safe_ref}%")
     order_col = sort_by if sort_by in ("created_at", "updated_at", "query_arrival_at", "query_response_at", "title", "status", "priority") else "created_at"
     q = q.order(order_col, desc=(sort_order.lower() == "desc"))
+    if (status_2_filter or "").strip().lower() != "na":
+        q = apply_exclude_ticket_na(q)
     q = q.range((page - 1) * page_size, page * page_size - 1)
     r = q.execute()
     rows = _enrich_tickets_with_lookups(r.data or [])
@@ -2297,10 +2307,13 @@ def dashboard_metrics(auth: dict = Depends(get_current_user)):
         qs = t.get("quality_solution")
         return qs is not None and qs != "" and str(qs).lower() not in ("null", "none")
     def _is_pending(t: dict) -> bool:
+        if ticket_marked_na(t):
+            return False
         return not _in_staging(t) and not _stage4_completed(t) and not _has_quality_solution(t)
     def _company_demo_c(t: dict) -> bool:
         cn = (t.get("company_name") or "").strip().lower()
         return cn == "demo_c" or cn == "demo c"
+    all_cb = filter_out_ticket_na(all_cb)
     pending_till_date = sum(1 for t in all_cb if _is_pending(t))
     total_pending_bug_till_date = sum(1 for t in all_cb if _is_pending(t) and t.get("type") == "bug")
     pending_till_date_exclude_demo_c = sum(1 for t in all_cb if _is_pending(t) and not _company_demo_c(t))
@@ -2365,7 +2378,7 @@ def dashboard_metrics(auth: dict = Depends(get_current_user)):
             "id, type, status_4, quality_solution, staging_planned, live_review_status, company_name"
         ).in_("type", types_feature)
         rf = qf.execute()
-        all_feature = rf.data or []
+        all_feature = filter_out_ticket_na(rf.data or [])
     except Exception:
         all_feature = []
 
@@ -4508,6 +4521,7 @@ def support_dashboard_stats(auth: dict = Depends(get_current_user)):
         ).in_("type", ["chore", "bug"])
         q = q.or_("staging_planned.is.null,live_review_status.eq.completed")
         q = q.or_("status_2.is.null,status_2.neq.staging")
+        q = apply_exclude_ticket_na(q)
         r = q.execute()
         all_tickets = r.data or []
         # Tickets for pending items: only those still in Chores & Bugs (quality_solution null)
@@ -4520,7 +4534,7 @@ def support_dashboard_stats(auth: dict = Depends(get_current_user)):
 
     # Fetch feature tickets for feature metrics
     try:
-        fq = supabase.table("tickets").select("id, type, status").eq("type", "feature")
+        fq = apply_exclude_ticket_na(supabase.table("tickets").select("id, type, status, status_2").eq("type", "feature"))
         fr = fq.execute()
         feature_tickets = fr.data or []
     except Exception:
@@ -4574,6 +4588,8 @@ def support_dashboard_stats(auth: dict = Depends(get_current_user)):
     prev_month_bugs = {}
 
     for t in tickets_for_pending:
+        if ticket_marked_na(t):
+            continue
         if str(t.get("status_4") or "").lower() == "completed":
             continue
         status = t.get("status") or ""
@@ -4725,6 +4741,7 @@ def support_dashboard_filtered(
         q = q.is_("quality_solution", "null")
         q = q.or_("staging_planned.is.null,live_review_status.eq.completed")
         q = q.or_("status_2.is.null,status_2.neq.staging")
+        q = apply_exclude_ticket_na(q)
         r = q.execute()
         tickets = r.data or []
         _enrich_tickets_with_lookups(tickets)
@@ -4853,9 +4870,11 @@ def support_dashboard_feature_tickets(
 ):
     """Feature tickets for Support Dashboard modal (all or pending only). Sorted by priority: red (high/critical/urgent) first, then yellow (medium), then green (low), then no priority."""
     try:
-        q = supabase.table("tickets").select(
-            "id, reference_no, title, description, type, status, priority, company_name, user_name, created_at, query_arrival_at, resolved_at"
-        ).eq("type", "feature")
+        q = apply_exclude_ticket_na(
+            supabase.table("tickets").select(
+                "id, reference_no, title, description, type, status, priority, company_name, user_name, created_at, query_arrival_at, resolved_at, status_2"
+            ).eq("type", "feature")
+        )
         r = q.execute()
         tickets = r.data or []
     except Exception as e:
@@ -4863,6 +4882,8 @@ def support_dashboard_feature_tickets(
     pending_statuses = ("open", "in_progress", "on_hold", "pending")
     result = []
     for t in tickets:
+        if ticket_marked_na(t):
+            continue
         status = t.get("status") or ""
         resolved = _is_resolved(status, None) or bool(t.get("resolved_at"))
         if filter_type == "pending" and resolved:

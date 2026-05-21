@@ -588,6 +588,7 @@ export const ChoresBugsDetailDrawer = ({ ticketId, open, onClose, onUpdate, read
                         updates.actual_2 = nowIso
                         updates.planned_4 = nowIso
                       }
+                      if (v === 'na') updates.actual_2 = nowIso
                       handleUpdate(updates)
                     }}
                     style={{ width: 120 }}

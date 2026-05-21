@@ -71,6 +71,8 @@ def get_feature_section_stage(t: dict) -> dict:
 
 def is_chores_bug_pending(t: dict) -> bool:
     """True if Chores & Bug ticket is still pending (not fully completed)."""
+    if str(t.get("status_2") or "").strip().lower() == "na":
+        return False
     quality = t.get("quality_solution")
     live_review = t.get("live_review_status")
     if quality or live_review == "completed":
@@ -84,6 +86,8 @@ def is_chores_bug_pending(t: dict) -> bool:
 
 def is_feature_pending(t: dict) -> bool:
     """True if Feature ticket is pending (not fully completed)."""
+    if str(t.get("status_2") or "").strip().lower() == "na":
+        return False
     live_review = t.get("live_review_status")
     if live_review == "completed":
         return False
