@@ -1,6 +1,7 @@
 """Advanced Pending Escalation Email Configuration API."""
 from __future__ import annotations
 
+import logging
 import os
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Request
@@ -27,6 +28,7 @@ from app.escalation_email_service import (
 )
 
 escalation_email_router = APIRouter(tags=["escalation"])
+_log = logging.getLogger("escalation_email_routes")
 
 
 def _role(user_id: str) -> str:
@@ -64,7 +66,20 @@ def _is_cron_authorized(request: Request) -> bool:
         return False
     hdr = (request.headers.get("X-Cron-Secret") or request.headers.get("x-cron-secret") or "").strip()
     bearer = _extract_bearer(request)
-    return hdr == secret or bearer == secret
+    query_secret = (request.query_params.get("secret") or "").strip()
+    return hdr == secret or bearer == secret or query_secret == secret
+
+
+def _cron_escalation_started_response(job_label: str) -> dict:
+    return {
+        "status": "started",
+        "ok": True,
+        "message": (
+            f"{job_label} started in background. "
+            "cron-job.org should show Success within a few seconds. "
+            "Check Render logs for emails_sent."
+        ),
+    }
 
 
 def _cron_or_admin(
@@ -270,12 +285,20 @@ async def cron_pending_mails(
 ):
     force_flag = force or (bool(body.force) if body else False)
     if ctx.get("cron"):
-        result = await run_escalation_batch(
-            "pending_timeframe",
-            force=force_flag,
-            trigger_source="cron",
-        )
-        return _cron_escalation_response(result)
+
+        async def _bg() -> None:
+            try:
+                result = await run_escalation_batch(
+                    "pending_timeframe",
+                    force=force_flag,
+                    trigger_source="cron",
+                )
+                _log("Escalation pending cron finished: %s", result)
+            except Exception as e:
+                _log("Escalation pending cron error: %s", e)
+
+        background_tasks.add_task(_bg)
+        return _cron_escalation_started_response("Escalation pending timeframe")
     uid = ctx.get("id")
     return await run_escalation_batch(
         "pending_timeframe",
@@ -295,12 +318,20 @@ async def cron_critical_mails(
 ):
     force_flag = force or (bool(body.force) if body else False)
     if ctx.get("cron"):
-        result = await run_escalation_batch(
-            "critical_pending",
-            force=force_flag,
-            trigger_source="cron",
-        )
-        return _cron_escalation_response(result)
+
+        async def _bg() -> None:
+            try:
+                result = await run_escalation_batch(
+                    "critical_pending",
+                    force=force_flag,
+                    trigger_source="cron",
+                )
+                _log("Escalation critical cron finished: %s", result)
+            except Exception as e:
+                _log("Escalation critical cron error: %s", e)
+
+        background_tasks.add_task(_bg)
+        return _cron_escalation_started_response("Escalation critical pending")
     uid = ctx.get("id")
     return await run_escalation_batch(
         "critical_pending",
@@ -320,24 +351,16 @@ async def cron_stage_mails(
 ):
     force_flag = force or (bool(body.force) if body else False)
     if ctx.get("cron"):
-        raw = await run_all_stage_batches(force=force_flag)
-        results = raw.get("results") or {}
-        total_sent = sum(int((results.get(k) or {}).get("sent_ok") or 0) for k in results)
-        any_fail = any((results.get(k) or {}).get("ok") is False for k in results)
-        err = None
-        if any_fail:
-            err = next(
-                (results[k].get("error") for k in results if (results.get(k) or {}).get("ok") is False),
-                "Stage escalation send failed",
-            )
-        return {
-            "status": "error" if any_fail else "completed",
-            "ok": not any_fail,
-            "email_sent": total_sent > 0,
-            "emails_sent": total_sent,
-            "message": err or (f"Sent {total_sent} email(s)." if total_sent else "Completed."),
-            "results": results,
-        }
+
+        async def _bg() -> None:
+            try:
+                raw = await run_all_stage_batches(force=force_flag)
+                _log("Escalation stage cron finished: %s", raw)
+            except Exception as e:
+                _log("Escalation stage cron error: %s", e)
+
+        background_tasks.add_task(_bg)
+        return _cron_escalation_started_response("Escalation stage reminders")
     uid = ctx.get("id")
     return await run_all_stage_batches(
         force=force_flag,

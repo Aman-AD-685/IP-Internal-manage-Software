@@ -477,14 +477,37 @@ export const TicketList = () => {
       serverListPageRef.current = 1
       listExhaustedRef.current =
         (apiTotal > 0 && list.length >= apiTotal) || list.length < TICKETS_CHUNK
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Failed to fetch tickets:', error)
-      if (gen === listFetchGeneration.current) {
-        message.error(
-          'Tickets could not load — network error or server busy (try Refresh). If this persists, restart uvicorn and npm run dev.',
-          6,
-        )
+      if (gen !== listFetchGeneration.current) return
+      const ax = error as { response?: { status?: number; data?: { retry_after_sec?: number } }; message?: string }
+      if (ax.response?.status === 429) {
+        const wait = ax.response?.data?.retry_after_sec ?? 3
+        message.warning(`Too many requests — retrying in ${wait}s…`, 3)
+        await new Promise((r) => setTimeout(r, wait * 1000))
+        if (gen !== listFetchGeneration.current) return
+        try {
+          const retryRes = await ticketsApi.list(getTicketsListParams(1, TICKETS_CHUNK, { skipCache: true }))
+          if (gen !== listFetchGeneration.current) return
+          const { rows, total: apiTotal } = unwrapTicketListPayload(retryRes, TICKETS_CHUNK)
+          let list = rows
+          if (isChoresBugs) list = keepOnlyChoresAndBugs(list)
+          setTickets(list)
+          setTotal(apiTotal)
+          serverListPageRef.current = 1
+          listExhaustedRef.current =
+            (apiTotal > 0 && list.length >= apiTotal) || list.length < TICKETS_CHUNK
+          return
+        } catch {
+          /* fall through to error below */
+        }
       }
+      message.error(
+        ax.response?.status === 429
+          ? 'Tickets could not load — server rate limit. Wait 30 seconds and click Refresh, or restart uvicorn.'
+          : 'Tickets could not load — network error or server busy (try Refresh). If this persists, restart uvicorn and npm run dev.',
+        6,
+      )
     } finally {
       if (gen === listFetchGeneration.current) setLoading(false)
     }

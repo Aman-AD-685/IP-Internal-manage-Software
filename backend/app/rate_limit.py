@@ -66,7 +66,8 @@ _AUTH_PATHS = {
     "/approval/execute-by-token",
 }
 
-# Prefixes — heaviest endpoints (DB scans, multi-table KPI builds)
+# Prefixes — heaviest endpoints only (full-table scans / KPI builds).
+# Do NOT include /tickets — paginated list is called often (prefetch + scroll); use global tier.
 _EXPENSIVE_PREFIXES = (
     "/onboarding/client-payment/payment-summary",
     "/dashboard/bootstrap",
@@ -76,8 +77,6 @@ _EXPENSIVE_PREFIXES = (
     "/dashboard/detail",
     "/dashboard/trends",
     "/success/performance/list",
-    "/tickets",
-    "/onboarding/client-payment",
 )
 
 _hits: dict[tuple[str, str, str], deque[float]] = defaultdict(deque)
@@ -132,9 +131,19 @@ def _client_ip(request: Request) -> str:
     return (request.client.host if request.client else "unknown").strip() or "unknown"
 
 
+def _is_local_dev_request(request: Request) -> bool:
+    """Skip rate limits for local uvicorn + Vite proxy (avoids 429 during dev/prefetch)."""
+    if os.getenv("RATE_LIMIT_DEV_BYPASS", "").strip().lower() in ("1", "true", "yes"):
+        return True
+    ip = _client_ip(request)
+    return ip in ("127.0.0.1", "::1", "localhost")
+
+
 def rate_limit_response(request: Request) -> JSONResponse | None:
     """Return 429 response if limited, else None."""
     if not _RATE_LIMIT_ENABLED:
+        return None
+    if _is_local_dev_request(request):
         return None
     if request.method == "OPTIONS":
         return None

@@ -47,23 +47,60 @@
     <!-- Google Search Console: use URL-prefix property https://industryprime.vercel.app/ → HTML tag (DNS TXT does not work on *.vercel.app). Paste full token from GSC if verify fails. -->
     <meta name="google-site-verification" content="tyyFsYnTisWMWqcdbBAyzLF29ilP7TX7AhPXp" />
 
-    <!-- JSON-LD: Software / Web application (helps Google understand the product) -->
+    <!-- JSON-LD: Organization + WebApplication + FAQ (rich results / brand entity) -->
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "WebApplication",
-        "name": "Industry Prime — IP Internal Management Software",
-        "alternateName": ["industryprime", "IP Internal Management", "IP Internal Management Software"],
-        "description": "Web-based internal management and FMS-style platform for Industry Prime: client onboarding, payments and ageing, KPI dashboards, training workflows, and support tooling. Stack: React (Vite), FastAPI, Supabase.",
-        "url": "https://industryprime.vercel.app/",
-        "applicationCategory": "BusinessApplication",
-        "operatingSystem": "Any (web browser)",
-        "browserRequirements": "Requires JavaScript. Modern evergreen browser recommended.",
-        "provider": {
-          "@type": "Organization",
-          "name": "Industry Prime",
-          "url": "https://industryprime.vercel.app/"
-        }
+        "@graph": [
+          {
+            "@type": "Organization",
+            "name": "Industry Prime",
+            "url": "https://industryprime.vercel.app/",
+            "logo": "https://industryprime.vercel.app/logo.png"
+          },
+          {
+            "@type": "WebSite",
+            "name": "Industry Prime — IP Internal Management",
+            "url": "https://industryprime.vercel.app/",
+            "publisher": { "@type": "Organization", "name": "Industry Prime" }
+          },
+          {
+            "@type": "WebApplication",
+            "name": "Industry Prime — IP Internal Management Software",
+            "alternateName": ["industryprime", "IP Internal Management", "IP Internal Management Software"],
+            "description": "Web-based internal management and FMS-style platform for Industry Prime: client onboarding, payments and ageing, KPI dashboards, training workflows, and support tooling. Stack: React (Vite), FastAPI, Supabase.",
+            "url": "https://industryprime.vercel.app/",
+            "applicationCategory": "BusinessApplication",
+            "operatingSystem": "Any (web browser)",
+            "browserRequirements": "Requires JavaScript. Modern evergreen browser recommended.",
+            "provider": {
+              "@type": "Organization",
+              "name": "Industry Prime",
+              "url": "https://industryprime.vercel.app/"
+            }
+          },
+          {
+            "@type": "FAQPage",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "What is Industry Prime IP Internal Management Software?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Industry Prime (industryprime) is a web FMS-style internal operations platform for onboarding, client payments, payment ageing, KPI dashboards, training, and support tickets. It uses React, FastAPI, and Supabase."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Who is this software for?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Manufacturing and operations teams at Industry Prime use it for internal workflow, payment tracking, chores and bugs tickets, delegation, and performance monitoring — not a public consumer app."
+                }
+              }
+            ]
+          }
+        ]
       }
     </script>
 
@@ -77,6 +114,14 @@
     </script>
   </head>
   <body>
+    <!-- Crawler / no-JS fallback (must be in body — not allowed in head) -->
+    <noscript>
+      <h1>Industry Prime — IP Internal Management Software</h1>
+      <p>
+        industryprime: internal FMS for client onboarding, payments, KPI dashboards, training, and support.
+        JavaScript is required to sign in. Built with React, FastAPI, and Supabase.
+      </p>
+    </noscript>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
