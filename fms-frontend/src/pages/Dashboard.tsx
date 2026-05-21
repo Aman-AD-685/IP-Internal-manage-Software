@@ -32,8 +32,8 @@ import {
 import { ROUTES } from '../utils/constants'
 import { useAuth } from '../hooks/useAuth'
 import {
-  dashboardKpiApi,
   DASHBOARD_KPI_NAMES,
+  fetchDashboardKpiBatch,
   MONTHS,
   type DashboardKpiPerson,
   type DashboardKpiResponse,
@@ -225,11 +225,7 @@ export const Dashboard = () => {
     const year = prev.year
     const week = `week ${prev.week}`
     setKpiSnapshotLoading(true)
-    void Promise.all(
-      [...DASHBOARD_KPI_NAMES].map((name) =>
-        dashboardKpiApi.getData({ name, month, year, week }).then((res) => ({ name, res }))
-      )
-    )
+    void fetchDashboardKpiBatch(DASHBOARD_KPI_NAMES, { month, year, week }, 2)
       .then((results) => {
         const next: Partial<Record<DashboardKpiPerson, DashboardKpiResponse>> = {}
         for (const { name, res } of results) {

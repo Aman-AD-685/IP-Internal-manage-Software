@@ -1,0 +1,23 @@
+---
+description: >-
+  Mandatory pre-push audit before git push or deploy. Loads pre-push-compound-review
+  skill; blocks push on P0/secrets; merges Compound Engineering ce:review when installed.
+alwaysApply: true
+---
+
+# Pre-push gate
+
+When the user requests **git push**, **commit and push**, **deploy**, **end of day**, **log today**, or **sync training**, or you are about to run `git push`:
+
+1. **Stop** — do not push yet (unless only journaling).
+2. Read and follow **`.cursor/skills/pre-push-compound-review/SKILL.md`** (full workflow).
+3. Read **`memory.md`** + **`daily-journal/`** (today + last 3 days) — train from what the user did day by day.
+4. Run **`.cursor/skills/pre-push-compound-review/scripts/collect-push-scope.ps1`** (pre-push only).
+5. If Compound Engineering is installed, run **`ce:review`** with **`mode:report-only`** on the push diff scope.
+6. Output the report and verdict; then **append today's journal** and update **memory.md** when user accepts/rejects advice:
+   - **Production Push Safe** → then push
+   - **Push Blocked — Critical Issues Found** → fix or require explicit user override
+
+Never commit: `.env`, `backend_errors.log`, `__pycache__`, credentials.
+
+After meaningful work (even without push), append **`.cursor/skills/pre-push-compound-review/daily-journal/YYYY-MM-DD.md`** so the reviewer stays trained on the user's real workflow.

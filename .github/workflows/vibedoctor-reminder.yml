@@ -1,0 +1,55 @@
+# Reminder + quality gates. VibeDoctor scans run via GitHub App at https://vibedoctor.io
+# (connect repo there — read-only). See docs/VIBEDOCTOR_INTEGRATION_GUIDE.md
+
+name: Pre-deploy checks (VibeDoctor reminder)
+
+on:
+  push:
+    branches: [main, fix/production-frontend-cache]
+  pull_request:
+    branches: [main]
+
+jobs:
+  reminder:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: VibeDoctor reminder
+        run: |
+          echo "Connect IP-Internal-manage-Software at https://vibedoctor.io (GitHub App, read-only)."
+          echo "Run a scan after meaningful pushes and before production deploy."
+
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            frontend:
+              - 'fms-frontend/**'
+              - '.github/workflows/**'
+            backend:
+              - 'backend/**'
+              - '.github/workflows/**'
+
+      - name: Frontend lint
+        if: steps.changes.outputs.frontend == 'true'
+        working-directory: fms-frontend
+        run: |
+          npm ci
+          npm run lint
+
+      - name: Backend import check
+        if: steps.changes.outputs.backend == 'true'
+        working-directory: backend
+        run: |
+          python -m pip install -r requirements.txt
+          python -c "import app.main; print('backend imports ok')"
+
+      - name: Quality skipped (no app paths changed)
+        if: steps.changes.outputs.frontend != 'true' && steps.changes.outputs.backend != 'true'
+        run: echo "No fms-frontend/ or backend/ changes — lint/import checks skipped."

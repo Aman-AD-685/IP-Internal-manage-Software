@@ -48,6 +48,7 @@ from app.performance_na import (
     reset_performance_marked_na_cache,
 )
 from app.ticket_na import apply_exclude_ticket_na, filter_out_ticket_na, ticket_marked_na
+from app.rate_limit import rate_limit_response
 from app.kpi_calendar_week import (
     build_week_merge_meta,
     get_kpi_calendar_week_range,
@@ -313,49 +314,12 @@ def _etag_json(payload: Any, max_age: int = 300) -> JSONResponse:
     response.headers["Cache-Control"] = f"public, max-age={max_age}, stale-while-revalidate=600"
     return response
 
-# Basic in-memory rate limiting for sensitive endpoints.
-_RATE_LIMIT_WINDOW_SEC = int(os.getenv("RATE_LIMIT_WINDOW_SEC", "60"))
-_RATE_LIMIT_MAX_REQUESTS = int(os.getenv("RATE_LIMIT_MAX_REQUESTS", "20"))
-_RATE_LIMIT_PATHS = {
-    "/auth/login",
-    "/auth/register",
-    "/auth/refresh",
-    "/auth/resend-confirmation",
-    "/auth/forgot-password/lookup",
-    "/auth/forgot-password/complete",
-    "/auth/recovery-password",
-    "/approval/execute-by-token",
-}
-_rate_limit_hits: dict[tuple[str, str], deque[float]] = defaultdict(deque)
-_rate_limit_lock = threading.Lock()
-
-
-def _is_rate_limited(request: Request) -> bool:
-    path = request.url.path.rstrip("/")
-    tracked = any(path == p or path == f"/api{p}" for p in _RATE_LIMIT_PATHS)
-    if not tracked:
-        return False
-    now = time.time()
-    ip = (request.client.host if request.client else "unknown").strip() or "unknown"
-    key = (ip, path)
-    with _rate_limit_lock:
-        bucket = _rate_limit_hits[key]
-        while bucket and now - bucket[0] > _RATE_LIMIT_WINDOW_SEC:
-            bucket.popleft()
-        if len(bucket) >= _RATE_LIMIT_MAX_REQUESTS:
-            return True
-        bucket.append(now)
-    return False
-
 # Request logging + CATCH ALL to prevent 500
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    if _is_rate_limited(request):
-        return JSONResponse(
-            status_code=429,
-            content={"detail": "Too many requests. Please try again later."},
-            headers={"Cache-Control": "no-store"},
-        )
+    limited = rate_limit_response(request)
+    if limited is not None:
+        return limited
     _log(f"--> {request.method} {request.url.path}")
     start = time.perf_counter()
     try:
@@ -1049,8 +1013,6 @@ def forgot_password_lookup(payload: ForgotPasswordLookupRequest, request: Reques
     Security: do NOT reveal whether an email exists and do NOT update passwords
     without a time-limited recovery token.
     """
-    if _is_rate_limited(request):
-        raise HTTPException(429, "Too many requests. Please try again in a minute.")
     email = payload.email.strip().lower()
     frontend_url = os.getenv("FRONTEND_URL", os.getenv("SITE_URL", "http://localhost:3000")).rstrip("/")
     redirect_to = f"{frontend_url}/reset-password"
@@ -1078,8 +1040,6 @@ def forgot_password_complete(payload: ForgotPasswordCompleteRequest, request: Re
 @api_router.patch("/auth/recovery-password")
 def recovery_password(payload: RecoveryPasswordRequest, request: Request):
     """Set new password using the recovery access_token from the email link (Authorization: Bearer …)."""
-    if _is_rate_limited(request):
-        raise HTTPException(429, "Too many requests. Please try again in a minute.")
     auth_header = (request.headers.get("authorization") or "").strip()
     if not auth_header.lower().startswith("bearer "):
         raise HTTPException(401, "Missing or invalid reset session. Open the link from your email again.")

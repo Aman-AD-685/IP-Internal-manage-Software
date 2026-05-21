@@ -1,4 +1,9 @@
 import { apiClient } from './axios'
+import { API_CACHE_TTL_MS, sessionApiCacheGet, sessionApiCacheSet } from '../utils/sessionApiCache'
+
+function dashboardKpiCacheKey(filters: { name: string; month: string; year: string; week: string }) {
+  return `dashboardKpi:${filters.name}:${filters.year}:${filters.month}:${filters.week}`
+}
 
 export const DASHBOARD_KPI_NAMES = ['Shreyasi', 'Rimpa', 'Akash', 'Adrija', 'Soumya'] as const
 export type DashboardKpiPerson = (typeof DASHBOARD_KPI_NAMES)[number]
@@ -408,6 +413,25 @@ export interface SoumyaDashboardResponse {
   }
 }
 
+/** Load team KPIs in small parallel batches to avoid saturating the API after login. */
+export async function fetchDashboardKpiBatch(
+  names: readonly string[],
+  filters: { month: string; year: string; week: string },
+  concurrency = 2,
+): Promise<Array<{ name: string; res: DashboardKpiResponse }>> {
+  const out: Array<{ name: string; res: DashboardKpiResponse }> = []
+  for (let i = 0; i < names.length; i += concurrency) {
+    const chunk = names.slice(i, i + concurrency)
+    const part = await Promise.all(
+      chunk.map((name) =>
+        dashboardKpiApi.getData({ name, ...filters }).then((res) => ({ name, res })),
+      ),
+    )
+    out.push(...part)
+  }
+  return out
+}
+
 export const dashboardKpiApi = {
   getSoumyaKpi: (params: {
     month: string
@@ -421,8 +445,11 @@ export const dashboardKpiApi = {
       .get<SoumyaDashboardResponse>('/dashboard/soumya-kpi', { params })
       .then((r) => r.data),
 
-  getData: (filters: { name: string; month: string; year: string; week: string }) =>
-    apiClient
+  getData: async (filters: { name: string; month: string; year: string; week: string }) => {
+    const key = dashboardKpiCacheKey(filters)
+    const cached = sessionApiCacheGet<DashboardKpiResponse>(key)
+    if (cached) return cached
+    const data = await apiClient
       .get<DashboardKpiResponse>('/dashboard/kpi', {
         params: {
           name: filters.name,
@@ -431,7 +458,10 @@ export const dashboardKpiApi = {
           week: filters.week,
         },
       })
-      .then((r) => r.data),
+      .then((r) => r.data)
+    sessionApiCacheSet(key, data, API_CACHE_TTL_MS.dashboardKpi)
+    return data
+  },
 
   getKpiDailyLog: (year: number, month: number) =>
     apiClient
