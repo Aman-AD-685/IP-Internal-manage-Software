@@ -166,7 +166,13 @@ export const TicketList = () => {
   const isRegisterSection = sectionFromUrl === 'register-of-tickets'
   const showStageFilter = sectionFromUrl === 'chores-bugs'
   const showStageFilterForFeature = typeFromUrl === 'feature' && !isApprovalSection
+  const isFeatureListSection =
+    typeFromUrl === 'feature' &&
+    !isApprovalSection &&
+    sectionFromUrl !== 'completed-feature' &&
+    sectionFromUrl !== 'approval-status'
   const isChoresBugsSection = sectionFromUrl === 'chores-bugs'
+  const showTicketNaStatusFilter = isChoresBugsSection || isFeatureListSection
   const scopeHint = isUser
     ? 'Exports every ticket you created between the selected dates (ignores Status/Stage filters on screen).'
     : isChoresBugsSection
@@ -221,8 +227,8 @@ export const TicketList = () => {
     list.filter((t) => t.type === 'chore' || t.type === 'bug')
 
   useEffect(() => {
-    if (sectionFromUrl !== 'chores-bugs') setStatus2Filter('')
-  }, [sectionFromUrl])
+    if (!showTicketNaStatusFilter) setStatus2Filter('')
+  }, [sectionFromUrl, typeFromUrl, showTicketNaStatusFilter])
   useEffect(() => {
     if (approvalFilter === 'rejected') setApprovalFilter('unapproved')
   }, [approvalFilter])
@@ -328,7 +334,7 @@ export const TicketList = () => {
       ...(options?.skipCache ? { skipCache: true } : {}),
       ...(filters.search && { search: filters.search, search_all_sections: true }),
       ...(filters.reference_filter && { reference_filter: filters.reference_filter }),
-      ...(isChoresBugsSection && status2Filter && { status_2_filter: status2Filter }),
+      ...(showTicketNaStatusFilter && status2Filter && { status_2_filter: status2Filter }),
       ...(isChoresBugsSection && typeOfRequestFilter && { type_filter: typeOfRequestFilter }),
       ...(!isChoresBugsSection &&
         sectionFromUrl !== 'completed-chores-bugs' &&
@@ -379,6 +385,7 @@ export const TicketList = () => {
     [
       filters,
       isChoresBugsSection,
+      showTicketNaStatusFilter,
       sectionFromUrl,
       isApprovalSection,
       isRegisterSection,
@@ -1428,10 +1435,10 @@ export const TicketList = () => {
             getPopupContainer={() => document.body}
             options={companies.map((c) => ({ value: c.id, label: c.name }))}
           />
-          {isChoresBugsSection || isRegisterSection ? (
+          {showTicketNaStatusFilter || isRegisterSection ? (
             <Select
-              placeholder="Status"
-              style={{ width: 130 }}
+              placeholder={isFeatureListSection ? 'Stage 1 status' : 'Status'}
+              style={{ width: isFeatureListSection ? 150 : 130 }}
               value={isRegisterSection ? registerStatusFilter : status2Filter || undefined}
               onChange={(v) => {
                 if (isRegisterSection) {
@@ -1448,6 +1455,14 @@ export const TicketList = () => {
                   <Option value="completed">Completed</Option>
                   <Option value="rejected">Rejected</Option>
                   <Option value="all">All</Option>
+                </>
+              ) : isFeatureListSection ? (
+                <>
+                  <Option value="pending">Pending</Option>
+                  <Option value="completed">Completed</Option>
+                  <Option value="staging">Staging</Option>
+                  <Option value="hold">Hold</Option>
+                  <Option value="na">NA</Option>
                 </>
               ) : (
                 <>

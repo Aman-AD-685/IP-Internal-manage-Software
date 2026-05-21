@@ -16,6 +16,7 @@ from app.kpi_calendar_week import (
     week_of_month_for_date,
 )
 from app.reminder_utils import get_chores_bugs_stage, is_chores_bug_pending
+from app.ticket_na import filter_out_ticket_na
 from app.supabase_client import supabase
 
 _log = logging.getLogger("soumya_dashboard_kpi")
@@ -212,7 +213,7 @@ def _is_at_stage2_open(t: dict) -> bool:
     s2 = str(t.get("status_2") or "").strip().lower()
     if s1 in ("yes",):
         return False
-    if s2 in ("completed", "rejected"):
+    if s2 in ("completed", "rejected", "na"):
         return False
     # Explicit Stage 2 queue: response done (no) + dev not finished
     if s1 in ("", "no") and s2 in ("pending", "hold", "staging", ""):
@@ -428,7 +429,7 @@ def _fetch_tickets(limit: int = 5000) -> list[dict]:
                 .limit(limit)
                 .execute()
             )
-            return _enrich_company_names(list(r.data or []))
+            return _enrich_company_names(filter_out_ticket_na(list(r.data or [])))
         except Exception as e:
             _log.warning("soumya kpi fetch tickets (%s): %s", cols[:40], e)
     return []

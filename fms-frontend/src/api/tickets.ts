@@ -173,7 +173,7 @@ export const ticketsApi = {
     limit?: number
     page_size?: number
     status?: string
-    status_2_filter?: string  // For Chores & Bugs: pending | completed | staging | hold
+    status_2_filter?: string  // Chores & Bugs / Feature: pending | completed | staging | hold | na | rejected
     type_filter?: string  // For Chores & Bugs: chore | bug (Type of Request)
     type?: string
     types_in?: string

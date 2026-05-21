@@ -735,29 +735,6 @@ export const PerformanceMonitoringPage = () => {
         )
       },
     },
-    {
-      title: 'Actions',
-      key: 'actions',
-      width: 120,
-      render: (_: unknown, record: POCItem) => (
-        <span onClick={(e) => e.stopPropagation()}>
-          {filterNa !== 'only_na' ? (
-            <Button
-              type="link"
-              size="small"
-              icon={record.has_training ? <EditOutlined /> : <FormOutlined />}
-              onClick={() => openTrainingModal(record)}
-            >
-              {record.has_training ? 'Edit Training' : 'Training'}
-            </Button>
-          ) : (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              Open row → Restore
-            </Text>
-          )}
-        </span>
-      ),
-    },
   ]
 
   const displayItems = useMemo(
@@ -845,7 +822,7 @@ export const PerformanceMonitoringPage = () => {
           Click a ticket row → <strong>NA</strong> appears to the right of <strong>Training</strong>. <strong>Active</strong> / <strong>NA</strong> filter above; Restore moves ticket back to Active.
         </Typography.Text>
         <div ref={tableContainerRef}>
-          <TableWithSkeletonLoading loading={loading} columns={9} rows={12}>
+          <TableWithSkeletonLoading loading={loading} columns={8} rows={12}>
             <Table
               dataSource={visibleDisplayItems}
               rowKey="id"
