@@ -98,7 +98,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     if (canAccessSettings) routeKeys.push(ROUTES.SETTINGS)
 
     // Defer background prefetch so dashboard bootstrap finishes first (~1–2s target).
-    const prefetchTimer = window.setTimeout(() => startIdleRoutePrefetch(routeKeys), 12_000)
+    const prefetchTimer = window.setTimeout(() => startIdleRoutePrefetch(routeKeys), 20_000)
     return () => window.clearTimeout(prefetchTimer)
   }, [user, canAccessApproval, canAccessUsers, canAccessSettings, canViewSectionByKey])
 

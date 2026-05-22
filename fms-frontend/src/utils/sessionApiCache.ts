@@ -9,8 +9,8 @@ const PREFIX = 'fms_api_cache:v1'
 type CacheEnvelope = { exp: number; payload: unknown }
 
 export const API_CACHE_TTL_MS = {
-  dashboardMetrics: 5 * 60 * 1000,
-  dashboardTrends: 5 * 60 * 1000,
+  dashboardMetrics: 8 * 60 * 1000,
+  dashboardTrends: 8 * 60 * 1000,
   dashboardDetail: 60 * 1000,
   dashboardPaymentActions: 60 * 1000,
   dashboardSuccessKpi: 5 * 60 * 1000,
@@ -18,7 +18,7 @@ export const API_CACHE_TTL_MS = {
   dashboardActivity: 60 * 1000,
   dashboardKpi: 8 * 60 * 1000,
   dashboardSoumyaKpi: 8 * 60 * 1000,
-  ticketsList: 90 * 1000,
+  ticketsList: 3 * 60 * 1000,
   leadsListActive: 90 * 1000,
   ticketGet: 30 * 1000,
   supportCompanies: 30 * 60 * 1000,

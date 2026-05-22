@@ -1384,6 +1384,8 @@ def create_ticket(payload: CreateTicketRequest, auth: dict = Depends(get_current
         global _REF_NO_TO_COMPANY_LOADED, _COMPANIES_BY_NAME_LOADED
         _REF_NO_TO_COMPANY_LOADED = False
         _COMPANIES_BY_NAME_LOADED = False
+        invalidate_dashboard_read_caches()
+        _invalidate_ttl_cache_key_prefix("tickets:list:")
         return r.data[0] if r.data else {}
     except Exception as e:
         _log(f"Create ticket error: {e}")
@@ -1424,26 +1426,58 @@ def _is_placeholder_company_name(name: str | None) -> bool:
     return normalized in _PLACEHOLDER_COMPANY_NAMES
 
 
+def _row_needs_ref_no_company_lookup(row: dict) -> bool:
+    ref = row.get("reference_no")
+    if not ref:
+        return False
+    cid = row.get("company_id")
+    stored = (row.get("company_name") or "").strip()
+    if cid:
+        return False
+    if stored and not _is_placeholder_company_name(stored):
+        return False
+    return True
+
+
+def _ref_no_to_company_for_rows(rows: list) -> dict[str, str]:
+    """Lookup company names by reference for rows missing company — avoids scanning all tickets."""
+    refs: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        ref = row.get("reference_no")
+        if not ref or not _row_needs_ref_no_company_lookup(row):
+            continue
+        key = str(ref).strip()
+        if key and key not in seen:
+            seen.add(key)
+            refs.append(key)
+    if not refs:
+        return {}
+    out: dict[str, str] = {}
+    chunk_size = 80
+    for i in range(0, len(refs), chunk_size):
+        chunk = refs[i : i + chunk_size]
+        try:
+            r = (
+                supabase.table("tickets")
+                .select("reference_no, company_name")
+                .in_("reference_no", chunk)
+                .not_.is_("company_name", "null")
+                .execute()
+            )
+            for row in r.data or []:
+                ref = row.get("reference_no")
+                name = (row.get("company_name") or "").strip()
+                if ref and name and not _is_placeholder_company_name(name):
+                    out.setdefault(str(ref).strip(), name)
+        except Exception as e:
+            _log(f"ref_no_to_company chunk: {e}")
+    return out
+
+
 def _build_ref_no_to_company() -> dict[str, str]:
-    global _REF_NO_TO_COMPANY, _REF_NO_TO_COMPANY_LOADED
-    if _REF_NO_TO_COMPANY_LOADED:
-        return _REF_NO_TO_COMPANY
-    _REF_NO_TO_COMPANY_LOADED = True
-    try:
-        r = supabase.table("tickets").select("reference_no, company_name").not_.is_("company_name", "null").execute()
-        rows = r.data or []
-        out: dict[str, str] = {}
-        for row in rows:
-            ref = row.get("reference_no")
-            name = (row.get("company_name") or "").strip()
-            if not ref or not name or _is_placeholder_company_name(name):
-                continue
-            # Keep first good name per reference (stable; avoids test rows overwriting production names).
-            out.setdefault(ref, name)
-        _REF_NO_TO_COMPANY = out
-    except Exception as e:
-        _log(f"ref_no_to_company: failed to load from DB: {e}")
-    return _REF_NO_TO_COMPANY
+    """Deprecated global scan — kept for callers that pass no row context; returns empty (use _ref_no_to_company_for_rows)."""
+    return {}
 
 
 _COMPANIES_BY_NORMALIZED_NAME: dict[str, str] = {}
@@ -1486,11 +1520,91 @@ def _resolve_ticket_company_name(row: dict, companies_map: dict[str, str], ref_t
     return from_id or stored or from_ref or None
 
 
+_TICKET_LIST_SELECT = (
+    "id,reference_no,title,description,type,status,priority,created_by,assignee_id,"
+    "created_at,updated_at,resolved_at,company_id,company_name,page_id,page,division_id,division,"
+    "user_name,communicated_through,submitted_by,query_arrival_at,query_response_at,"
+    "quality_of_response,customer_questions,why_feature,approval_status,approval_actual_at,"
+    "unapproval_actual_at,approved_by,remarks,status_1,actual_1,planned_2,status_2,actual_2,"
+    "planned_3,status_3,actual_3,planned_4,status_4,actual_4,quality_solution,"
+    "quality_solution_submitted_by,quality_solution_submitted_at,staging_planned,"
+    "staging_review_actual,staging_review_status,live_planned,live_actual,live_status,"
+    "live_review_planned,live_review_actual,live_review_status,attachment_url"
+)
+
+
+def _supabase_fetch_all_rows(build_query, *, page_size: int = 1000, max_rows: int = 20000) -> list[dict]:
+    """Paginate PostgREST responses (default cap is 1000 rows per request)."""
+    out: list[dict] = []
+    offset = 0
+    while offset < max_rows:
+        r = build_query().range(offset, offset + page_size - 1).execute()
+        batch = list(r.data or [])
+        out.extend(batch)
+        if len(batch) < page_size:
+            break
+        offset += page_size
+    return out
+
+
+def _open_queue_ticket_query(types_list: list[str]):
+    """Base filters shared by Chores & Bugs open queue and dashboard pending counts."""
+    q = supabase.table("tickets").select("id, type, company_name, status_4, quality_solution, staging_planned, live_review_status, status_2, status")
+    q = q.in_("type", types_list)
+    q = q.is_("quality_solution", "null")
+    q = _apply_exclude_active_staging_filter(q)
+    q = q.or_("status_2.is.null,status_2.neq.staging")
+    q = apply_exclude_ticket_na(q)
+    return q
+
+
+def _fetch_open_queue_ticket_rows(types_list: list[str]) -> list[dict]:
+    return _supabase_fetch_all_rows(lambda: _open_queue_ticket_query(types_list), max_rows=15000)
+
+
+def _apply_open_queue_count_filters(q, *, demo_c_mode: str | None = None):
+    """PostgREST count filters aligned with Chores & Bugs open queue + Stage 4 not completed."""
+    q = q.is_("quality_solution", "null")
+    q = _apply_exclude_active_staging_filter(q)
+    q = q.or_("status_2.is.null,status_2.neq.staging")
+    q = apply_exclude_ticket_na(q)
+    q = q.or_("status_4.is.null,status_4.neq.completed")
+    if demo_c_mode == "exclude":
+        q = q.not_.or_("company_name.eq.demo_c,company_name.eq.demo c,company_name.eq.Demo C")
+    elif demo_c_mode == "include":
+        q = q.or_("company_name.eq.demo_c,company_name.eq.demo c,company_name.eq.Demo C")
+    elif demo_c_mode == "chore_demo_only":
+        q = q.eq("type", "chore")
+        q = q.or_("company_name.eq.demo_c,company_name.eq.demo c,company_name.eq.Demo C")
+    return q
+
+
+def _count_open_queue_tickets(
+    types_list: list[str],
+    *,
+    ticket_type: str | None = None,
+    demo_c_mode: str | None = None,
+) -> int:
+    """Fast pending counts for dashboard cards (no full-table scan)."""
+    try:
+        q = supabase.table("tickets").select("id", count="exact")
+        if ticket_type:
+            q = q.eq("type", ticket_type)
+        else:
+            q = q.in_("type", types_list)
+        q = _apply_open_queue_count_filters(q, demo_c_mode=demo_c_mode)
+        r = q.execute()
+        return int(r.count or 0)
+    except Exception as e:
+        _log(f"count_open_queue: {e}")
+        return 0
+
+
 def _enrich_tickets_with_lookups(rows: list) -> list:
     """Add company_name, page_name, division_name from lookup tables."""
     if not rows:
         return rows
-    ref_to_company = _build_ref_no_to_company()
+    ref_to_company = _ref_no_to_company_for_rows(rows)
     company_ids = {r.get("company_id") for r in rows if r.get("company_id")}
     page_ids = {r.get("page_id") for r in rows if r.get("page_id")}
     division_ids = {r.get("division_id") for r in rows if r.get("division_id")}
@@ -1572,7 +1686,7 @@ def _supabase_list_total(r, page: int, page_size: int) -> int:
 
 
 @api_router.get("/tickets")
-@cached(ttl=30, key_prefix="tickets:list:")
+@cached(ttl=60, key_prefix="tickets:list:")
 def list_tickets(
     status: str | None = None,
     type: str | None = None,
@@ -1604,7 +1718,9 @@ def list_tickets(
         role = _get_role_from_profile(auth["id"])
         if role not in ("admin", "master_admin", "approver"):
             raise HTTPException(status_code=403, detail="Approval Status is only available to Admin and Approver roles")
-    q = supabase.table("tickets").select("*", count="exact")
+    use_wide_select = bool(search and search.strip()) or bool(reference_filter and reference_filter.strip())
+    ticket_cols = "*" if use_wide_select else _TICKET_LIST_SELECT
+    q = supabase.table("tickets").select(ticket_cols, count="exact")
     # When global search: bypass section/type filters to search across all tickets
     apply_section_filter = section and not (search_all_sections and search and search.strip())
     # Status filter: use status for non–Chores & Bugs; for Chores & Bugs use status_2_filter (Stage 2) instead
@@ -1854,6 +1970,8 @@ def update_ticket(ticket_id: str, payload: UpdateTicketRequest, auth: dict = Dep
     global _REF_NO_TO_COMPANY_LOADED, _COMPANIES_BY_NAME_LOADED
     _REF_NO_TO_COMPANY_LOADED = False
     _COMPANIES_BY_NAME_LOADED = False
+    invalidate_dashboard_read_caches()
+    _invalidate_ttl_cache_key_prefix("tickets:list:")
     # Log approval/rejection for audit
     if "approval_status" in data:
         try:
@@ -2224,16 +2342,18 @@ def activity_count(auth: dict = Depends(get_current_user)):
     return {"count": total}
 
 
-# ---------- Dashboard Metrics (60s in-process cache per user email) ----------
-_DASH_METRICS_CACHE: TTLCache = TTLCache(maxsize=256, ttl=60)
-_DASH_TRENDS_CACHE: TTLCache = TTLCache(maxsize=8, ttl=120)
-_DASH_BOOTSTRAP_CACHE: TTLCache = TTLCache(maxsize=256, ttl=45)
+# ---------- Dashboard Metrics (in-process cache per user email) ----------
+_DASH_METRICS_CACHE: TTLCache = TTLCache(maxsize=256, ttl=180)
+_DASH_TRENDS_CACHE: TTLCache = TTLCache(maxsize=8, ttl=300)
+_DASH_BOOTSTRAP_CACHE: TTLCache = TTLCache(maxsize=256, ttl=120)
+_SUPPORT_DASH_CACHE: TTLCache = TTLCache(maxsize=64, ttl=120)
 
 
 def invalidate_dashboard_read_caches() -> None:
     _DASH_METRICS_CACHE.clear()
     _DASH_TRENDS_CACHE.clear()
     _DASH_BOOTSTRAP_CACHE.clear()
+    _SUPPORT_DASH_CACHE.clear()
 
 
 @api_router.get("/dashboard/metrics")
@@ -2262,37 +2382,25 @@ def dashboard_metrics(auth: dict = Depends(get_current_user)):
     except Exception:
         all_tickets = 0
 
-    # Pending till date: Chores & Bug where "Upto Stage 4" NOT done. Exclude Stage 4 completed.
-    try:
-        q = supabase.table("tickets").select(
-            "id, type, status_4, quality_solution, staging_planned, live_review_status, company_name"
-        ).in_("type", types_chores_bugs)
-        r = q.execute()
-        all_cb = r.data or []
-    except Exception:
-        all_cb = []
     pending_statuses = ["open", "in_progress", "on_hold"]
+
     def _stage4_completed(t: dict) -> bool:
         return str(t.get("status_4") or "").lower() == "completed"
+
     def _in_staging(t: dict) -> bool:
         if t.get("staging_planned"):
             return str(t.get("live_review_status") or "").lower() != "completed"
         return False
+
     def _has_quality_solution(t: dict) -> bool:
         qs = t.get("quality_solution")
         return qs is not None and qs != "" and str(qs).lower() not in ("null", "none")
-    def _is_pending(t: dict) -> bool:
-        if ticket_marked_na(t):
-            return False
-        return not _in_staging(t) and not _stage4_completed(t) and not _has_quality_solution(t)
-    def _company_demo_c(t: dict) -> bool:
-        cn = (t.get("company_name") or "").strip().lower()
-        return cn == "demo_c" or cn == "demo c"
-    all_cb = filter_out_ticket_na(all_cb)
-    pending_till_date = sum(1 for t in all_cb if _is_pending(t))
-    total_pending_bug_till_date = sum(1 for t in all_cb if _is_pending(t) and t.get("type") == "bug")
-    pending_till_date_exclude_demo_c = sum(1 for t in all_cb if _is_pending(t) and not _company_demo_c(t))
-    pending_chores_include_demo_c = sum(1 for t in all_cb if _is_pending(t) and t.get("type") == "chore" and _company_demo_c(t))
+
+    # Pending till date: count queries only (target &lt;1s vs loading all tickets).
+    pending_till_date = _count_open_queue_tickets(types_chores_bugs)
+    total_pending_bug_till_date = _count_open_queue_tickets(types_chores_bugs, ticket_type="bug")
+    pending_till_date_exclude_demo_c = _count_open_queue_tickets(types_chores_bugs, demo_c_mode="exclude")
+    pending_chores_include_demo_c = _count_open_queue_tickets(types_chores_bugs, demo_c_mode="chore_demo_only")
 
     # Last week Chores & Bug tickets (for response_delay / completion_delay)
     try:
@@ -2352,18 +2460,9 @@ def dashboard_metrics(auth: dict = Depends(get_current_user)):
     except Exception:
         pass
 
-    # Feature pending split by Demo C / non Demo C (same pending logic as above)
-    try:
-        qf = supabase.table("tickets").select(
-            "id, type, status_4, quality_solution, staging_planned, live_review_status, company_name"
-        ).in_("type", types_feature)
-        rf = qf.execute()
-        all_feature = filter_out_ticket_na(rf.data or [])
-    except Exception:
-        all_feature = []
-
-    feature_excluding_demo_c = sum(1 for t in all_feature if _is_pending(t) and not _company_demo_c(t))
-    feature_with_demo_c = sum(1 for t in all_feature if _is_pending(t) and _company_demo_c(t))
+    # Feature pending split by Demo C / non Demo C (count queries).
+    feature_excluding_demo_c = _count_open_queue_tickets(types_feature, demo_c_mode="exclude")
+    feature_with_demo_c = _count_open_queue_tickets(types_feature, demo_c_mode="include")
 
     # -----------------------------------------------------------------------
     # Custom dashboard fields for specific emails
@@ -4489,23 +4588,31 @@ def put_adrija_social_kpi_daily(body: AdrijaSocialKpiDayBatchBody, auth: dict = 
 @api_router.get("/support-dashboard/stats")
 def support_dashboard_stats(auth: dict = Depends(get_current_user)):
     """Support Dashboard: weekly stats, pending grouped by 1-2/2-7/7+/hold, top companies, feature metrics."""
+    auth_email = (auth.get("email") or "").strip().lower() or "anon"
+    try:
+        return _SUPPORT_DASH_CACHE[auth_email]
+    except KeyError:
+        pass
     now = datetime.utcnow()
     current_month = now.month
     current_year = now.year
     prev_month = current_month - 1 if current_month > 1 else 12
     prev_year = current_year if current_month > 1 else current_year - 1
 
-    # Fetch ALL chores & bugs for weekly stats (include completed); exclude staging
-    # For pending items we filter by quality_solution=null in Python
-    try:
-        q = supabase.table("tickets").select(
+    # Chores & bugs for weekly stats — last ~6 months only (avoids full-table scan in production).
+    stats_cutoff = (now - timedelta(days=186)).isoformat()
+
+    def _support_stats_cb_query():
+        qq = supabase.table("tickets").select(
             "id, type, status, company_name, created_at, resolved_at, assignee_id, query_arrival_at, query_response_at, quality_solution, planned_2, actual_2, actual_1, status_2, status_4, actual_4"
         ).in_("type", ["chore", "bug"])
-        q = q.or_("staging_planned.is.null,live_review_status.eq.completed")
-        q = q.or_("status_2.is.null,status_2.neq.staging")
-        q = apply_exclude_ticket_na(q)
-        r = q.execute()
-        all_tickets = r.data or []
+        qq = qq.gte("created_at", stats_cutoff)
+        qq = qq.or_("staging_planned.is.null,live_review_status.eq.completed")
+        qq = qq.or_("status_2.is.null,status_2.neq.staging")
+        return apply_exclude_ticket_na(qq)
+
+    try:
+        all_tickets = _supabase_fetch_all_rows(_support_stats_cb_query, max_rows=25000)
         # Tickets for pending items: only those still in Chores & Bugs (quality_solution null)
         def _in_chores_bugs_section(ticket: dict) -> bool:
             qs = ticket.get("quality_solution")
@@ -4514,11 +4621,17 @@ def support_dashboard_stats(auth: dict = Depends(get_current_user)):
     except Exception as e:
         return {"success": False, "message": str(e)[:200]}
 
-    # Fetch feature tickets for feature metrics
+    # Feature tickets for feature metrics (recent rows only).
+    def _support_stats_feature_query():
+        return apply_exclude_ticket_na(
+            supabase.table("tickets")
+            .select("id, type, status, status_2")
+            .eq("type", "feature")
+            .gte("created_at", stats_cutoff)
+        )
+
     try:
-        fq = apply_exclude_ticket_na(supabase.table("tickets").select("id, type, status, status_2").eq("type", "feature"))
-        fr = fq.execute()
-        feature_tickets = fr.data or []
+        feature_tickets = _supabase_fetch_all_rows(_support_stats_feature_query, max_rows=10000)
     except Exception:
         feature_tickets = []
 
@@ -4635,7 +4748,7 @@ def support_dashboard_stats(auth: dict = Depends(get_current_user)):
     feature_pending = sum(1 for t in feature_tickets if t.get("status") in ("open", "in_progress", "on_hold", "pending"))
     feature_total = len(feature_tickets)
 
-    return {
+    payload = {
         "success": True,
         "weeksData": weeks_data,
         "pendingItems": {"grouped": {"chores": grouped_chores, "bugs": grouped_bugs}},
@@ -4660,6 +4773,8 @@ def support_dashboard_stats(auth: dict = Depends(get_current_user)):
             "lastUpdated": now.strftime("%Y-%m-%d %H:%M:%S"),
         },
     }
+    _SUPPORT_DASH_CACHE[auth_email] = payload
+    return payload
 
 
 def _get_ticket_week(t: dict) -> tuple[int, int, int]:

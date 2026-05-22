@@ -21,6 +21,8 @@ Do not remove entries; add dated bullets.
 - 2026-05-22: Open in new tab — `data-open-href` + global context menu; modal actions use `?open=` deep links (`openActions.ts`, `useDeepLinkAction`).
 - 2026-05-22: **1–2s paint target** — defer `/users/me` with `scheduleWhenIdle`; defer header activity count 2.5s; login `warmupAfterLogin` (bootstrap + prefetch); tickets list cache-first (no `skipCache` on initial); checklist/delegation/support-dashboard session cache instant paint; AppLayout prefetch stays 12s after mount.
 - 2026-05-22: **Dashboard KPI 7–10s** — `/dashboard/kpi` is expensive-tier; use cache-first paint (`sessionApiCacheGet`), `prefetchDashboardKpiPerson` on chooser hover/click + header menu; session TTL 8m; backend `@cached(ttl=120)` for `/dashboard/kpi` and soumya-kpi. First open per person/week still ~3–7s (DB work); repeat open should be &lt;2s.
+- 2026-05-22: **1–3s load budget (production)** — Never full-scan `tickets` for dashboard/support metrics; use `_count_open_queue_tickets` + filtered date windows; `_ref_no_to_company_for_rows` only (not all refs); ticket list `_TICKET_LIST_SELECT` not `*`; `_SUPPORT_DASH_CACHE` 120s; bootstrap/metrics **not** on expensive rate-limit tier; run `database/TICKETS_OPEN_QUEUE_INDEXES.sql` in Supabase after deploy.
+- 2026-05-22: **Regression checklist** — After perf change: (1) Dashboard bootstrap &lt;3s cached, (2) Chores & Bugs list first page, (3) Approval Status features, (4) Support Dashboard stats; hard refresh + repeat navigation; cold Render start is separate (keepalive cron).
 
 ## Rejected suggestions
 
@@ -48,3 +50,4 @@ Do not remove entries; add dated bullets.
 - 2026-05: User wants pre-push gate + day-by-day journal so reviewer learns from real work, not generic advice.
 - 2026-05-21: **Fix in same session** — when `ce:review` / pre-push reports P1+ issues, implement fixes (don't stop at report-only unless user asked for report-only only).
 - 2026-05-21: Supabase seed scripts — idempotent insert (`NOT EXISTS` on natural key), `BEGIN`/`COMMIT`, fail-fast `RAISE` on missing FKs, explicit `created_by` UUID in config (no `LIMIT 1` actor).
+- 2026-05-22: User expects **all pages + Dashboard 1–3s** in production after warm cache; if slow again, check full-table scans, rate-limit on bootstrap, missing Supabase indexes, Render sleep — fix code + update this memory/journal same session.

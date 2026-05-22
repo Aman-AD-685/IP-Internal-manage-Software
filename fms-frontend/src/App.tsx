@@ -7,6 +7,7 @@ import { LoadingSpinner } from "./components/common/LoadingSpinner"
 import { ConfigProvider } from "antd"
 import { PageSkeleton } from "./components/common/skeletons"
 import { AuthProvider } from "./contexts/AuthProvider"
+import { readStoredAuthSession } from "./utils/authSession"
 import { AppLayout } from "./components/layout/AppLayout"
 import { ProtectedRoute } from "./components/layout/ProtectedRoute"
 
@@ -63,7 +64,8 @@ import {
 
 function RootRedirect() {
   const { isAuthenticated, isLoading, user } = useAuth()
-  if (isLoading) return <LoadingSpinner fullPage />
+  const hasStoredSession = readStoredAuthSession().hasSession
+  if (isLoading && !hasStoredSession) return <LoadingSpinner fullPage />
   if (isAuthenticated && user) {
     return <Navigate to={getDefaultLandingRoute(user)} replace />
   }
@@ -73,7 +75,8 @@ function RootRedirect() {
 function CatchAllRedirect() {
   const location = useLocation()
   const { isAuthenticated, isLoading } = useAuth()
-  if (isLoading) return <LoadingSpinner fullPage />
+  const hasStoredSession = readStoredAuthSession().hasSession
+  if (isLoading && !hasStoredSession) return <LoadingSpinner fullPage />
   if (isAuthenticated) {
     return <Navigate to={ROUTES.ACCESS_DENIED} replace />
   }
