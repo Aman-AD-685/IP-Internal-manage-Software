@@ -8,6 +8,7 @@ from app.public_urls import get_frontend_base
 CHECKLIST_ACCENT = "#14b8a6"
 DELEGATION_ACCENT = "#8b5cf6"
 DIGEST_ACCENT = "#38bdf8"
+IMPROVEMENT_DONE_ACCENT = "#22c55e"
 
 
 def _esc(s: str | None) -> str:
@@ -264,4 +265,47 @@ Checklist: {base}/task/checklist
 Delegation: {base}/task/delegation
 """
     return html_out, plain_body
+
+
+def build_improvement_done_html(
+    recipient_name: str,
+    reference_no: str,
+    suggestion_text: str,
+) -> tuple[str, str]:
+    """Futuristic template — notify submitter when I-1 marks suggestion Done."""
+    safe_name = _esc(recipient_name or "there")
+    ref = _esc(reference_no)
+    snippet = _esc((suggestion_text or "").strip()[:2000])
+    if len((suggestion_text or "").strip()) > 2000:
+        snippet += "…"
+
+    inner = (
+        f'<p style="margin:0 0 4px;color:#cbd5e1;font-size:15px;">Hi <strong style="color:#f1f5f9;">{safe_name}</strong>,</p>'
+        f'<p style="margin:0 0 20px;color:#94a3b8;font-size:14px;line-height:1.55;">'
+        f'Your improvement suggestion <strong style="color:{IMPROVEMENT_DONE_ACCENT};">{ref}</strong> '
+        f'was marked <strong style="color:{IMPROVEMENT_DONE_ACCENT};">Done</strong> on the I-1 board. '
+        f"Thank you for helping us improve the product.</p>"
+        f'<div style="padding:16px 18px;border-radius:12px;border:1px solid {IMPROVEMENT_DONE_ACCENT}44;'
+        f'background:rgba(15,23,42,.5);margin:0 0 16px;">'
+        f'<div style="font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:#67e8f9;margin-bottom:8px;">'
+        f"Your suggestion</div>"
+        f'<p style="margin:0;color:#e2e8f0;font-size:14px;line-height:1.55;white-space:pre-wrap;">{snippet}</p></div>'
+        f'<p style="margin:0;color:#64748b;font-size:12px;">You can submit more ideas anytime via the '
+        f"<strong>Improvement</strong> button in the app header.</p>"
+    )
+    html_out = _email_shell(
+        "Improvement — Marked Done",
+        "I-1 board update · Your feedback was actioned",
+        IMPROVEMENT_DONE_ACCENT,
+        inner,
+        header_gradient="linear-gradient(125deg,#052e16 0%,#0c4a6e 40%,#14532d 100%)",
+        footer_note="Improvement notification · Do not reply · IP Internal Management Software",
+    )
+    plain = (
+        f"Hi {recipient_name or 'there'},\n\n"
+        f"Your improvement suggestion {reference_no} was marked Done on the I-1 board.\n\n"
+        f"Your suggestion:\n{(suggestion_text or '').strip()}\n\n"
+        f"Thank you for your feedback.\n"
+    )
+    return html_out, plain
 

@@ -10,6 +10,7 @@ export interface ImprovementSuggestion {
   user_display_name?: string
   status: ImprovementStatus
   created_at?: string
+  done_at?: string | null
   updated_at?: string
 }
 
@@ -35,10 +36,12 @@ export const improvementSuggestionsApi = {
       status: ImprovementStatus
     }>,
   ) =>
-    apiClient.patch<{ success: boolean; data: ImprovementSuggestion }>(
-      `/improvement-suggestions/${id}`,
-      payload,
-    ),
+    apiClient.patch<{
+      success: boolean
+      data: ImprovementSuggestion
+      email_sent?: boolean
+      email_error?: string
+    }>(`/improvement-suggestions/${id}`, payload),
 
   remove: (id: string) =>
     apiClient.delete<{ success: boolean; reference_no?: string }>(

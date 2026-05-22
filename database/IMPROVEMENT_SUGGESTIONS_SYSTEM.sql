@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS public.improvement_suggestions (
     created_by uuid NOT NULL REFERENCES auth.users (id) ON DELETE CASCADE,
     user_display_name text,
     status text NOT NULL DEFAULT 'not_done',
+    done_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT improvement_suggestions_reference_no_key UNIQUE (reference_no),

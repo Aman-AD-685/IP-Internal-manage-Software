@@ -1,6 +1,7 @@
 """Improvement suggestions API — submit (Improvement) and I-1 board (user-wise access)."""
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -120,6 +121,7 @@ def _row_out(row: dict[str, Any]) -> dict[str, Any]:
         "user_display_name": row.get("user_display_name"),
         "status": row.get("status") or "not_done",
         "created_at": row.get("created_at"),
+        "done_at": row.get("done_at"),
         "updated_at": row.get("updated_at"),
     }
 
@@ -245,15 +247,34 @@ def update_improvement_suggestion(
         if not t:
             raise HTTPException(status_code=400, detail="Suggestion cannot be empty.")
         patch["suggestion_text"] = t
+    prev_status = (existing.data[0].get("status") or "not_done").strip()
+    now_iso = datetime.now(timezone.utc).isoformat()
     if body.status is not None:
         patch["status"] = body.status
+        if body.status == "done" and prev_status != "done":
+            patch["done_at"] = now_iso
+        elif body.status == "not_done" and prev_status == "done":
+            patch["done_at"] = None
     try:
         ur = supabase.table("improvement_suggestions").update(patch).eq("id", row_id).execute()
     except Exception as e:
         raise HTTPException(status_code=500, detail="Could not update suggestion.") from e
     if not ur.data:
         raise HTTPException(status_code=404, detail="Suggestion not found.")
-    return {"success": True, "data": _row_out(ur.data[0])}
+    updated = ur.data[0]
+    email_sent = False
+    email_error: str | None = None
+    new_status = (updated.get("status") or "not_done").strip()
+    if body.status == "done" and prev_status != "done":
+        from app.improvement_done_notify import send_improvement_done_notification
+
+        email_sent, email_error = asyncio.run(send_improvement_done_notification(updated))
+    out: dict[str, Any] = {"success": True, "data": _row_out(updated)}
+    if body.status is not None:
+        out["email_sent"] = email_sent
+        if email_error:
+            out["email_error"] = email_error
+    return out
 
 
 @improvement_router.delete("/improvement-suggestions/{row_id}")
