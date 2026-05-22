@@ -31,7 +31,7 @@ _RATE_LIMIT_AUTH_WINDOW = int(os.getenv("RATE_LIMIT_AUTH_WINDOW_SEC", "60"))
 _RATE_LIMIT_AUTH_MAX = int(os.getenv("RATE_LIMIT_AUTH_MAX_REQUESTS", "20"))
 
 _RATE_LIMIT_EXPENSIVE_WINDOW = int(os.getenv("RATE_LIMIT_EXPENSIVE_WINDOW_SEC", "60"))
-_RATE_LIMIT_EXPENSIVE_MAX = int(os.getenv("RATE_LIMIT_EXPENSIVE_MAX_REQUESTS", "18"))
+_RATE_LIMIT_EXPENSIVE_MAX = int(os.getenv("RATE_LIMIT_EXPENSIVE_MAX_REQUESTS", "30"))
 
 _RATE_LIMIT_GLOBAL_WINDOW = int(os.getenv("RATE_LIMIT_GLOBAL_WINDOW_SEC", "60"))
 _RATE_LIMIT_GLOBAL_MAX = int(os.getenv("RATE_LIMIT_GLOBAL_MAX_REQUESTS", "150"))
@@ -70,12 +70,10 @@ _AUTH_PATHS = {
 # Do NOT include /tickets — paginated list is called often (prefetch + scroll); use global tier.
 _EXPENSIVE_PREFIXES = (
     "/onboarding/client-payment/payment-summary",
-    "/dashboard/bootstrap",
+    # bootstrap/metrics use in-process TTL cache — keep on global tier so prefetch + navigation are not throttled together
     "/dashboard/kpi",
     "/dashboard/soumya-kpi",
-    "/dashboard/metrics",
     "/dashboard/detail",
-    "/dashboard/trends",
     "/success/performance/list",
 )
 

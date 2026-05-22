@@ -419,12 +419,14 @@ def _enrich_company_names(tickets: list[dict]) -> list[dict]:
 
 def _fetch_tickets(limit: int = 5000) -> list[dict]:
     """Load chores/bugs; retry with fewer columns if migration columns are missing."""
+    cutoff = (_now() - timedelta(days=548)).isoformat()  # ~18 months — KPI week scope only
     for cols in (_TICKET_COLS, _TICKET_COLS_CORE):
         try:
             r = (
                 supabase.table("tickets")
                 .select(cols)
                 .in_("type", ["chore", "bug"])
+                .gte("created_at", cutoff)
                 .order("created_at", desc=True)
                 .limit(limit)
                 .execute()

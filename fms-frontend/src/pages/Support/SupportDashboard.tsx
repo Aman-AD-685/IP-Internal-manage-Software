@@ -75,7 +75,7 @@ export const SupportDashboard = () => {
     queryKey: ['support-dashboard', 'stats'],
     queryFn: () => supportDashboardApi.getStats(),
     initialData: cachedStats?.weeksData ? cachedStats : undefined,
-    staleTime: 60_000,
+    staleTime: 120_000,
   })
 
   const errorMessage = (() => {

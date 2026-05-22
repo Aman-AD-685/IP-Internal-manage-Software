@@ -81,7 +81,7 @@ export function prefetchRouteData(routeKey: string): void {
 
   if (path === ROUTES.TICKETS) {
     fire(`prefetch:${routeKey}`, async () => {
-      const common = { page: 1, page_size: 15 as const, sort_by: 'created_at', sort_order: 'desc' as const, skipCache: true }
+      const common = { page: 1, page_size: 15 as const, sort_by: 'created_at', sort_order: 'desc' as const }
       if (q.includes('section=chores-bugs')) {
         await ticketsApi.list({ ...common, section: 'chores-bugs' })
       } else if (q.includes('section=completed-chores-bugs')) {
@@ -103,7 +103,7 @@ export function prefetchRouteData(routeKey: string): void {
 
   if (path === ROUTES.STAGING) {
     fire('prefetch:staging', () =>
-      ticketsApi.list({ section: 'staging', page: 1, page_size: 15, sort_by: 'created_at', sort_order: 'desc', skipCache: true }),
+      ticketsApi.list({ section: 'staging', page: 1, page_size: 15, sort_by: 'created_at', sort_order: 'desc' }),
     )
     return
   }

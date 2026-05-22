@@ -5,7 +5,7 @@ import { prefetchRouteData } from './routePrefetch'
 import { ROUTES } from './constants'
 
 /** Defer work until after first paint (memory: do not compete with bootstrap). */
-export function scheduleAfterFirstPaint(fn: () => void, delayMs = 2000): () => void {
+export function scheduleAfterFirstPaint(fn: () => void, delayMs = 800): () => void {
   const id = window.setTimeout(fn, delayMs)
   return () => window.clearTimeout(id)
 }

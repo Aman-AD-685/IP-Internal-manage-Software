@@ -225,7 +225,7 @@ export const Dashboard = () => {
     const year = prev.year
     const week = `week ${prev.week}`
     setKpiSnapshotLoading(true)
-    const delayMs = 2500
+    const delayMs = 6000
     const timer = window.setTimeout(() => {
       void fetchDashboardKpiBatch(DASHBOARD_KPI_NAMES, { month, year, week }, 2)
       .then((results) => {
