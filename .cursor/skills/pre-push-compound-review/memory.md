@@ -17,6 +17,10 @@ Do not remove entries; add dated bullets.
 - 2026-05-21: Sub-2s paint — `GET /dashboard/bootstrap`; 60s metrics / 120s trends server cache; auth stale-while-revalidate; defer KPI/leads/tickets; 12s prefetch delay; NGINX only for multi-instance Docker (not Render single service).
 - 2026-05-21: Render cold start — `.github/workflows/render-keepalive.yml` (5 min) + `docs/RENDER_KEEPALIVE_SETUP.md` (cron-job.org steps); not fixed by app code alone.
 - 2026-05-21: Rate limit — do not put `/tickets` on expensive tier; bypass limits for `127.0.0.1` / `RATE_LIMIT_DEV_BYPASS=1` in local dev.
+- 2026-05-22: Cross-tab auth — JWT in `localStorage`; sync hydrate via `readStoredAuthSession()`; `buildLoginUrl` / `?redirect=`; `normalizeReturnPath` blocks open redirects.
+- 2026-05-22: Open in new tab — `data-open-href` + global context menu; modal actions use `?open=` deep links (`openActions.ts`, `useDeepLinkAction`).
+- 2026-05-22: **1–2s paint target** — defer `/users/me` with `scheduleWhenIdle`; defer header activity count 2.5s; login `warmupAfterLogin` (bootstrap + prefetch); tickets list cache-first (no `skipCache` on initial); checklist/delegation/support-dashboard session cache instant paint; AppLayout prefetch stays 12s after mount.
+- 2026-05-22: **Dashboard KPI 7–10s** — `/dashboard/kpi` is expensive-tier; use cache-first paint (`sessionApiCacheGet`), `prefetchDashboardKpiPerson` on chooser hover/click + header menu; session TTL 8m; backend `@cached(ttl=120)` for `/dashboard/kpi` and soumya-kpi. First open per person/week still ~3–7s (DB work); repeat open should be &lt;2s.
 
 ## Rejected suggestions
 

@@ -1,4 +1,5 @@
 import { apiClient } from './axios'
+import { API_CACHE_TTL_MS, sessionApiCacheGet, sessionApiCacheSet } from '../utils/sessionApiCache'
 
 export interface WeeklyStats {
   totalTickets: number
@@ -53,8 +54,14 @@ export interface SupportDashboardStats {
 }
 
 export const supportDashboardApi = {
-  getStats: async (): Promise<SupportDashboardStats> => {
+  getStats: async (options?: { skipCache?: boolean }): Promise<SupportDashboardStats> => {
+    const key = 'support-dashboard:stats'
+    if (!options?.skipCache) {
+      const cached = sessionApiCacheGet<SupportDashboardStats>(key)
+      if (cached?.weeksData) return cached
+    }
     const r = await apiClient.get<SupportDashboardStats>('/support-dashboard/stats')
+    sessionApiCacheSet(key, r.data, API_CACHE_TTL_MS.dashboardMetrics)
     return r.data
   },
   getFiltered: async (filterType: string, category: string) => {

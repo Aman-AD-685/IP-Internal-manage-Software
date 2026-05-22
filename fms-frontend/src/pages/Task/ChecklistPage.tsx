@@ -32,6 +32,7 @@ import { OPEN_ACTION, buildOpenActionUrl } from '../../utils/openActions'
 import { useDeepLinkAction } from '../../hooks/useDeepLinkAction'
 import { useLocation } from 'react-router-dom'
 import { ROUTES } from '../../utils/constants'
+import { genericLogicalKey, sessionApiCacheGet } from '../../utils/sessionApiCache'
 
 const { Title, Text } = Typography
 
@@ -69,8 +70,22 @@ export const ChecklistPage = () => {
   const effectiveUserId = selectedUserId ?? user?.id
 
   const loadChecklistData = useCallback(() => {
-    setLoading(true)
     const uid = selectedUserId ?? user?.id
+    const tasksKey = genericLogicalKey('checklist:tasks', { user_id: uid, reference_no: refNoParam })
+    const occKey = genericLogicalKey('checklist:occurrences', {
+      filter,
+      user_id: uid,
+      reference_no: refNoParam,
+    })
+    const cachedTasks = sessionApiCacheGet<{ tasks: ChecklistTask[] }>(tasksKey)
+    const cachedOcc = sessionApiCacheGet<{ occurrences: ChecklistOccurrence[] }>(occKey)
+    if (cachedTasks?.tasks && cachedOcc?.occurrences) {
+      setTasks(cachedTasks.tasks)
+      setOccurrences(cachedOcc.occurrences)
+      setLoading(false)
+    } else {
+      setLoading(true)
+    }
     Promise.all([
       checklistApi.getTasks(uid, refNoParam),
       checklistApi.getOccurrences(filter, uid, refNoParam),

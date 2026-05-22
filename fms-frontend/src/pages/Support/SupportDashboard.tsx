@@ -12,6 +12,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { supportDashboardApi, type SupportDashboardStats, type WeekData } from '../../api/supportDashboard'
+import { sessionApiCacheGet } from '../../utils/sessionApiCache'
 import { ModalContentSkeleton } from '../../components/common/skeletons'
 import { formatDateWeekly, truncateTitleDescCell } from '../../utils/helpers'
 import { ROUTES } from '../../utils/constants'
@@ -63,6 +64,8 @@ export const SupportDashboard = () => {
   const [featureData, setFeatureData] = useState<{ data: unknown[]; filterType: string; totalRecords: number } | null>(null)
   const [featureLoading, setFeatureLoading] = useState(false)
 
+  const cachedStats = sessionApiCacheGet<SupportDashboardStats>('support-dashboard:stats')
+
   const {
     data,
     isLoading: loading,
@@ -71,6 +74,8 @@ export const SupportDashboard = () => {
   } = useQuery<SupportDashboardStats>({
     queryKey: ['support-dashboard', 'stats'],
     queryFn: () => supportDashboardApi.getStats(),
+    initialData: cachedStats?.weeksData ? cachedStats : undefined,
+    staleTime: 60_000,
   })
 
   const errorMessage = (() => {

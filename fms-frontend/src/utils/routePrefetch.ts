@@ -9,6 +9,8 @@ import { trainingApi } from '../api/training'
 import { usersApi } from '../api/users'
 import { dbClientOnbApi } from '../api/dbClientOnb'
 import { dashboardApi } from '../api/dashboard'
+import { prefetchDashboardKpiPerson, DASHBOARD_KPI_NAMES, MONTHS } from '../api/dashboardKpi'
+import { getDefaultPreviousWeekFilter } from '../pages/Dashboard/kpiWeekUtils'
 import { supportDashboardApi } from '../api/supportDashboard'
 import { apiClient } from '../api/axios'
 import { runPrefetchLimited } from './prefetchConcurrency'
@@ -44,8 +46,26 @@ export function prefetchRouteData(routeKey: string): void {
     return
   }
 
-  // KPI routes are heavy (5× /dashboard/kpi) — load only when user opens that page.
-  if (path === ROUTES.DASHBOARD_KPI || path === ROUTES.SUCCESS_DASHBOARD) {
+  if (path === ROUTES.DASHBOARD_KPI) {
+    const personParam = new URLSearchParams(q).get('person')?.trim()
+    const match = personParam
+      ? DASHBOARD_KPI_NAMES.find((n) => n.toLowerCase() === personParam.toLowerCase())
+      : null
+    const prev = getDefaultPreviousWeekFilter()
+    const filters = {
+      month: MONTHS[prev.monthIndex] ?? MONTHS[0],
+      year: prev.year,
+      week: `week ${prev.week}`,
+    }
+    if (match) {
+      fire(`prefetch:kpi:${match}`, () => {
+        prefetchDashboardKpiPerson(match, filters)
+      })
+    }
+    return
+  }
+
+  if (path === ROUTES.SUCCESS_DASHBOARD) {
     return
   }
 

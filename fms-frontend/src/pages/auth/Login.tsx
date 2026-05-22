@@ -8,6 +8,7 @@ import { storage, checkSingleBrowserSession } from '../../utils/storage'
 import { AuthLayout } from '../../components/auth/AuthLayout'
 import { ROUTES } from '../../utils/constants'
 import { getPostLoginPath, getRedirectFromSearch } from '../../utils/authRedirect'
+import { warmupAfterLogin } from '../../utils/warmupAfterLogin'
 import { useAuth } from '../../hooks/useAuth'
 import { API_BASE_URL } from '../../api/axios'
 import { getLocalUvicornStartCommand } from '../../utils/localBackend'
@@ -127,7 +128,9 @@ export const Login = () => {
             return
           }
           login(access_token, user, refresh_token ?? undefined)
-          navigate(getPostLoginPath(location.search, user), { replace: true })
+          const target = getPostLoginPath(location.search, user)
+          warmupAfterLogin(target)
+          navigate(target, { replace: true })
         }
       }
     } catch (error: any) {

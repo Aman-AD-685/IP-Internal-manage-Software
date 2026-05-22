@@ -7,12 +7,14 @@ import {
   dashboardKpiApi,
   MONTHS,
   YEARS,
+  soumyaKpiCacheKey,
+  type SoumyaDashboardResponse,
   type SoumyaCardDetailKey,
   type SoumyaCardDetailRow,
-  type SoumyaDashboardResponse,
   type SoumyaDelayRankedTicket,
   type SoumyaTrendWeek,
 } from '../../api/dashboardKpi'
+import { sessionApiCacheGet } from '../../utils/sessionApiCache'
 import {
   getDefaultPreviousWeekFilter,
   getKpiCalendarWeekBounds,
@@ -289,22 +291,40 @@ export function SoumyaDashboardView({ onRefresh }: SoumyaDashboardViewProps) {
   const fetchPage = useCallback(
     async (reset: boolean) => {
       const gen = ++loadGenRef.current
-      if (reset) {
-        setLoading(true)
-        setError(null)
-      } else {
-        setLoadingMore(true)
-      }
       const offset = reset ? 0 : rankedRows.length
-      try {
-        const res = await dashboardKpiApi.getSoumyaKpi({
+      const requestParams = {
+        month,
+        year,
+        week,
+        leaderboard_scope: leaderboardScope,
+        ranked_offset: offset,
+        ranked_limit: RANKED_PAGE,
+      }
+      if (reset) {
+        const cacheKey = soumyaKpiCacheKey({
           month,
           year,
           week,
           leaderboard_scope: leaderboardScope,
-          ranked_offset: offset,
+          ranked_offset: 0,
           ranked_limit: RANKED_PAGE,
         })
+        const cached = sessionApiCacheGet<SoumyaDashboardResponse>(cacheKey)
+        if (cached?.success !== false) {
+          setData(cached)
+          setHasMore(!!cached.meta?.has_more)
+          setRankedRows(cached.delay_ranked_tickets ?? [])
+          setLoading(false)
+          setError(null)
+        } else {
+          setLoading(true)
+          setError(null)
+        }
+      } else {
+        setLoadingMore(true)
+      }
+      try {
+        const res = await dashboardKpiApi.getSoumyaKpi(requestParams)
         if (gen !== loadGenRef.current) return
         setData(res)
         setHasMore(!!res.meta?.has_more)
@@ -429,7 +449,7 @@ return (
       <div className="soumya-dash-hero">
         <div>
           <h2>
-            <ThunderboltOutlined style={{ marginRight: 8, color: '#22d3ee' }} />
+            <ThunderboltOutlined style={{ marginRight: 8, color: '#4a6bff' }} />
             Soumya Dashboard
           </h2>
           <p>
@@ -446,7 +466,7 @@ return (
             icon={<ReloadOutlined />}
             onClick={() => void fetchPage(true)}
             loading={loading}
-            style={{ color: '#67e8f9', marginTop: 8 }}
+            style={{ color: '#4a6bff', marginTop: 8 }}
           >
             Refresh
           </Button>

@@ -22,7 +22,8 @@ import { OPEN_ACTION, buildOpenActionUrl } from '../../utils/openActions'
 import { useDeepLinkAction } from '../../hooks/useDeepLinkAction'
 import type { UserRole } from '../../types/auth'
 import { dashboardApi } from '../../api/dashboard'
-import { DASHBOARD_KPI_NAMES } from '../../api/dashboardKpi'
+import { DASHBOARD_KPI_NAMES, prefetchDashboardKpiPerson, MONTHS } from '../../api/dashboardKpi'
+import { getDefaultPreviousWeekFilter } from '../../pages/Dashboard/kpiWeekUtils'
 import { canViewDashboardKpiPerson } from '../../utils/dashboardKpiPermissions'
 
 const { Header: AntHeader } = Layout
@@ -55,7 +56,10 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
     : false
 
   useEffect(() => {
-    dashboardApi.getActivityCount().then(setActivityCount).catch(() => setActivityCount(0))
+    const t = window.setTimeout(() => {
+      dashboardApi.getActivityCount().then(setActivityCount).catch(() => setActivityCount(0))
+    }, 2500)
+    return () => window.clearTimeout(t)
   }, [])
 
   const improvementHref = buildOpenActionUrl(
@@ -93,6 +97,15 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
     navigate(ROUTES.LOGIN)
   }
 
+  const kpiFilterDefaults = useMemo(() => {
+    const prev = getDefaultPreviousWeekFilter()
+    return {
+      month: MONTHS[prev.monthIndex] ?? MONTHS[0],
+      year: prev.year,
+      week: `week ${prev.week}`,
+    }
+  }, [])
+
   const dashboardKpiMenuItems: MenuProps['items'] = user
     ? DASHBOARD_KPI_NAMES.filter((name) =>
         canViewDashboardKpiPerson(name, user.role as UserRole, user.section_permissions),
@@ -101,11 +114,18 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
         return {
           key: `dashboard-kpi-${name}`,
           label: (
-            <span data-open-href={href} data-open-label={`${name} Dashboard`}>
+            <span
+              data-open-href={href}
+              data-open-label={`${name} Dashboard`}
+              onMouseEnter={() => prefetchDashboardKpiPerson(name, kpiFilterDefaults)}
+            >
               {name} Dashboard
             </span>
           ),
-          onClick: () => navigate(href),
+          onClick: () => {
+            prefetchDashboardKpiPerson(name, kpiFilterDefaults)
+            navigate(href)
+          },
         }
       })
     : []
@@ -175,6 +195,13 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
         {canViewDashboardKpi ? (
           <ContextMenuTarget openHref={defaultKpiHref} openLabel="Dashboard - KPI">
             <Dropdown
+              onOpenChange={(open) => {
+                if (!open || !user) return
+                const first = DASHBOARD_KPI_NAMES.find((name) =>
+                  canViewDashboardKpiPerson(name, user.role as UserRole, user.section_permissions),
+                )
+                if (first) prefetchDashboardKpiPerson(first, kpiFilterDefaults)
+              }}
               trigger={['click']}
               menu={{ items: dashboardKpiMenuItems, className: 'kpi-header-dropdown-menu' }}
               placement="bottomLeft"
