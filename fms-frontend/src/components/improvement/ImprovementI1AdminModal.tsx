@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Button, Input, Modal, Popconfirm, Select, Table, Tag, message } from 'antd'
+import { Button, Input, Modal, Popconfirm, Select, Table, Tag, Typography, message } from 'antd'
 import { DeleteOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
+import dayjs from 'dayjs'
 import {
   improvementSuggestionsApi,
   type ImprovementSuggestion,
@@ -49,7 +50,17 @@ export function ImprovementI1AdminModal({ open, onClose }: Props) {
       if (updated) {
         setRows((prev) => prev.map((r) => (r.id === id ? updated : r)))
       }
-      message.success('Saved')
+      if (patch.status === 'done') {
+        if (res.data?.email_sent) {
+          message.success(`Saved — notification email sent to ${updated?.user_display_name || 'user'}`)
+        } else if (res.data?.email_error) {
+          message.warning(`Saved — email not sent: ${res.data.email_error}`)
+        } else {
+          message.success('Saved')
+        }
+      } else {
+        message.success('Saved')
+      }
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } }
       message.error(err?.response?.data?.detail || 'Save failed')
@@ -57,6 +68,12 @@ export function ImprovementI1AdminModal({ open, onClose }: Props) {
     } finally {
       setSavingId(null)
     }
+  }
+
+  const formatTs = (iso: string | null | undefined) => {
+    if (!iso) return null
+    const d = dayjs(iso)
+    return d.isValid() ? d.format('DD MMM YYYY, HH:mm') : null
   }
 
   const deleteRow = async (id: string) => {
@@ -131,6 +148,36 @@ export function ImprovementI1AdminModal({ open, onClose }: Props) {
         />
       ),
     },
+    {
+      title: 'Timestamp',
+      key: 'timestamp',
+      width: 200,
+      render: (_: unknown, record: ImprovementSuggestion) => {
+        const entry = formatTs(record.created_at)
+        const doneAt =
+          record.status === 'done'
+            ? formatTs(record.done_at) ?? formatTs(record.updated_at)
+            : null
+        return (
+          <div style={{ fontSize: 12, lineHeight: 1.45 }}>
+            <div>
+              <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                Entry:{' '}
+              </Typography.Text>
+              <span>{entry ?? '—'}</span>
+            </div>
+            {record.status === 'done' ? (
+              <div style={{ marginTop: 4 }}>
+                <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                  Done:{' '}
+                </Typography.Text>
+                <span style={{ color: '#15803d', fontWeight: 500 }}>{doneAt ?? '—'}</span>
+              </div>
+            ) : null}
+          </div>
+        )
+      },
+    },
     ...(canEdit
       ? [
           {
@@ -178,7 +225,7 @@ export function ImprovementI1AdminModal({ open, onClose }: Props) {
         columns={columns}
         pagination={{ pageSize: 15, showSizeChanger: true }}
         size="small"
-        scroll={{ x: 900 }}
+        scroll={{ x: 1100 }}
       />
       <div style={{ marginTop: 8 }}>
         <Tag color="blue">{rows.length} total</Tag>
