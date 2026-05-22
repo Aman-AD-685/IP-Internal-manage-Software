@@ -3231,7 +3231,7 @@ def _build_akash_kpi_payload(
 
 
 @api_router.get("/dashboard/soumya-kpi")
-@cached(ttl=60, key_prefix="dash:soumya:")
+@cached(ttl=120, key_prefix="dash:soumya:")
 def dashboard_soumya_kpi(
     month: str = Query("Feb", description="Month: Jan..Dec"),
     year: str = Query("2026", description="Year"),
@@ -3274,7 +3274,7 @@ async def cron_soumya_sla_scan(
 
 
 @api_router.get("/dashboard/kpi")
-@cached(ttl=30, key_prefix="dash:")
+@cached(ttl=120, key_prefix="dash:")
 def dashboard_kpi(
     name: str = Query(..., description="Person name: Shreyasi, Rimpa, Akash, Adrija, Soumya, etc."),
     month: str = Query("Feb", description="Month: Jan..Dec"),

@@ -36,6 +36,8 @@ import type { AxiosError } from 'axios'
 import './dashboard-kpi.css'
 import {
   dashboardKpiApi,
+  dashboardKpiCacheKey,
+  prefetchDashboardKpiPerson,
   DASHBOARD_KPI_NAMES,
   MONTHS,
   YEARS,
@@ -46,6 +48,7 @@ import {
   type KpiDailyLogApiRow,
   type AdrijaSocialKpiDailyRow,
 } from '../../api/dashboardKpi'
+import { sessionApiCacheGet } from '../../utils/sessionApiCache'
 import { useAuth } from '../../hooks/useAuth'
 import type { UserRole } from '../../types/auth'
 import { ROUTES } from '../../utils/constants'
@@ -363,15 +366,28 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
 
   const loadData = useCallback(() => {
     if (!selectedPerson || selectedPerson === 'Soumya') return
-    setLoading(true)
+    const filters = { name: selectedPerson, month, year, week }
+    const cached = sessionApiCacheGet<DashboardKpiResponse>(dashboardKpiCacheKey(filters))
+    if (cached && cached.success !== false) {
+      setData(cached)
+      setLoading(false)
+    } else {
+      setLoading(true)
+    }
     dashboardKpiApi
-      .getData({ name: selectedPerson, month, year, week })
+      .getData(filters)
       .then((res) => {
-        setData(res)
+        if (res && res.success !== false) setData(res)
+        else {
+          message.error('Failed to load dashboard data')
+          setData(null)
+        }
       })
       .catch(() => {
-        message.error('Failed to load dashboard data')
-        setData(null)
+        if (!cached) {
+          message.error('Failed to load dashboard data')
+          setData(null)
+        }
       })
       .finally(() => setLoading(false))
   }, [selectedPerson, month, year, week])
@@ -537,7 +553,9 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
             <Col key={opt.key} xs={24} sm={12} md={12} lg={8} xl={8}>
               <Card
                 hoverable
+                onMouseEnter={() => prefetchDashboardKpiPerson(opt.key, { month, year, week })}
                 onClick={() => {
+                  prefetchDashboardKpiPerson(opt.key, { month, year, week })
                   setSelectedPerson(opt.key)
                   setSearchParams({ person: opt.key }, { replace: true })
                 }}

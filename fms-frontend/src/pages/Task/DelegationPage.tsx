@@ -26,6 +26,7 @@ import { DEFAULT_INFINITE_CHUNK, useInfiniteScrollChunk } from '../../hooks/useI
 import { useContextMenu, buildDelegationRowMenu, useContextMenuTrigger, buildPageSurfaceMenu } from '../../contextMenu'
 import { ContextMenuTarget } from '../../components/common/ContextMenuTarget'
 import { OPEN_ACTION, buildOpenActionUrl } from '../../utils/openActions'
+import { genericLogicalKey, sessionApiCacheGet } from '../../utils/sessionApiCache'
 import { useDeepLinkAction } from '../../hooks/useDeepLinkAction'
 import { useLocation } from 'react-router-dom'
 import { ROUTES } from '../../utils/constants'
@@ -72,12 +73,19 @@ export const DelegationPage = () => {
   }, [canManage, user?.id])
 
   const loadTasks = useCallback(() => {
-    setLoading(true)
     const params: { status?: string; assignee_id?: string } = {}
     params.status = statusFilter
     if (canManage) {
       if (userFilter === '__all__') params.assignee_id = '__all__'
       else if (userFilter) params.assignee_id = userFilter
+    }
+    const cacheKey = genericLogicalKey('delegation:tasks', params)
+    const cached = sessionApiCacheGet<{ tasks: DelegationTask[] }>(cacheKey)
+    if (cached?.tasks) {
+      setTasks(cached.tasks)
+      setLoading(false)
+    } else {
+      setLoading(true)
     }
     const tasksPromise = delegationApi.getTasks(params)
     const usersPromise = canManage

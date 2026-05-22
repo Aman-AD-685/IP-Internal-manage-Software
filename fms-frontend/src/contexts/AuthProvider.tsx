@@ -8,6 +8,7 @@ import { authApi } from '../api/auth'
 import type { User } from '../types/auth'
 import { normalizeUserSectionPermissions } from '../utils/helpers'
 import { readStoredAuthSession } from '../utils/authSession'
+import { scheduleWhenIdle } from '../utils/warmupAfterLogin'
 
 /** Refresh access token every 50 min so session does not expire until user logs out (JWT often expires in 1 hr). */
 const PROACTIVE_REFRESH_INTERVAL_MS = 50 * 60 * 1000
@@ -59,9 +60,9 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     return () => document.removeEventListener('visibilitychange', onVisibilityChange)
   }, [token, user, doProactiveRefresh])
 
-  // Validate stored session in background (new tabs already hydrated from localStorage above).
+  // Validate stored session after first paint — do not block dashboards on /users/me (memory: stale-while-revalidate).
   useEffect(() => {
-    const initAuth = async () => {
+    const validateSession = async () => {
       const storedToken = storage.getToken()
       const storedUser = storage.getUser()
 
@@ -71,10 +72,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         setIsLoading(false)
         return
       }
-
-      setToken(storedToken)
-      setUser(normalizeUserSectionPermissions(storedUser))
-      setIsLoading(false)
 
       try {
         const response = await authApi.getCurrentUser()
@@ -153,7 +150,23 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       }
     }
 
-    initAuth()
+    const storedToken = storage.getToken()
+    const storedUser = storage.getUser()
+
+    if (!storedToken || !storedUser) {
+      setToken(null)
+      setUser(null)
+      setIsLoading(false)
+      return
+    }
+
+    setToken(storedToken)
+    setUser(normalizeUserSectionPermissions(storedUser))
+    setIsLoading(false)
+
+    return scheduleWhenIdle(() => {
+      void validateSession()
+    })
   }, [])
 
   // Sync auth when another tab logs in or out (localStorage is shared per browser).

@@ -6,6 +6,7 @@ import { OTPInput } from '../../components/forms/OTPInput'
 import { storage, checkSingleBrowserSession } from '../../utils/storage'
 import { ROUTES } from '../../utils/constants'
 import { getPostLoginPath } from '../../utils/authRedirect'
+import { warmupAfterLogin } from '../../utils/warmupAfterLogin'
 import { useAuth } from '../../hooks/useAuth'
 
 const { Title, Text } = Typography
@@ -58,7 +59,9 @@ export const OTPVerification = () => {
         verifyOTP(access_token, user, refresh_token ?? undefined)
         message.success('OTP verified successfully!')
 
-        navigate(getPostLoginPath(location.search, user), { replace: true })
+        const target = getPostLoginPath(location.search, user)
+        warmupAfterLogin(target)
+        navigate(target, { replace: true })
       }
     } catch (error: any) {
       const errorMessage =

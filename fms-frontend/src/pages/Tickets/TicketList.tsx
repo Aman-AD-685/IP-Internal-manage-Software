@@ -37,7 +37,8 @@ import { useRole } from '../../hooks/useRole'
 import type { Ticket } from '../../api/tickets'
 import type { Company } from '../../api/support'
 import { ROUTES } from '../../utils/constants'
-import { sessionApiCacheClearLogicalPrefix } from '../../utils/sessionApiCache'
+import { sessionApiCacheClearLogicalPrefix, sessionApiCacheGet, ticketsListLogicalKey } from '../../utils/sessionApiCache'
+import type { ApiResponse, PaginatedResponse } from '../../api/types'
 import { dateRangeToIsoBounds, fetchAllTicketsPages } from '../../utils/ticketExportByDateRange'
 import { formatPriorityLabel, getPriorityTagColor, TICKET_PRIORITY_OPTIONS } from '../../utils/ticketPriority'
 
@@ -461,11 +462,29 @@ export const TicketList = () => {
   const fetchTicketsInitial = useCallback(async () => {
     const gen = ++listFetchGeneration.current
     listExhaustedRef.current = false
-    setLoading(true)
     serverListPageRef.current = 0
-    setTickets([])
+
+    const listParams = getTicketsListParams(1, TICKETS_CHUNK)
+    const listKey = ticketsListLogicalKey(listParams as object)
+    const cached = sessionApiCacheGet<ApiResponse<PaginatedResponse<Ticket>>>(listKey)
+    const cachedPayload = cached
+    if (cachedPayload) {
+      const { rows, total: apiTotal } = unwrapTicketListPayload(cachedPayload, TICKETS_CHUNK)
+      let list = rows
+      if (isChoresBugs) list = keepOnlyChoresAndBugs(list)
+      setTickets(list)
+      setTotal(apiTotal)
+      serverListPageRef.current = 1
+      listExhaustedRef.current =
+        (apiTotal > 0 && list.length >= apiTotal) || list.length < TICKETS_CHUNK
+      setLoading(false)
+    } else {
+      setLoading(true)
+      setTickets([])
+    }
+
     try {
-      const response = await ticketsApi.list(getTicketsListParams(1, TICKETS_CHUNK, { skipCache: true }))
+      const response = await ticketsApi.list(getTicketsListParams(1, TICKETS_CHUNK))
       if (gen !== listFetchGeneration.current) return
       const { rows, total: apiTotal } = unwrapTicketListPayload(response, TICKETS_CHUNK)
       let list = rows

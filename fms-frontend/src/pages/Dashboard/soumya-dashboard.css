@@ -1,40 +1,24 @@
-/* Soumya Dashboard — futuristic SLA command center */
+/* Soumya Dashboard — light formal SLA panel */
 .soumya-dash {
-  --sd-bg: #0a0e1a;
-  --sd-panel: rgba(15, 23, 42, 0.72);
-  --sd-border: rgba(56, 189, 248, 0.25);
-  --sd-glow: #22d3ee;
-  --sd-accent: #a78bfa;
-  --sd-text: #e2e8f0;
-  --sd-muted: #94a3b8;
+  --sd-bg: #f8fafc;
+  --sd-panel: #ffffff;
+  --sd-border: #e2e8f0;
+  --sd-glow: #4a6bff;
+  --sd-accent: #6366f1;
+  --sd-text: #334155;
+  --sd-muted: #64748b;
   color: var(--sd-text);
-  border-radius: 20px;
+  border-radius: 12px;
   padding: 20px;
-  background:
-    radial-gradient(ellipse 80% 50% at 10% -10%, rgba(34, 211, 238, 0.15), transparent 50%),
-    radial-gradient(ellipse 60% 40% at 90% 0%, rgba(167, 139, 250, 0.12), transparent 45%),
-    linear-gradient(165deg, #0f172a 0%, #0a0e1a 55%, #020617 100%);
+  background: var(--sd-bg);
   border: 1px solid var(--sd-border);
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.04) inset,
-    0 24px 64px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
   position: relative;
   overflow: hidden;
 }
 
 .soumya-dash::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgba(34, 211, 238, 0.02) 2px,
-    rgba(34, 211, 238, 0.02) 4px
-  );
-  pointer-events: none;
-  opacity: 0.6;
+  display: none;
 }
 
 .soumya-dash-hero {
@@ -52,11 +36,8 @@
   margin: 0;
   font-size: 1.5rem;
   font-weight: 700;
-  letter-spacing: 0.02em;
-  background: linear-gradient(90deg, #67e8f9, #c4b5fd);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  letter-spacing: 0.01em;
+  color: #1e293b;
 }
 
 .soumya-dash-hero p {
@@ -101,15 +82,15 @@
 .soumya-kpi-sla-mini {
   margin: 0 12px 12px;
   padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid rgba(239, 68, 68, 0.35);
-  background: rgba(15, 23, 42, 0.65);
+  border-radius: 8px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
   transition: border-color 0.2s, background 0.2s;
 }
 
 .soumya-kpi-sla-mini:hover {
-  border-color: rgba(248, 113, 113, 0.55);
-  background: rgba(30, 27, 75, 0.75);
+  border-color: #fca5a5;
+  background: #fff1f2;
 }
 
 .soumya-kpi-sla-mini__head {
@@ -123,7 +104,7 @@
 .soumya-kpi-sla-mini__title {
   font-size: 0.72rem;
   font-weight: 600;
-  color: var(--sd-muted, #94a3b8);
+  color: var(--sd-muted);
   line-height: 1.3;
 }
 
@@ -134,33 +115,33 @@
 }
 
 .soumya-kpi-sla-mini__val--ok {
-  color: #4ade80;
+  color: #15803d;
 }
 
 .soumya-kpi-sla-mini__val--bad {
-  color: #f87171;
+  color: #b91c1c;
 }
 
 .soumya-kpi-sla-mini__meta {
   display: block;
   margin-top: 4px;
   font-size: 0.65rem;
-  color: var(--sd-muted, #94a3b8);
+  color: var(--sd-muted);
 }
 
 .soumya-card-formula {
   margin: 8px 0 0;
   font-size: 0.72rem;
   line-height: 1.35;
-  color: var(--sd-muted, #94a3b8);
+  color: var(--sd-muted);
 }
 
 .soumya-metric-big--warn {
-  color: #fbbf24;
+  color: #b45309;
 }
 
 .soumya-kpi-card--staging {
-  border-color: rgba(168, 85, 247, 0.35);
+  border-color: #e9d5ff;
 }
 
 .soumya-dash-filters {
@@ -172,30 +153,31 @@
 .soumya-delay-scroll {
   max-height: min(520px, 60vh);
   overflow: auto;
-  border-radius: 12px;
-  border: 1px solid var(--sd-border, rgba(56, 189, 248, 0.25));
+  border-radius: 8px;
+  border: 1px solid var(--sd-border);
+  background: #ffffff;
 }
 
 .soumya-delay-load-more,
 .soumya-delay-end {
   text-align: center;
   padding: 12px;
-  color: var(--sd-muted, #94a3b8);
+  color: var(--sd-muted);
   font-size: 0.8rem;
 }
 
 .soumya-kpi-card {
   background: var(--sd-panel);
-  backdrop-filter: blur(12px);
   border: 1px solid var(--sd-border);
-  border-radius: 14px;
+  border-radius: 10px;
   padding: 16px 18px;
   transition: border-color 0.2s, box-shadow 0.2s;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
 }
 
 .soumya-kpi-card:hover {
-  border-color: rgba(34, 211, 238, 0.45);
-  box-shadow: 0 0 24px rgba(34, 211, 238, 0.08);
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
 }
 
 .soumya-kpi-card--clickable {
@@ -203,13 +185,13 @@
 }
 
 .soumya-kpi-card--clickable:focus-visible {
-  outline: 2px solid #22d3ee;
+  outline: 2px solid #4a6bff;
   outline-offset: 2px;
 }
 
 .soumya-kpi-card__list-icon {
   float: right;
-  color: #67e8f9;
+  color: #4a6bff;
   font-size: 14px;
 }
 
@@ -217,8 +199,7 @@
   display: block;
   margin-top: 10px;
   font-size: 0.7rem;
-  color: #67e8f9;
-  opacity: 0.9;
+  color: #64748b;
 }
 
 .soumya-delay-section__head {
@@ -232,6 +213,7 @@
 
 .soumya-delay-section__head h3 {
   margin: 0 0 4px;
+  color: #1e293b;
 }
 
 .soumya-leaderboard-scope {
@@ -239,14 +221,14 @@
 }
 
 .soumya-leaderboard-scope .ant-segmented-item-selected {
-  color: #0f172a !important;
+  color: #1e40af !important;
   font-weight: 600;
 }
 
 .soumya-kpi-card__label {
   font-size: 0.7rem;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
   color: var(--sd-muted);
   margin-bottom: 10px;
 }
@@ -255,7 +237,7 @@
   font-size: 0.95rem;
   font-weight: 600;
   margin-bottom: 12px;
-  color: #f1f5f9;
+  color: #1e293b;
 }
 
 .soumya-buckets {
@@ -269,38 +251,41 @@
   min-width: 72px;
   text-align: center;
   padding: 10px 8px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  border: 1px solid #e8ecf1;
+  background: #f8fafc;
 }
 
 .soumya-bucket__val {
   font-size: 1.5rem;
   font-weight: 700;
   line-height: 1.2;
+  color: #1e293b;
 }
 
 .soumya-bucket__lbl {
   font-size: 0.65rem;
   margin-top: 4px;
-  opacity: 0.85;
+  color: var(--sd-muted);
 }
 
 .soumya-metric-big {
   font-size: 2rem;
   font-weight: 700;
   line-height: 1.1;
+  color: #1e293b;
 }
 
 .soumya-metric-big--ok {
-  color: #4ade80;
+  color: #15803d;
 }
 
 .soumya-metric-big--neutral {
-  color: #94a3b8;
+  color: #64748b;
 }
 
 .soumya-metric-big--bad {
-  color: #f87171;
+  color: #b91c1c;
 }
 
 .soumya-target-pill {
@@ -309,13 +294,15 @@
   padding: 2px 10px;
   border-radius: 999px;
   font-size: 0.7rem;
-  background: rgba(34, 211, 238, 0.12);
-  color: #67e8f9;
+  background: #eff6ff;
+  color: #1e40af;
+  border: 1px solid #bfdbfe;
 }
 
 .soumya-target-pill--fail {
-  background: rgba(248, 113, 113, 0.15);
-  color: #fca5a5;
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
 }
 
 .soumya-trend {
@@ -330,12 +317,12 @@
   flex: 1;
   min-width: 8px;
   border-radius: 4px 4px 0 0;
-  background: linear-gradient(180deg, var(--sd-glow), rgba(34, 211, 238, 0.35));
+  background: linear-gradient(180deg, #93c5fd, #dbeafe);
   transition: height 0.3s;
 }
 
 .soumya-trend__bar--breach {
-  background: linear-gradient(180deg, #f87171, rgba(248, 113, 113, 0.35));
+  background: linear-gradient(180deg, #fca5a5, #fee2e2);
 }
 
 .soumya-delay-section {
@@ -347,7 +334,7 @@
 .soumya-delay-section h3 {
   margin: 0 0 4px;
   font-size: 1.1rem;
-  color: #f8fafc;
+  color: #1e293b;
 }
 
 .soumya-delay-section .sub {
@@ -357,21 +344,21 @@
 }
 
 .soumya-delay-table .ant-table {
-  background: transparent !important;
+  background: #ffffff !important;
 }
 
 .soumya-delay-table .ant-table-thead > tr > th {
-  background: rgba(30, 41, 59, 0.9) !important;
-  color: #94a3b8 !important;
-  border-bottom: 1px solid var(--sd-border) !important;
+  background: #f8fafc !important;
+  color: #64748b !important;
+  border-bottom: 1px solid #e2e8f0 !important;
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 
 .soumya-delay-table .ant-table-tbody > tr > td {
-  background: rgba(15, 23, 42, 0.5) !important;
-  border-bottom: 1px solid rgba(51, 65, 85, 0.5) !important;
+  background: #ffffff !important;
+  border-bottom: 1px solid #f1f5f9 !important;
   color: var(--sd-text) !important;
   vertical-align: top;
 }
@@ -381,7 +368,7 @@
 }
 
 .soumya-delay-table .ant-table-tbody > tr:hover > td {
-  background: rgba(34, 211, 238, 0.06) !important;
+  background: #f8fafc !important;
 }
 
 .soumya-rank-badge {
@@ -390,33 +377,34 @@
   justify-content: center;
   min-width: 28px;
   height: 28px;
-  border-radius: 8px;
+  border-radius: 6px;
   font-weight: 700;
   font-size: 0.85rem;
 }
 
 .soumya-rank-badge--1 {
-  background: linear-gradient(135deg, #f59e0b, #ef4444);
+  background: linear-gradient(135deg, #fbbf24, #f59e0b);
   color: #fff;
-  box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+  box-shadow: 0 2px 6px rgba(245, 158, 11, 0.25);
 }
 
 .soumya-rank-badge--2 {
-  background: linear-gradient(135deg, #f97316, #ea580c);
+  background: linear-gradient(135deg, #fdba74, #f97316);
   color: #fff;
 }
 
 .soumya-rank-badge--3 {
-  background: linear-gradient(135deg, #eab308, #ca8a04);
+  background: linear-gradient(135deg, #fde047, #eab308);
   color: #1e293b;
 }
 
 .soumya-rank-badge--n {
-  background: rgba(51, 65, 85, 0.8);
-  color: #cbd5e1;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
 }
 
-/* Ref + detail text — leaderboard (dark panel) */
+/* Ref + detail text — leaderboard */
 .soumya-delay-table .soumya-col-ref-cell {
   min-width: 128px;
   white-space: nowrap;
@@ -424,28 +412,27 @@
 
 .soumya-delay-table .soumya-col-ref.ant-typography-code,
 .soumya-delay-table td .ant-typography.soumya-col-ref {
-  color: #fef08a !important;
-  background: rgba(234, 179, 8, 0.28) !important;
-  border: 1px solid #facc15 !important;
+  color: #92400e !important;
+  background: #fffbeb !important;
+  border: 1px solid #fde68a !important;
   font-weight: 700;
   font-size: 0.8rem;
   padding: 4px 10px;
   border-radius: 6px;
-  box-shadow: 0 0 10px rgba(250, 204, 21, 0.25);
   white-space: nowrap;
   display: inline-block;
 }
 
 .soumya-col-ref.ant-typography-code {
-  color: #fef08a !important;
-  background: rgba(234, 179, 8, 0.28) !important;
-  border: 1px solid #facc15 !important;
+  color: #92400e !important;
+  background: #fffbeb !important;
+  border: 1px solid #fde68a !important;
   font-weight: 700;
 }
 
 .soumya-col-company.soumya-col-wrap,
 .soumya-delay-table .soumya-col-company {
-  color: #e2e8f0;
+  color: #334155;
   font-weight: 500;
   max-width: 160px;
 }
@@ -456,7 +443,7 @@
   word-break: break-word;
   line-height: 1.4;
   font-size: 0.8125rem;
-  color: #e2e8f0;
+  color: #475569;
 }
 
 .soumya-delay-table .soumya-col-wrap-cell {
@@ -483,15 +470,14 @@
   word-break: break-word;
   line-height: 1.35;
   font-size: 0.8rem;
-  color: #f1f5f9;
+  color: #334155;
 }
 
 .soumya-delay-types-cell__line {
   display: block;
-  color: #e2e8f0;
+  color: #475569;
 }
 
-/* Card detail modal (light Ant Design surface) */
 .soumya-detail-modal .soumya-col-ref.ant-typography-code {
   color: #b45309 !important;
   background: #fffbeb !important;
@@ -511,13 +497,13 @@
 
 .soumya-delay-score {
   font-weight: 600;
-  color: #f87171;
+  color: #b91c1c;
 }
 
 @media (max-width: 576px) {
   .soumya-dash {
     padding: 14px;
-    border-radius: 14px;
+    border-radius: 10px;
   }
   .soumya-kpi-grid {
     grid-template-columns: 1fr;

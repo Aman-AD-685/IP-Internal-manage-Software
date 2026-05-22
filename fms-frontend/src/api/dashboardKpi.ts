@@ -1,8 +1,33 @@
 import { apiClient } from './axios'
 import { API_CACHE_TTL_MS, sessionApiCacheGet, sessionApiCacheSet } from '../utils/sessionApiCache'
 
-function dashboardKpiCacheKey(filters: { name: string; month: string; year: string; week: string }) {
+export function dashboardKpiCacheKey(filters: { name: string; month: string; year: string; week: string }) {
   return `dashboardKpi:${filters.name}:${filters.year}:${filters.month}:${filters.week}`
+}
+
+export function soumyaKpiCacheKey(params: {
+  month: string
+  year: string
+  week: string
+  leaderboard_scope?: string
+  ranked_offset?: number
+  ranked_limit?: number
+}) {
+  return `dashboardKpi:soumya:${params.year}:${params.month}:${params.week}:${params.leaderboard_scope ?? 'week'}:${params.ranked_offset ?? 0}:${params.ranked_limit ?? 25}`
+}
+
+/** Warm one person KPI (sidebar hover, chooser card, header menu). */
+export function prefetchDashboardKpiPerson(
+  name: DashboardKpiPerson,
+  filters: { month: string; year: string; week: string },
+): void {
+  if (name === 'Soumya') {
+    void dashboardKpiApi
+      .getSoumyaKpi({ ...filters, leaderboard_scope: 'week', ranked_offset: 0, ranked_limit: 25 })
+      .catch(() => {})
+    return
+  }
+  void dashboardKpiApi.getData({ name, ...filters }).catch(() => {})
 }
 
 export const DASHBOARD_KPI_NAMES = ['Shreyasi', 'Rimpa', 'Akash', 'Adrija', 'Soumya'] as const
@@ -433,17 +458,23 @@ export async function fetchDashboardKpiBatch(
 }
 
 export const dashboardKpiApi = {
-  getSoumyaKpi: (params: {
+  getSoumyaKpi: async (params: {
     month: string
     year: string
     week: string
     leaderboard_scope?: 'week' | 'all'
     ranked_offset?: number
     ranked_limit?: number
-  }) =>
-    apiClient
+  }) => {
+    const key = soumyaKpiCacheKey(params)
+    const cached = sessionApiCacheGet<SoumyaDashboardResponse>(key)
+    if (cached) return cached
+    const data = await apiClient
       .get<SoumyaDashboardResponse>('/dashboard/soumya-kpi', { params })
-      .then((r) => r.data),
+      .then((r) => r.data)
+    sessionApiCacheSet(key, data, API_CACHE_TTL_MS.dashboardSoumyaKpi)
+    return data
+  },
 
   getData: async (filters: { name: string; month: string; year: string; week: string }) => {
     const key = dashboardKpiCacheKey(filters)
