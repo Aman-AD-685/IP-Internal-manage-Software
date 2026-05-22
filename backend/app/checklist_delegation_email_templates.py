@@ -54,16 +54,6 @@ def _email_shell(
 </body></html>"""
 
 
-def _cta_button(label: str, url: str, accent: str) -> str:
-    return (
-        f'<table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 8px;">'
-        f'<tr><td style="border-radius:10px;background:linear-gradient(135deg,{accent},{accent}cc);">'
-        f'<a href="{html.escape(url, quote=True)}" target="_blank" rel="noopener" '
-        f'style="display:inline-block;padding:14px 28px;color:#fff;font-size:14px;font-weight:600;'
-        f'text-decoration:none;letter-spacing:.02em;">{html.escape(label)}</a></td></tr></table>'
-    )
-
-
 def _task_list_card(task_names: list[str], accent: str, empty_msg: str) -> str:
     if not task_names:
         return (
@@ -102,12 +92,9 @@ def build_checklist_reminder_html(
     task_names: list[str],
     *,
     today: date | None = None,
-    app_url: str | None = None,
 ) -> tuple[str, str]:
     """Returns (html_content, plain_fallback)."""
     today = today or date.today()
-    base = (app_url or get_frontend_base()).rstrip("/")
-    checklist_url = f"{base}/task/checklist"
     safe_name = _esc(recipient_name or "there")
     count = len(task_names)
 
@@ -120,8 +107,7 @@ def build_checklist_reminder_html(
         + _stat_badge(str(count), "Due today", CHECKLIST_ACCENT)
         + "</tr></table>"
         + _task_list_card(task_names, CHECKLIST_ACCENT, "No tasks listed — you're all caught up.")
-        + _cta_button("Open Checklist", checklist_url, CHECKLIST_ACCENT)
-        + '<p style="margin:16px 0 0;color:#64748b;font-size:12px;">Tip: mark each task done in the app so tomorrow\'s reminder stays accurate.</p>'
+        + '<p style="margin:20px 0 0;color:#64748b;font-size:12px;">Tip: mark each task done in the app so tomorrow\'s reminder stays accurate.</p>'
     )
     html_out = _email_shell(
         "Checklist — Tasks due today",
@@ -134,7 +120,7 @@ def build_checklist_reminder_html(
         f"Hi {recipient_name or 'there'},\n\n"
         f"You have {count} checklist task(s) due today ({today.isoformat()}):\n\n"
         + "\n".join(f"  {i}. {n}" for i, n in enumerate(task_names, 1))
-        + f"\n\nOpen Checklist: {checklist_url}\n"
+        + "\n\nPlease log in to the app to complete them.\n"
     )
     return html_out, plain
 
@@ -144,12 +130,9 @@ def build_delegation_reminder_html(
     task_titles: list[str],
     *,
     today: date | None = None,
-    app_url: str | None = None,
 ) -> tuple[str, str]:
     """Returns (html_content, plain_fallback)."""
     today = today or date.today()
-    base = (app_url or get_frontend_base()).rstrip("/")
-    delegation_url = f"{base}/task/delegation"
     safe_name = _esc(recipient_name or "there")
     count = len(task_titles)
 
@@ -163,8 +146,7 @@ def build_delegation_reminder_html(
         + _stat_badge(str(count), "Pending", DELEGATION_ACCENT)
         + "</tr></table>"
         + _task_list_card(task_titles, DELEGATION_ACCENT, "No pending delegations — great work.")
-        + _cta_button("Open Delegation", delegation_url, DELEGATION_ACCENT)
-        + '<p style="margin:16px 0 0;color:#64748b;font-size:12px;">Update status in Delegation when you start or finish a task.</p>'
+        + '<p style="margin:20px 0 0;color:#64748b;font-size:12px;">Update status in Delegation when you start or finish a task.</p>'
     )
     html_out = _email_shell(
         "Delegation — Pending tasks",
@@ -177,7 +159,7 @@ def build_delegation_reminder_html(
         f"Hi {recipient_name or 'there'},\n\n"
         f"You have {count} delegation task(s) due or overdue:\n\n"
         + "\n".join(f"  {i}. {t}" for i, t in enumerate(task_titles, 1))
-        + f"\n\nOpen Delegation: {delegation_url}\n"
+        + "\n\nPlease log in to the app to update task status.\n"
     )
     return html_out, plain
 
