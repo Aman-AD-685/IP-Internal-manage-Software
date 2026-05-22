@@ -1,6 +1,7 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from "axios"
 import { storage } from "../utils/storage"
 import { ROUTES } from "../utils/constants"
+import { buildLoginUrl } from "../utils/authRedirect"
 import {
   DEFAULT_LOCAL_BACKEND_ORIGIN,
   getViteApiBaseFromEnv,
@@ -290,7 +291,7 @@ apiClient.interceptors.response.use(
       if (isRefreshRequest) {
         storage.clear()
         if (!window.location.pathname.includes("/login") && !window.location.pathname.includes("/register")) {
-          window.location.href = ROUTES.LOGIN
+          window.location.href = buildLoginUrl()
         }
         return Promise.reject(error)
       }
@@ -330,7 +331,7 @@ apiClient.interceptors.response.use(
 
       storage.clear()
       if (!window.location.pathname.includes("/login") && !window.location.pathname.includes("/register")) {
-        window.location.href = ROUTES.LOGIN
+        window.location.href = buildLoginUrl()
       }
     } else if (error.request) {
       console.error("❌ Network error: backend not reachable at", API_BASE_URL)

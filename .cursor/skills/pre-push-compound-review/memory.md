@@ -16,6 +16,7 @@ Do not remove entries; add dated bullets.
 - 2026-05-21: Slow load — throttle idle prefetch; batch dashboard KPI (2 concurrent); session cache KPI 4 min; `app/rate_limit.py` tiers (auth / expensive / global).
 - 2026-05-21: Sub-2s paint — `GET /dashboard/bootstrap`; 60s metrics / 120s trends server cache; auth stale-while-revalidate; defer KPI/leads/tickets; 12s prefetch delay; NGINX only for multi-instance Docker (not Render single service).
 - 2026-05-21: Render cold start — `.github/workflows/render-keepalive.yml` (5 min) + `docs/RENDER_KEEPALIVE_SETUP.md` (cron-job.org steps); not fixed by app code alone.
+- 2026-05-21: Rate limit — do not put `/tickets` on expensive tier; bypass limits for `127.0.0.1` / `RATE_LIMIT_DEV_BYPASS=1` in local dev.
 
 ## Rejected suggestions
 

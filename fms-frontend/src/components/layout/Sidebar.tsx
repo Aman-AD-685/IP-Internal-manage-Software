@@ -31,6 +31,10 @@ import type { UserRole } from '../../types/auth'
 import { SoftSuggFormModal } from '../softSugg/SoftSuggFormModal'
 import { SoftSuggDetailsModal } from '../softSugg/SoftSuggDetailsModal'
 import { buildSupportPrefillFromSoftSuggestion, type SoftSuggestion } from '../../api/softSuggestions'
+import { useContextMenuTrigger, buildNavItemMenu, buildPageSurfaceMenu } from '../../contextMenu'
+import { ContextMenuTarget } from '../common/ContextMenuTarget'
+import { OPEN_ACTION, buildOpenActionUrl } from '../../utils/openActions'
+import { useDeepLinkAction } from '../../hooks/useDeepLinkAction'
 
 
 const isSupportPage = (pathname: string) =>
@@ -121,7 +125,11 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
 
   const linkStyle = { color: 'inherit', display: 'block' }
   const prefetchedLabel = (key: string, to: To, text: string) => (
-    <span onMouseEnter={() => prefetchRouteData(key)} onFocus={() => prefetchRouteData(key)}>
+    <span
+      data-menu-id={key}
+      onMouseEnter={() => prefetchRouteData(key)}
+      onFocus={() => prefetchRouteData(key)}
+    >
       <Link to={to} style={linkStyle} onClick={() => prefetchRouteData(key)}>
         {text}
       </Link>
@@ -352,6 +360,46 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
     ...(dbClientOpen ? ['db-client'] : []),
   ]
 
+  const PARENT_KEYS = new Set([
+    'support',
+    'task',
+    'success',
+    'client-to-lead',
+    'onboarding',
+    'training',
+    'client-payment',
+    'db-client',
+    'help',
+  ])
+
+  const sidebarContextMenu = useContextMenuTrigger((e) => {
+    const target = e.target as HTMLElement
+    const menuItem = target.closest('.ant-menu-item, .ant-menu-submenu-title')
+    const routeKey =
+      menuItem?.querySelector('[data-menu-id]')?.getAttribute('data-menu-id') ||
+      menuItem?.getAttribute('data-menu-id') ||
+      menuItem?.querySelector('a[href]')?.getAttribute('href')?.replace(window.location.origin, '') ||
+      null
+    if (routeKey && !PARENT_KEYS.has(routeKey)) {
+      const label =
+        menuItem?.querySelector('.ant-menu-title-content')?.textContent?.trim() ||
+        menuItem?.textContent?.trim() ||
+        routeKey
+      return buildNavItemMenu(routeKey, label, {
+        navigate: (path) => {
+          const [p, q] = path.includes('?') ? path.split('?') : [path, '']
+          navigate(q ? `${p}?${q}` : p)
+          onClose?.()
+        },
+        onRefresh: () => window.location.reload(),
+      })
+    }
+    return buildPageSurfaceMenu({
+      title: 'Sidebar',
+      onRefresh: () => window.location.reload(),
+    })
+  })
+
   const handleOpenChange = (keys: string[]) => {
     setSupportOpen(keys.includes('support'))
     setTaskOpen(keys.includes('task'))
@@ -397,6 +445,16 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
     setSuggDetailsOpen(true)
   }
 
+  const softSuggHref = buildOpenActionUrl(location.pathname, location.search, OPEN_ACTION.SOFT_SUGG)
+  const softSuggDetailsHref = buildOpenActionUrl(
+    location.pathname,
+    location.search,
+    OPEN_ACTION.SOFT_SUGG_DETAILS,
+  )
+
+  useDeepLinkAction(OPEN_ACTION.SOFT_SUGG, openSoftSugg, canSoftSugg)
+  useDeepLinkAction(OPEN_ACTION.SOFT_SUGG_DETAILS, openSuggDetails, canSuggDetails)
+
   const drawerHeader = user ? (
     <div
       style={{
@@ -409,12 +467,16 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
       }}
     >
       <Button type="text" icon={<CloseOutlined />} onClick={onClose} aria-label="Close menu" />
-      <Button size="small" type="default" onClick={openSoftSugg}>
-        S - Sugg
-      </Button>
-      <Button size="small" type="default" onClick={openSuggDetails}>
-        Sugg Details
-      </Button>
+      <ContextMenuTarget openHref={softSuggHref} openLabel="S - Sugg">
+        <Button size="small" type="default" onClick={openSoftSugg}>
+          S - Sugg
+        </Button>
+      </ContextMenuTarget>
+      <ContextMenuTarget openHref={softSuggDetailsHref} openLabel="Sugg Details">
+        <Button size="small" type="default" onClick={openSuggDetails}>
+          Sugg Details
+        </Button>
+      </ContextMenuTarget>
     </div>
   ) : null
 
@@ -429,7 +491,9 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
         width={260}
         styles={{ body: { padding: 0 } }}
       >
-        {menuContent}
+        <div {...sidebarContextMenu} style={{ minHeight: '100%' }}>
+          {menuContent}
+        </div>
       </Drawer>
       {canSoftSugg ? (
         <SoftSuggFormModal open={softSuggOpen} onClose={() => setSoftSuggOpen(false)} />

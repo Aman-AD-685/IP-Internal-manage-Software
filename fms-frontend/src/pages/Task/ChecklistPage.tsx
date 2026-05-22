@@ -26,6 +26,12 @@ import {
 } from '../../api/checklist'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
 import { DEFAULT_INFINITE_CHUNK, useInfiniteScrollChunk } from '../../hooks/useInfiniteScrollChunk'
+import { useContextMenu, buildChecklistRowMenu, useContextMenuTrigger, buildPageSurfaceMenu } from '../../contextMenu'
+import { ContextMenuTarget } from '../../components/common/ContextMenuTarget'
+import { OPEN_ACTION, buildOpenActionUrl } from '../../utils/openActions'
+import { useDeepLinkAction } from '../../hooks/useDeepLinkAction'
+import { useLocation } from 'react-router-dom'
+import { ROUTES } from '../../utils/constants'
 
 const { Title, Text } = Typography
 
@@ -37,6 +43,8 @@ const formatDay = (d: string) => dayjs(d).format('dddd')
 const isToday = (d: string) => dayjs(d).isSame(dayjs(), 'day')
 
 export const ChecklistPage = () => {
+  const location = useLocation()
+  const { openMenu } = useContextMenu()
   const { user } = useAuth()
   const { isAdmin } = useRole()
   const [form] = Form.useForm()
@@ -222,8 +230,25 @@ export const ChecklistPage = () => {
     hasMore: occurrencesHasMore,
   } = useInfiniteScrollChunk({ items: occurrences, chunkSize: DEFAULT_INFINITE_CHUNK, loading })
 
+  const checklistCreateHref = buildOpenActionUrl(
+    location.pathname,
+    location.search,
+    OPEN_ACTION.CHECKLIST_CREATE,
+  )
+
+  useDeepLinkAction(OPEN_ACTION.CHECKLIST_CREATE, () => setAddTaskModalOpen(true))
+
+  const pageSurfaceMenu = useContextMenuTrigger(() =>
+    buildPageSurfaceMenu({
+      title: 'Checklist',
+      pageUrl: ROUTES.CHECKLIST,
+      onReloadData: loadChecklistData,
+      onRefresh: () => window.location.reload(),
+    }),
+  )
+
   return (
-    <div style={{ padding: 24 }}>
+    <div style={{ padding: 24 }} {...pageSurfaceMenu}>
       <Title level={4} className="page-main-heading">
         <CheckSquareOutlined style={{ marginRight: 8 }} />
         Checklist
@@ -231,9 +256,11 @@ export const ChecklistPage = () => {
 
       {/* Add Task button only - form opens in modal */}
       <div style={{ marginBottom: 24 }}>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddTaskModalOpen(true)}>
-          Add Task
-        </Button>
+        <ContextMenuTarget openHref={checklistCreateHref} openLabel="Add Task">
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddTaskModalOpen(true)}>
+            Add Task
+          </Button>
+        </ContextMenuTarget>
       </div>
 
       {/* Upload Holiday List - from Dec 15 for next year (Admin only) */}
@@ -306,6 +333,25 @@ export const ChecklistPage = () => {
               rowKey={(r) => `${r.task_id}-${r.occurrence_date}`}
               loading={false}
               pagination={false}
+              onRow={(record) => ({
+                onContextMenu: (e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  const canComplete = !record.completed_at && record.doer_id === user?.id && isToday(record.occurrence_date)
+                  openMenu({
+                    x: e.clientX,
+                    y: e.clientY,
+                    ariaLabel: `Checklist: ${record.task_name || 'task'}`,
+                    items: buildChecklistRowMenu({
+                      taskUrl: `${ROUTES.CHECKLIST}?task=${record.task_id}`,
+                      canComplete,
+                      onOpen: () => message.info(record.task_name || 'Task'),
+                      onComplete: () => handleComplete(record.task_id, record.occurrence_date),
+                      onReload: loadChecklistData,
+                    }),
+                  })
+                },
+              })}
               summary={() => (
                 <Table.Summary>
                   <Table.Summary.Row>

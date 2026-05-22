@@ -23,6 +23,12 @@ import { uploadAttachment } from '../../api/upload'
 import { PrintExport } from '../../components/common/PrintExport'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
 import { DEFAULT_INFINITE_CHUNK, useInfiniteScrollChunk } from '../../hooks/useInfiniteScrollChunk'
+import { useContextMenu, buildDelegationRowMenu, useContextMenuTrigger, buildPageSurfaceMenu } from '../../contextMenu'
+import { ContextMenuTarget } from '../../components/common/ContextMenuTarget'
+import { OPEN_ACTION, buildOpenActionUrl } from '../../utils/openActions'
+import { useDeepLinkAction } from '../../hooks/useDeepLinkAction'
+import { useLocation } from 'react-router-dom'
+import { ROUTES } from '../../utils/constants'
 
 const { Title, Text } = Typography
 const { Dragger } = Upload
@@ -36,6 +42,8 @@ const STATUS_COLORS: Record<string, string> = {
 }
 
 export const DelegationPage = () => {
+  const location = useLocation()
+  const { openMenu } = useContextMenu()
   const { user } = useAuth()
   const { isAdmin, isApprover, isMasterAdmin, isUser } = useRole()
   const canManage = isAdmin || isApprover || isMasterAdmin
@@ -191,6 +199,20 @@ export const DelegationPage = () => {
       .catch((e) => message.error(e?.response?.data?.detail || 'Failed to create'))
       .finally(() => setLoading(false))
   }
+
+  const openCreateModal = useCallback(() => {
+    form.resetFields()
+    form.setFieldsValue({ submitted_by: user?.id })
+    setModalOpen(true)
+  }, [form, user?.id])
+
+  const delegationCreateHref = buildOpenActionUrl(
+    location.pathname,
+    location.search,
+    OPEN_ACTION.DELEGATION_CREATE,
+  )
+
+  useDeepLinkAction(OPEN_ACTION.DELEGATION_CREATE, openCreateModal, canManage)
 
   const canActOnTask = (task: DelegationTask) =>
     user?.id && (task.assignee_id === user.id || isAdmin)
@@ -359,6 +381,40 @@ export const DelegationPage = () => {
     },
   ]
 
+  const handleRowContextMenu = useCallback(
+    (record: DelegationTask, e: React.MouseEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const canAct = canActOnTask(record)
+      const taskUrl = `${ROUTES.DELEGATION}?task=${encodeURIComponent(record.id)}`
+      openMenu({
+        x: e.clientX,
+        y: e.clientY,
+        ariaLabel: `Actions for ${record.title || 'delegation task'}`,
+        items: buildDelegationRowMenu({
+          taskUrl,
+          canAct,
+          isMasterAdmin,
+          onOpen: () => {
+            if (isMasterAdmin) openEditModal(record)
+            else message.info(record.title || 'Task')
+          },
+          onComplete: () => openCompleteModal(record),
+          onEdit: () => openEditModal(record),
+          onCancel: () => markCancel(record),
+          onReload: loadTasks,
+          onPrint: () => window.print(),
+          onExport: () => {
+            const line = [record.reference_no, record.title, record.status].filter(Boolean).join(' · ')
+            void navigator.clipboard?.writeText(line)
+            message.success('Task summary copied')
+          },
+        }),
+      })
+    },
+    [openMenu, isMasterAdmin, loadTasks, canActOnTask],
+  )
+
   const {
     visibleItems: visibleDisplayTasks,
     containerRef: delegationTableContainerRef,
@@ -368,8 +424,17 @@ export const DelegationPage = () => {
     hasMore: displayTasksHasMore,
   } = useInfiniteScrollChunk({ items: displayTasks, chunkSize: DEFAULT_INFINITE_CHUNK, loading })
 
+  const pageSurfaceMenu = useContextMenuTrigger(() =>
+    buildPageSurfaceMenu({
+      title: 'Delegation',
+      pageUrl: ROUTES.DELEGATION,
+      onReloadData: loadTasks,
+      onRefresh: () => window.location.reload(),
+    }),
+  )
+
   return (
-    <div style={{ padding: 24 }}>
+    <div style={{ padding: 24 }} {...pageSurfaceMenu}>
       <Card>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
           <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
@@ -412,17 +477,14 @@ export const DelegationPage = () => {
                 options={[{ value: '__all__', label: 'All' }, ...users.map((u) => ({ value: u.id, label: u.full_name }))]}
               />
             )}
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => {
-                form.resetFields()
-                form.setFieldsValue({ submitted_by: user?.id })
-                setModalOpen(true)
-              }}
+            <ContextMenuTarget
+              openHref={delegationCreateHref}
+              openLabel="Add Task"
             >
-              Add Task
-            </Button>
+              <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
+                Add Task
+              </Button>
+            </ContextMenuTarget>
           </Space>
         </div>
         <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
@@ -441,6 +503,9 @@ export const DelegationPage = () => {
               rowKey="id"
               loading={false}
               pagination={false}
+              onRow={(record) => ({
+                onContextMenu: (e) => handleRowContextMenu(record, e),
+              })}
               summary={() => (
                 <Table.Summary>
                   <Table.Summary.Row>

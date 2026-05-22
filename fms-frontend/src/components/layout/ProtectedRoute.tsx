@@ -1,8 +1,9 @@
 import { ReactNode } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import { LoadingSpinner } from '../common/LoadingSpinner'
 import { ROUTES } from '../../utils/constants'
+import { buildLoginUrl } from '../../utils/authRedirect'
 import type { UserRole } from '../../types/auth'
 import { canViewSection, getFirstAllowedRoute } from '../../utils/helpers'
 
@@ -17,13 +18,15 @@ interface ProtectedRouteProps {
 
 export const ProtectedRoute = ({ children, requiredRole, sectionKeys, emailAllowlist }: ProtectedRouteProps) => {
   const { isAuthenticated, isLoading, user } = useAuth()
+  const location = useLocation()
 
   if (isLoading) {
     return <LoadingSpinner fullPage />
   }
 
   if (!isAuthenticated) {
-    return <Navigate to={ROUTES.LOGIN} replace />
+    const returnPath = location.pathname + location.search + location.hash
+    return <Navigate to={buildLoginUrl(returnPath)} replace />
   }
 
   if (requiredRole && user) {

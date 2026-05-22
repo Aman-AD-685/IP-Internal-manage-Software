@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { useLocation } from 'react-router-dom'
+import { ContextMenuTarget } from './ContextMenuTarget'
 import { Button, Space, Modal, Form, DatePicker, Typography } from 'antd'
 import { PrinterOutlined, DownloadOutlined } from '@ant-design/icons'
 import { message } from 'antd'
@@ -103,6 +105,8 @@ export function PrintExport({
   onExportClick,
   dateRangeExport,
 }: PrintExportProps) {
+  const location = useLocation()
+  const pageHref = location.pathname + location.search
   const [rangeModalOpen, setRangeModalOpen] = useState(false)
   const [rangeModalMode, setRangeModalMode] = useState<'export' | 'print'>('export')
   const [rangeLoading, setRangeLoading] = useState(false)
@@ -196,13 +200,17 @@ export function PrintExport({
   return (
     <>
       <Space className="no-print" size="middle" style={{ marginBottom: 16 }}>
-        <Button type="default" icon={<PrinterOutlined />} onClick={handlePrint}>
-          Print
-        </Button>
-        {canExport && (
-          <Button type="default" icon={<DownloadOutlined />} onClick={() => void handleExport()}>
-            Export
+        <ContextMenuTarget openHref={pageHref} openLabel={`Print ${pageTitle}`}>
+          <Button type="default" icon={<PrinterOutlined />} onClick={handlePrint}>
+            Print
           </Button>
+        </ContextMenuTarget>
+        {canExport && (
+          <ContextMenuTarget openHref={pageHref} openLabel={`Export ${pageTitle}`}>
+            <Button type="default" icon={<DownloadOutlined />} onClick={() => void handleExport()}>
+              Export
+            </Button>
+          </ContextMenuTarget>
         )}
       </Space>
 

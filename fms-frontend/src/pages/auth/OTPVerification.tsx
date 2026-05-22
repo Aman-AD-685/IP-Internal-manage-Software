@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
 import { Form, Button, Card, Typography, message, Space } from 'antd'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { authApi } from '../../api/auth'
 import { OTPInput } from '../../components/forms/OTPInput'
-import { storage } from '../../utils/storage'
+import { storage, checkSingleBrowserSession } from '../../utils/storage'
 import { ROUTES } from '../../utils/constants'
-import { getDefaultLandingRoute } from '../../utils/helpers'
+import { getPostLoginPath } from '../../utils/authRedirect'
 import { useAuth } from '../../hooks/useAuth'
 
 const { Title, Text } = Typography
@@ -15,6 +15,7 @@ export const OTPVerification = () => {
   const [loading, setLoading] = useState(false)
   const [resendLoading, setResendLoading] = useState(false)
   const navigate = useNavigate()
+  const location = useLocation()
   const { verifyOTP } = useAuth()
 
   const email = storage.getOTPEmail()
@@ -49,10 +50,15 @@ export const OTPVerification = () => {
 
       if (response.data) {
         const { access_token, refresh_token, user } = response.data
+        const gate = checkSingleBrowserSession(user)
+        if (!gate.ok) {
+          message.error(gate.message)
+          return
+        }
         verifyOTP(access_token, user, refresh_token ?? undefined)
         message.success('OTP verified successfully!')
 
-        navigate(getDefaultLandingRoute(user), { replace: true })
+        navigate(getPostLoginPath(location.search, user), { replace: true })
       }
     } catch (error: any) {
       const errorMessage =

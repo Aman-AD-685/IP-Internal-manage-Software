@@ -1,13 +1,13 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Form, Input, Button, message, Alert, Modal, Typography } from 'antd'
 import { MailOutlined, LockOutlined } from '@ant-design/icons'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { authApi } from '../../api/auth'
 import { validateEmail } from '../../utils/validation'
-import { storage } from '../../utils/storage'
+import { storage, checkSingleBrowserSession } from '../../utils/storage'
 import { AuthLayout } from '../../components/auth/AuthLayout'
 import { ROUTES } from '../../utils/constants'
-import { getDefaultLandingRoute } from '../../utils/helpers'
+import { getPostLoginPath, getRedirectFromSearch } from '../../utils/authRedirect'
 import { useAuth } from '../../hooks/useAuth'
 import { API_BASE_URL } from '../../api/axios'
 import { getLocalUvicornStartCommand } from '../../utils/localBackend'
@@ -63,7 +63,14 @@ export const Login = () => {
   const [forgotEmail, setForgotEmail] = useState('')
   const [forgotLoading, setForgotLoading] = useState(false)
   const navigate = useNavigate()
-  const { login } = useAuth()
+  const location = useLocation()
+  const { login, isAuthenticated, isLoading, user } = useAuth()
+
+  // Already logged in (e.g. opened /login?redirect=... in new tab) — go to intended page.
+  useEffect(() => {
+    if (isLoading || !isAuthenticated || !user) return
+    navigate(getPostLoginPath(location.search, user), { replace: true })
+  }, [isLoading, isAuthenticated, user, location.search, navigate])
 
   const RETRY_DELAYS_MS = [8000, 25000]
 
@@ -108,10 +115,19 @@ export const Login = () => {
 
         if (requires_otp || !user) {
           storage.setOTPEmail(values.email)
-          navigate(ROUTES.OTP)
+          const ret = getRedirectFromSearch(location.search)
+          navigate(
+            ret ? `${ROUTES.OTP}?redirect=${encodeURIComponent(ret)}` : ROUTES.OTP,
+          )
         } else {
+          const gate = checkSingleBrowserSession(user)
+          if (!gate.ok) {
+            setLoginError(gate.message)
+            message.error(gate.message)
+            return
+          }
           login(access_token, user, refresh_token ?? undefined)
-          navigate(getDefaultLandingRoute(user), { replace: true })
+          navigate(getPostLoginPath(location.search, user), { replace: true })
         }
       }
     } catch (error: any) {
