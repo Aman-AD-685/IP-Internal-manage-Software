@@ -1,5 +1,9 @@
 import { useEffect, lazy, Suspense } from "react"
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom"
+import { useAuth } from "./hooks/useAuth"
+import { buildLoginUrl } from "./utils/authRedirect"
+import { getDefaultLandingRoute } from "./utils/helpers"
+import { LoadingSpinner } from "./components/common/LoadingSpinner"
 import { ConfigProvider } from "antd"
 import { PageSkeleton } from "./components/common/skeletons"
 import { AuthProvider } from "./contexts/AuthProvider"
@@ -13,6 +17,7 @@ import { OTPVerification } from "./pages/auth/OTPVerification"
 import { ConfirmationSuccess } from "./pages/auth/ConfirmationSuccess"
 
 import { ErrorBoundary } from "./components/common/ErrorBoundary"
+import { GlobalContextMenuProvider } from "./contextMenu"
 
 const Dashboard = lazy(() => import("./pages/Dashboard").then((m) => ({ default: m.Dashboard })))
 const DashboardKPIPage = lazy(() => import("./pages/Dashboard/DashboardKPIPage").then((m) => ({ default: m.DashboardKPIPage })))
@@ -55,6 +60,30 @@ import {
   DB_CLIENT_DB_DASH_ALLOWED_EMAILS,
   PENDING_PAYMENT_DETAILS_ALLOWED_EMAILS,
 } from "./utils/constants"
+
+function RootRedirect() {
+  const { isAuthenticated, isLoading, user } = useAuth()
+  if (isLoading) return <LoadingSpinner fullPage />
+  if (isAuthenticated && user) {
+    return <Navigate to={getDefaultLandingRoute(user)} replace />
+  }
+  return <Navigate to={ROUTES.LOGIN} replace />
+}
+
+function CatchAllRedirect() {
+  const location = useLocation()
+  const { isAuthenticated, isLoading } = useAuth()
+  if (isLoading) return <LoadingSpinner fullPage />
+  if (isAuthenticated) {
+    return <Navigate to={ROUTES.ACCESS_DENIED} replace />
+  }
+  return (
+    <Navigate
+      to={buildLoginUrl(location.pathname + location.search + location.hash)}
+      replace
+    />
+  )
+}
 
 function AppTitle() {
   const { pathname } = useLocation()
@@ -126,6 +155,7 @@ function App() {
     >
       <AuthProvider>
         <BrowserRouter>
+          <GlobalContextMenuProvider>
           <AppTitle />
           <Suspense fallback={<PageSkeleton />}>
           <Routes>
@@ -485,12 +515,13 @@ function App() {
             {/* ================= DEFAULT ROUTES ================= */}
 
             {/* App root → login */}
-            <Route path="/" element={<Navigate to={ROUTES.LOGIN} replace />} />
+            <Route path="/" element={<RootRedirect />} />
 
             {/* Unknown routes */}
-            <Route path="*" element={<Navigate to={ROUTES.LOGIN} replace />} />
+            <Route path="*" element={<CatchAllRedirect />} />
           </Routes>
           </Suspense>
+          </GlobalContextMenuProvider>
         </BrowserRouter>
       </AuthProvider>
     </ConfigProvider>

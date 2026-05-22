@@ -1,10 +1,13 @@
 import { useState, useEffect, useRef, useCallback, ReactNode } from 'react'
 import { AuthContext, AuthContextType } from './AuthContext'
-import { storage } from '../utils/storage'
+import { storage, checkSingleBrowserSession } from '../utils/storage'
+import { STORAGE_KEYS } from '../utils/constants'
 import { sessionApiCacheClearAll } from '../utils/sessionApiCache'
+import { clearAmiGreetingSession } from '../utils/amiGreeting'
 import { authApi } from '../api/auth'
 import type { User } from '../types/auth'
 import { normalizeUserSectionPermissions } from '../utils/helpers'
+import { readStoredAuthSession } from '../utils/authSession'
 
 /** Refresh access token every 50 min so session does not expire until user logs out (JWT often expires in 1 hr). */
 const PROACTIVE_REFRESH_INTERVAL_MS = 50 * 60 * 1000
@@ -14,9 +17,10 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider = ({ children }: AuthProviderProps) => {
-  const [user, setUser] = useState<User | null>(null)
-  const [token, setToken] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const stored = readStoredAuthSession()
+  const [user, setUser] = useState<User | null>(stored.user)
+  const [token, setToken] = useState<string | null>(stored.token)
+  const [isLoading, setIsLoading] = useState(!stored.hasSession)
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const doProactiveRefresh = useCallback(async () => {
@@ -55,20 +59,21 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     return () => document.removeEventListener('visibilitychange', onVisibilityChange)
   }, [token, user, doProactiveRefresh])
 
-  // Initialize auth state from storage (sessionStorage survives same-tab refresh; cleared when browser session ends)
+  // Validate stored session in background (new tabs already hydrated from localStorage above).
   useEffect(() => {
     const initAuth = async () => {
       const storedToken = storage.getToken()
       const storedUser = storage.getUser()
 
       if (!storedToken || !storedUser) {
+        setToken(null)
+        setUser(null)
         setIsLoading(false)
         return
       }
 
       setToken(storedToken)
       setUser(normalizeUserSectionPermissions(storedUser))
-      // Paint app immediately from session; refresh profile in background (saves 1–3s on reload).
       setIsLoading(false)
 
       try {
@@ -151,13 +156,42 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     initAuth()
   }, [])
 
-  const login = (newToken: string, newUser: User, refreshToken?: string) => {
+  // Sync auth when another tab logs in or out (localStorage is shared per browser).
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.storageArea !== localStorage) return
+      if (e.key !== STORAGE_KEYS.AUTH_TOKEN && e.key !== STORAGE_KEYS.USER) return
+
+      const nextToken = storage.getToken()
+      const nextUser = storage.getUser()
+      if (!nextToken || !nextUser) {
+        sessionApiCacheClearAll()
+        setToken(null)
+        setUser(null)
+        return
+      }
+      setToken(nextToken)
+      setUser(normalizeUserSectionPermissions(nextUser))
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
+
+  const applySession = (newToken: string, newUser: User, refreshToken?: string) => {
     const merged = normalizeUserSectionPermissions(newUser)
     setToken(newToken)
     setUser(merged)
     storage.setToken(newToken)
     storage.setUser(merged)
     if (refreshToken) storage.setRefreshToken(refreshToken)
+  }
+
+  const login = (newToken: string, newUser: User, refreshToken?: string) => {
+    const gate = checkSingleBrowserSession(newUser)
+    if (!gate.ok) {
+      throw new Error(gate.message)
+    }
+    applySession(newToken, newUser, refreshToken)
   }
 
   const logout = async () => {
@@ -167,6 +201,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       console.error('Logout error:', error)
     } finally {
       sessionApiCacheClearAll()
+      clearAmiGreetingSession()
       setToken(null)
       setUser(null)
       storage.clear()
@@ -174,22 +209,16 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   }
 
   const register = (newToken: string, newUser: User, refreshToken?: string) => {
-    const merged = normalizeUserSectionPermissions(newUser)
-    setToken(newToken)
-    setUser(merged)
-    storage.setToken(newToken)
-    storage.setUser(merged)
-    if (refreshToken) storage.setRefreshToken(refreshToken)
+    const gate = checkSingleBrowserSession(newUser)
+    if (!gate.ok) throw new Error(gate.message)
+    applySession(newToken, newUser, refreshToken)
   }
 
   const verifyOTP = (newToken: string, newUser: User, refreshToken?: string) => {
-    const merged = normalizeUserSectionPermissions(newUser)
-    setToken(newToken)
-    setUser(merged)
-    storage.setToken(newToken)
-    storage.setUser(merged)
-    if (refreshToken) storage.setRefreshToken(refreshToken)
-    storage.removeOTPEmail() // Clear OTP email after successful verification
+    const gate = checkSingleBrowserSession(newUser)
+    if (!gate.ok) throw new Error(gate.message)
+    applySession(newToken, newUser, refreshToken)
+    storage.removeOTPEmail()
   }
 
   const refreshUser = (updatedUser: User) => {

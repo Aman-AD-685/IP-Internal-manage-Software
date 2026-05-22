@@ -12,6 +12,9 @@ import { ROUTES, canViewDbClientDbDash, canViewPendingPaymentDetails } from '../
 import { useRole } from '../../hooks/useRole'
 import { useAuth } from '../../hooks/useAuth'
 import { startIdleRoutePrefetch } from '../../utils/routePrefetch'
+import { useContextMenuTrigger, buildPageSurfaceMenu } from '../../contextMenu'
+import { OPEN_ACTION } from '../../utils/openActions'
+import { useDeepLinkAction } from '../../hooks/useDeepLinkAction'
 
 const { Content } = Layout
 
@@ -30,9 +33,23 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const { user } = useAuth()
   const { canAccessApproval, canAccessUsers, canAccessSettings, canViewSectionByKey } = useRole()
   const section = new URLSearchParams(location.search).get('section')
+  const pageContextMenu = useContextMenuTrigger(() =>
+    buildPageSurfaceMenu({
+      title: document.title,
+      pageUrl: location.pathname + location.search,
+      onRefresh: () => window.location.reload(),
+      onReloadData: () => window.location.reload(),
+    }),
+  )
   const showAddNew =
     location.pathname === ROUTES.SUPPORT_DASHBOARD ||
     (location.pathname === ROUTES.TICKETS && !HIDDEN_ADD_NEW_SECTIONS.includes(section ?? ''))
+
+  useDeepLinkAction(
+    OPEN_ACTION.SUPPORT_TICKET,
+    () => setSupportModalOpen(true),
+    showAddNew,
+  )
 
   useEffect(() => {
     if (!user) return
@@ -112,6 +129,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
             minHeight: 280,
             fontSize: 12,
           }}
+          {...pageContextMenu}
         >
           {children}
         </Content>

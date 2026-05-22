@@ -10,13 +10,16 @@ import {
 } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { useRole } from '../../hooks/useRole'
 import { ImprovementSuggestionModal } from '../improvement/ImprovementSuggestionModal'
 import { ImprovementI1AdminModal } from '../improvement/ImprovementI1AdminModal'
 import { getInitials, canViewSection } from '../../utils/helpers'
 import { ROUTES } from '../../utils/constants'
+import { ContextMenuTarget } from '../common/ContextMenuTarget'
+import { OPEN_ACTION, buildOpenActionUrl } from '../../utils/openActions'
+import { useDeepLinkAction } from '../../hooks/useDeepLinkAction'
 import type { UserRole } from '../../types/auth'
 import { dashboardApi } from '../../api/dashboard'
 import { DASHBOARD_KPI_NAMES } from '../../api/dashboardKpi'
@@ -55,6 +58,36 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
     dashboardApi.getActivityCount().then(setActivityCount).catch(() => setActivityCount(0))
   }, [])
 
+  const improvementHref = buildOpenActionUrl(
+    location.pathname,
+    location.search,
+    OPEN_ACTION.IMPROVEMENT,
+  )
+  const improvementI1Href = buildOpenActionUrl(
+    location.pathname,
+    location.search,
+    OPEN_ACTION.IMPROVEMENT_I1,
+  )
+  const supportTicketHref = buildOpenActionUrl(
+    location.pathname,
+    location.search,
+    OPEN_ACTION.SUPPORT_TICKET,
+  )
+
+  const defaultKpiHref = useMemo(() => {
+    if (!user) return ROUTES.DASHBOARD_KPI
+    const names = DASHBOARD_KPI_NAMES.filter((name) =>
+      canViewDashboardKpiPerson(name, user.role as UserRole, user.section_permissions),
+    )
+    const first = names[0]
+    return first
+      ? `${ROUTES.DASHBOARD_KPI}?person=${encodeURIComponent(first)}`
+      : ROUTES.DASHBOARD_KPI
+  }, [user])
+
+  useDeepLinkAction(OPEN_ACTION.IMPROVEMENT, () => setImprovementOpen(true), canImprovement)
+  useDeepLinkAction(OPEN_ACTION.IMPROVEMENT_I1, () => setI1Open(true), canImprovementI1)
+
   const handleLogout = () => {
     logout()
     navigate(ROUTES.LOGIN)
@@ -63,11 +96,18 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
   const dashboardKpiMenuItems: MenuProps['items'] = user
     ? DASHBOARD_KPI_NAMES.filter((name) =>
         canViewDashboardKpiPerson(name, user.role as UserRole, user.section_permissions),
-      ).map((name) => ({
-        key: `dashboard-kpi-${name}`,
-        label: `${name} Dashboard`,
-        onClick: () => navigate(`${ROUTES.DASHBOARD_KPI}?person=${encodeURIComponent(name)}`),
-      }))
+      ).map((name) => {
+        const href = `${ROUTES.DASHBOARD_KPI}?person=${encodeURIComponent(name)}`
+        return {
+          key: `dashboard-kpi-${name}`,
+          label: (
+            <span data-open-href={href} data-open-label={`${name} Dashboard`}>
+              {name} Dashboard
+            </span>
+          ),
+          onClick: () => navigate(href),
+        }
+      })
     : []
 
   const menuItems: MenuProps['items'] = [
@@ -119,37 +159,45 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
       </Space>
       <Space size="middle">
         {canImprovementI1 ? (
-          <Button type="default" onClick={() => setI1Open(true)} className="kpi-header-trigger-btn">
-            I - 1
-          </Button>
+          <ContextMenuTarget openHref={improvementI1Href} openLabel="I - 1">
+            <Button type="default" onClick={() => setI1Open(true)} className="kpi-header-trigger-btn">
+              I - 1
+            </Button>
+          </ContextMenuTarget>
         ) : null}
         {canImprovement ? (
-          <Button type="default" icon={<BulbOutlined />} onClick={() => setImprovementOpen(true)}>
-            Improvement
-          </Button>
+          <ContextMenuTarget openHref={improvementHref} openLabel="Improvement">
+            <Button type="default" icon={<BulbOutlined />} onClick={() => setImprovementOpen(true)}>
+              Improvement
+            </Button>
+          </ContextMenuTarget>
         ) : null}
         {canViewDashboardKpi ? (
-          <Dropdown
-            trigger={['click']}
-            menu={{ items: dashboardKpiMenuItems, className: 'kpi-header-dropdown-menu' }}
-            placement="bottomLeft"
-            overlayClassName="kpi-header-dropdown"
-          >
-            <Button type="default" icon={<DashboardOutlined />} className="kpi-header-trigger-btn">
-              Dashboard - KPI
-            </Button>
-          </Dropdown>
+          <ContextMenuTarget openHref={defaultKpiHref} openLabel="Dashboard - KPI">
+            <Dropdown
+              trigger={['click']}
+              menu={{ items: dashboardKpiMenuItems, className: 'kpi-header-dropdown-menu' }}
+              placement="bottomLeft"
+              overlayClassName="kpi-header-dropdown"
+            >
+              <Button type="default" icon={<DashboardOutlined />} className="kpi-header-trigger-btn">
+                Dashboard - KPI
+              </Button>
+            </Dropdown>
+          </ContextMenuTarget>
         ) : null}
         {!hideAddNew && onAddNew && (
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={onAddNew}
-            style={{ fontWeight: 500 }}
-            className="submit-btn"
-          >
-            <span className="submit-btn-text">Submit Support Ticket</span>
-          </Button>
+          <ContextMenuTarget openHref={supportTicketHref} openLabel="Submit Support Ticket">
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={onAddNew}
+              style={{ fontWeight: 500 }}
+              className="submit-btn"
+            >
+              <span className="submit-btn-text">Submit Support Ticket</span>
+            </Button>
+          </ContextMenuTarget>
         )}
         <Dropdown
           trigger={['click']}

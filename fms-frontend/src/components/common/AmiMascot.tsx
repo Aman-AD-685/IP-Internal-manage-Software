@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { markAmiGreetingShown, wasAmiGreetingShown } from '../../utils/amiGreeting'
 import './AmiMascot.css'
 
 type AmiMascotProps = {
@@ -49,12 +50,20 @@ export function AmiMascot({
   durationMs = 60_000,
 }: AmiMascotProps) {
   const [visible, setVisible] = useState(false)
+  const startedRef = useRef(false)
 
   useEffect(() => {
     if (!userName) {
       setVisible(false)
       return
     }
+    // Once per login session only (not on every page or profile refresh).
+    if (wasAmiGreetingShown() || startedRef.current) {
+      setVisible(false)
+      return
+    }
+    startedRef.current = true
+    markAmiGreetingShown()
     setVisible(true)
     const timer = window.setTimeout(() => setVisible(false), durationMs)
     return () => window.clearTimeout(timer)
