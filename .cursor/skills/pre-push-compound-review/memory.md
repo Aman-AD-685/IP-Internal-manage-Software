@@ -23,6 +23,8 @@ Do not remove entries; add dated bullets.
 - 2026-05-22: **Dashboard KPI 7–10s** — `/dashboard/kpi` is expensive-tier; use cache-first paint (`sessionApiCacheGet`), `prefetchDashboardKpiPerson` on chooser hover/click + header menu; session TTL 8m; backend `@cached(ttl=120)` for `/dashboard/kpi` and soumya-kpi. First open per person/week still ~3–7s (DB work); repeat open should be &lt;2s.
 - 2026-05-22: **1–3s load budget (production)** — Never full-scan `tickets` for dashboard/support metrics; use `_count_open_queue_tickets` + filtered date windows; `_ref_no_to_company_for_rows` only (not all refs); ticket list `_TICKET_LIST_SELECT` not `*`; `_SUPPORT_DASH_CACHE` 120s; bootstrap/metrics **not** on expensive rate-limit tier; run `database/TICKETS_OPEN_QUEUE_INDEXES.sql` in Supabase after deploy.
 - 2026-05-22: **Regression checklist** — After perf change: (1) Dashboard bootstrap &lt;3s cached, (2) Chores & Bugs list first page, (3) Approval Status features, (4) Support Dashboard stats; hard refresh + repeat navigation; cold Render start is separate (keepalive cron).
+- 2026-05-22: **Dashboard KPI 10s+** — `/dashboard/kpi` must NOT load all tickets; use `_fetch_kpi_chore_bug_tickets(month)` + `_enrich_kpi_ticket_slices` only; one month checklist completion query; `@cached(ttl=300)`; KPI/soumya on **global** rate-limit tier; frontend cache-first + stagger prefetch on chooser (400ms apart).
+- 2026-05-22: **I-1 board 5s+** — backend `_I1_LIST_CACHE` 120s + narrow columns; frontend `improvement-i1:list` session cache 5m + cache-first modal + Header idle prefetch 3.5s; invalidate on mutate.
 
 ## Rejected suggestions
 

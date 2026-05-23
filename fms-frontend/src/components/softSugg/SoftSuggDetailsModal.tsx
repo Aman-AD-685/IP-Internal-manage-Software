@@ -236,7 +236,7 @@ export function SoftSuggDetailsModal({ open, onClose, onMoveToSoft }: Props) {
 
   return (
     <Modal
-      title="Sugg Details"
+      title="IP Details"
       open={open}
       onCancel={onClose}
       footer={null}
@@ -244,7 +244,7 @@ export function SoftSuggDetailsModal({ open, onClose, onMoveToSoft }: Props) {
       destroyOnClose
     >
       <p style={{ color: '#64748b', marginBottom: 12 }}>
-        Master Admin can edit all columns. Users with <strong>Sugg Details → Edit</strong> can use{' '}
+        Master Admin can edit all columns. Users with <strong>IP Details → Edit</strong> can use{' '}
         <strong>Move to Soft</strong> only (opens Support form; ticket appears under Support menu).
       </p>
       <Table

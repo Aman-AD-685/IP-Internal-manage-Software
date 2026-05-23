@@ -1600,6 +1600,59 @@ def _count_open_queue_tickets(
         return 0
 
 
+_KPI_CB_COLS = (
+    "id,reference_no,title,description,type,company_id,company_name,created_by,created_at,assignee_id,"
+    "status,status_4,quality_solution,actual_4,query_arrival_at,query_response_at,"
+    "planned_2,actual_2,actual_1,status_2,resolved_at,staging_planned,live_review_status"
+)
+
+
+def _fetch_kpi_chore_bug_tickets(month_start: date, month_end: date) -> list[dict]:
+    """Bounded chore/bug rows for dashboard KPI (not full tickets table)."""
+    fetch_from = month_start - timedelta(days=45)
+    fetch_to = month_end + timedelta(days=14)
+    by_id: dict[str, dict] = {}
+
+    def _ingest(rows: list | None) -> None:
+        for t in rows or []:
+            tid = t.get("id")
+            if tid:
+                by_id[str(tid)] = t
+
+    def _base_q():
+        return supabase.table("tickets").select(_KPI_CB_COLS).in_("type", ["chore", "bug"])
+
+    try:
+        q1 = _base_q().gte("created_at", fetch_from.isoformat()).lte("created_at", fetch_to.isoformat())
+        _ingest(_supabase_fetch_all_rows(lambda: q1, max_rows=8000))
+        q2 = _base_q().gte("actual_2", month_start.isoformat()).lte("actual_2", fetch_to.isoformat())
+        _ingest(_supabase_fetch_all_rows(lambda: q2, max_rows=5000))
+    except Exception as e:
+        _log(f"kpi ticket fetch: {e}")
+        return []
+    return list(by_id.values())
+
+
+def _kpi_akash_ticket_visible(t: dict) -> bool:
+    sp = t.get("staging_planned")
+    lrs = str(t.get("live_review_status") or "").lower()
+    if sp and lrs != "completed":
+        return False
+    return str(t.get("status_2") or "").lower() != "staging"
+
+
+def _enrich_kpi_ticket_slices(*slices: list[dict]) -> None:
+    """Enrich only tickets shown in KPI tables (skip bulk enrich of full in-memory list)."""
+    by_id: dict[str, dict] = {}
+    for sl in slices:
+        for t in sl:
+            tid = t.get("id")
+            if tid:
+                by_id[str(tid)] = t
+    if by_id:
+        _enrich_tickets_with_lookups(list(by_id.values()))
+
+
 def _enrich_tickets_with_lookups(rows: list) -> list:
     """Add company_name, page_name, division_name from lookup tables."""
     if not rows:
@@ -3330,7 +3383,7 @@ def _build_akash_kpi_payload(
 
 
 @api_router.get("/dashboard/soumya-kpi")
-@cached(ttl=120, key_prefix="dash:soumya:")
+@cached(ttl=300, key_prefix="dash:soumya:")
 def dashboard_soumya_kpi(
     month: str = Query("Feb", description="Month: Jan..Dec"),
     year: str = Query("2026", description="Year"),
@@ -3373,7 +3426,7 @@ async def cron_soumya_sla_scan(
 
 
 @api_router.get("/dashboard/kpi")
-@cached(ttl=120, key_prefix="dash:")
+@cached(ttl=300, key_prefix="dash:")
 def dashboard_kpi(
     name: str = Query(..., description="Person name: Shreyasi, Rimpa, Akash, Adrija, Soumya, etc."),
     month: str = Query("Feb", description="Month: Jan..Dec"),
@@ -3429,25 +3482,27 @@ def dashboard_kpi(
         checklist_weekly_pct = 0
         checklist_monthly_pct = 0
         tasks = []
+        task_ids: list = []
+        comp_month: dict = {}
         try:
             from app.checklist_utils import get_occurrence_dates_in_range
-            q = supabase.table("checklist_tasks").select("*").eq("doer_id", user_id)
+            q = supabase.table("checklist_tasks").select(
+                "id,start_date,frequency,task_name,doer_id"
+            ).eq("doer_id", user_id)
             r = q.execute()
             tasks = r.data or []
             task_ids = [t["id"] for t in tasks]
             comp_week = {}
             comp_month = {}
             if task_ids:
-                cr = supabase.table("checklist_completions").select("task_id, occurrence_date, completed_at")
-                cr = cr.gte("occurrence_date", range_start.isoformat()).lte("occurrence_date", range_end.isoformat())
-                cr = cr.in_("task_id", task_ids)
-                for row in (cr.execute().data or []):
-                    comp_week[(row["task_id"], row["occurrence_date"])] = row.get("completed_at")
                 cr2 = supabase.table("checklist_completions").select("task_id, occurrence_date, completed_at")
                 cr2 = cr2.gte("occurrence_date", month_start.isoformat()).lte("occurrence_date", month_end.isoformat())
                 cr2 = cr2.in_("task_id", task_ids)
                 for row in (cr2.execute().data or []):
                     comp_month[(row["task_id"], row["occurrence_date"])] = row.get("completed_at")
+                for (tid, od), val in comp_month.items():
+                    if range_start.isoformat() <= od <= range_end.isoformat():
+                        comp_week[(tid, od)] = val
             occ_week = []
             occ_month = []
             for task in tasks:
@@ -3486,7 +3541,9 @@ def dashboard_kpi(
         all_tasks = []
         try:
             # Show delegation tasks where this user is either the assignee or the submitter
-            q = supabase.table("delegation_tasks").select("*")
+            q = supabase.table("delegation_tasks").select(
+                "id,title,task,status,due_date,delegation_on,shifted_week,document_url,assignee_id,submitted_by"
+            )
             q = q.or_(f"assignee_id.eq.{user_id},submitted_by.eq.{user_id}")
             r = q.execute()
             all_tasks = r.data or []
@@ -3545,37 +3602,29 @@ def dashboard_kpi(
         response_delay_details = []
         completion_delay_details = []
         pending_details = []
-        tickets = []
+        tickets: list = []
         stage2_completed_in_week = 0
         if not is_akash:
             try:
-                types_cb = ["chore", "bug"]
-                cols = (
-                    "id, reference_no, title, description, type, company_id, company_name, created_by, created_at, assignee_id, "
-                    "status, status_4, quality_solution, actual_4, query_arrival_at, query_response_at, "
-                    "planned_2, actual_2, actual_1, status_2"
-                )
-                # Support FMS should match Support Dashboard logic (global Chores & Bugs, not per-user)
-                tickets = []
-                try:
-                    q = supabase.table("tickets").select(cols).in_("type", types_cb)
-                    r = q.execute()
-                    tickets = r.data or []
-                except Exception:
-                    try:
-                        r1 = supabase.table("tickets").select(cols).in_("type", types_cb).execute()
-                        tickets = r1.data or []
-                    except Exception as e2:
-                        _log(f"dashboard/kpi tickets fetch: {e2}")
-
-                # Enrich all chores/bugs once (company names) — used for weekly slice and Stage 2 completion week
-                _enrich_tickets_with_lookups(tickets)
+                tickets = _fetch_kpi_chore_bug_tickets(month_start, month_end)
 
                 week_tickets = []
                 for t in tickets:
                     d_arrival = _parse_iso_to_date(t.get("query_arrival_at") or t.get("created_at"))
                     if d_arrival is not None and range_start <= d_arrival <= range_end:
                         week_tickets.append(t)
+
+                stage2_completed_tickets = []
+                for t in tickets:
+                    if not _stage2_marked_completed(t.get("status_2")):
+                        continue
+                    if not (str(t.get("actual_2") or "").strip()):
+                        continue
+                    d2 = _parse_iso_to_date(t.get("actual_2"))
+                    if d2 is not None and range_start <= d2 <= range_end:
+                        stage2_completed_tickets.append(t)
+
+                _enrich_kpi_ticket_slices(week_tickets, stage2_completed_tickets)
 
                 def _support_fms_row_item(ticket: dict) -> dict:
                     created = ticket.get("created_at") or ""
@@ -3613,16 +3662,6 @@ def dashboard_kpi(
                         )
 
                 # Completion delay (Stage 2): bucket by week of actual_2 (when Stage 2 completed), not ticket creation week.
-                # So CH-0265 / CH-0264 appear in the week they crossed Stage 2 TAT, even if created earlier.
-                stage2_completed_tickets = []
-                for t in tickets:
-                    if not _stage2_marked_completed(t.get("status_2")):
-                        continue
-                    if not (str(t.get("actual_2") or "").strip()):
-                        continue
-                    d2 = _parse_iso_to_date(t.get("actual_2"))
-                    if d2 is not None and range_start <= d2 <= range_end:
-                        stage2_completed_tickets.append(t)
                 stage2_completed_in_week = len(stage2_completed_tickets)
 
                 # Completion Delay includes only tickets completed at Stage 2 in selected week
@@ -3716,11 +3755,11 @@ def dashboard_kpi(
                 # Checklist % for this week
                 cl_pct = 0
                 if task_ids:
-                    comp_w = {}
-                    cr = supabase.table("checklist_completions").select("task_id, occurrence_date, completed_at")
-                    cr = cr.gte("occurrence_date", rs.isoformat()).lte("occurrence_date", re.isoformat()).in_("task_id", task_ids)
-                    for row in (cr.execute().data or []):
-                        comp_w[(row["task_id"], row["occurrence_date"])] = row.get("completed_at")
+                    comp_w = {
+                        k: v
+                        for k, v in comp_month.items()
+                        if rs.isoformat() <= k[1] <= re.isoformat()
+                    }
                     occ_w = []
                     for task in (tasks or []):
                         t_id = task["id"]
@@ -3769,16 +3808,9 @@ def dashboard_kpi(
         if is_akash:
             customer_support_bundle: dict = {}
             try:
-                cols = (
-                    "id, reference_no, title, description, type, company_id, company_name, created_by, created_at, "
-                    "assignee_id, user_name, status, status_4, quality_solution, actual_4, query_arrival_at, "
-                    "query_response_at, planned_2, actual_2, actual_1, status_2, resolved_at"
-                )
-                qa = supabase.table("tickets").select(cols).in_("type", ["chore", "bug"])
-                qa = qa.or_("staging_planned.is.null,live_review_status.eq.completed")
-                qa = qa.or_("status_2.is.null,status_2.neq.staging")
-                ak_tickets = (qa.execute().data or [])
-                _enrich_tickets_with_lookups(ak_tickets)
+                ak_tickets = [
+                    t for t in _fetch_kpi_chore_bug_tickets(month_start, month_end) if _kpi_akash_ticket_visible(t)
+                ]
             except Exception as e:
                 _log(f"dashboard/kpi akash support tickets: {e}")
                 ak_tickets = []
@@ -3793,6 +3825,8 @@ def dashboard_kpi(
                 else f"{_MONTH_NAMES[prev_rs.month - 1]}-{_MONTH_NAMES[prev_re.month - 1]}"
             )
             week_slice = _tickets_arrival_within_range(ak_tickets, prev_rs, prev_re)
+            week_slice_filter = _tickets_arrival_within_range(ak_tickets, filter_rs, filter_re)
+            _enrich_kpi_ticket_slices(week_slice, week_slice_filter)
             total_cs = len(week_slice)
             pending_cs = sum(
                 1
@@ -3800,7 +3834,6 @@ def dashboard_kpi(
                 if _is_pending(t.get("status") or "") and not _is_resolved(t.get("status"), t.get("status_4"))
             )
             cs_score = round(((total_cs - pending_cs) / total_cs) * 100) if total_cs else 0
-            week_slice_filter = _tickets_arrival_within_range(ak_tickets, filter_rs, filter_re)
             total_cf = len(week_slice_filter)
             pending_cf = sum(
                 1
@@ -11214,8 +11247,8 @@ _SECTION_LABELS_BASE: dict[str, str] = {
     "dashboard_kpi": "Dashboard - KPI (page)",
     "improvement": "Improvement (submit suggestion)",
     "improvement_i1": "I - 1 (improvement board)",
-    "soft_sugg": "S - Sugg (submit)",
-    "soft_sugg_details": "Sugg Details (board)",
+    "soft_sugg": "IP Suggestion (submit)",
+    "soft_sugg_details": "IP Details (board)",
     "support_dashboard": "Support Dashboard",
     "all_tickets": "All Tickets",
     "chores_bugs": "Chores & Bugs",

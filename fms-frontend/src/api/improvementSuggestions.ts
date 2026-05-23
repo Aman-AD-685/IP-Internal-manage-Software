@@ -1,4 +1,10 @@
 import { apiClient } from './axios'
+import {
+  API_CACHE_TTL_MS,
+  sessionApiCacheGet,
+  sessionApiCacheSet,
+  invalidateAfterImprovementI1Mutation,
+} from '../utils/sessionApiCache'
 
 export type ImprovementStatus = 'done' | 'not_done'
 
@@ -14,14 +20,29 @@ export interface ImprovementSuggestion {
   updated_at?: string
 }
 
+const I1_LIST_KEY = 'improvement-i1:list'
+
 export const improvementSuggestionsApi = {
   me: () =>
     apiClient.get<{ user_id: string; user_display_name: string; email?: string }>(
       '/improvement-suggestions/me',
     ),
 
-  list: () =>
-    apiClient.get<{ data: ImprovementSuggestion[]; can_edit: boolean }>('/improvement-suggestions'),
+  list: async (options?: { skipCache?: boolean }) => {
+    if (!options?.skipCache) {
+      const cached = sessionApiCacheGet<{ data: ImprovementSuggestion[]; can_edit: boolean }>(I1_LIST_KEY)
+      if (cached?.data) return { data: cached }
+    }
+    const r = await apiClient.get<{ data: ImprovementSuggestion[]; can_edit: boolean }>(
+      '/improvement-suggestions',
+    )
+    sessionApiCacheSet(I1_LIST_KEY, r.data, API_CACHE_TTL_MS.improvementI1List)
+    return r
+  },
+
+  prefetchList: () => {
+    void improvementSuggestionsApi.list().catch(() => {})
+  },
 
   create: (suggestion_text: string) =>
     apiClient.post<{ success: boolean; data: ImprovementSuggestion }>('/improvement-suggestions', {
@@ -47,4 +68,8 @@ export const improvementSuggestionsApi = {
     apiClient.delete<{ success: boolean; reference_no?: string }>(
       `/improvement-suggestions/${id}`,
     ),
+}
+
+export function invalidateImprovementI1Cache(): void {
+  invalidateAfterImprovementI1Mutation()
 }

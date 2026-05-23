@@ -16,8 +16,9 @@ export const API_CACHE_TTL_MS = {
   dashboardSuccessKpi: 5 * 60 * 1000,
   dashboardSuccessPerformanceList: 2 * 60 * 1000,
   dashboardActivity: 60 * 1000,
-  dashboardKpi: 8 * 60 * 1000,
-  dashboardSoumyaKpi: 8 * 60 * 1000,
+  dashboardKpi: 10 * 60 * 1000,
+  dashboardSoumyaKpi: 10 * 60 * 1000,
+  improvementI1List: 5 * 60 * 1000,
   ticketsList: 3 * 60 * 1000,
   leadsListActive: 90 * 1000,
   ticketGet: 30 * 1000,
@@ -191,4 +192,8 @@ export function invalidateAfterPerformanceNaChange(): void {
   } catch {
     /* private mode / quota */
   }
+}
+
+export function invalidateAfterImprovementI1Mutation(): void {
+  sessionApiCacheRemove('improvement-i1:list')
 }

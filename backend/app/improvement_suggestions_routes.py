@@ -6,6 +6,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
+from cachetools import TTLCache
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -16,6 +17,15 @@ improvement_router = APIRouter(tags=["improvement-suggestions"])
 
 IMPROVEMENT_SECTION = "improvement"
 IMPROVEMENT_I1_SECTION = "improvement_i1"
+
+_I1_LIST_CACHE: TTLCache = TTLCache(maxsize=8, ttl=120)
+_I1_LIST_COLS = (
+    "id,reference_no,suggestion_text,created_by,user_display_name,status,created_at,done_at,updated_at"
+)
+
+
+def invalidate_improvement_i1_list_cache() -> None:
+    _I1_LIST_CACHE.clear()
 
 
 def _role(user_id: str) -> str:
@@ -126,6 +136,22 @@ def _row_out(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _load_i1_rows() -> list[dict[str, Any]]:
+    try:
+        return _I1_LIST_CACHE["rows"]
+    except KeyError:
+        pass
+    r = (
+        supabase.table("improvement_suggestions")
+        .select(_I1_LIST_COLS)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    rows = [_row_out(x) for x in (r.data or [])]
+    _I1_LIST_CACHE["rows"] = rows
+    return rows
+
+
 class ImprovementCreateBody(BaseModel):
     suggestion_text: str = Field(..., min_length=1, max_length=8000)
 
@@ -150,12 +176,7 @@ def improvement_suggestions_me(auth: dict = Depends(_require_improvement_view)):
 def list_improvement_suggestions(auth: dict = Depends(_require_i1_view)):
     """I-1 board list (view = improvement_i1; edit = improvement_i1 Edit in User permissions)."""
     try:
-        r = (
-            supabase.table("improvement_suggestions")
-            .select("*")
-            .order("created_at", desc=True)
-            .execute()
-        )
+        rows = _load_i1_rows()
     except Exception as e:
         err = str(e)
         if "improvement_suggestions" in err and ("does not exist" in err or "PGRST205" in err):
@@ -164,7 +185,6 @@ def list_improvement_suggestions(auth: dict = Depends(_require_i1_view)):
                 detail="Table missing. Run database/IMPROVEMENT_SUGGESTIONS_SYSTEM.sql in Supabase.",
             ) from e
         raise HTTPException(status_code=500, detail="Could not load improvement suggestions.") from e
-    rows = [_row_out(x) for x in (r.data or [])]
     return {
         "data": rows,
         "can_edit": _section_access(auth["id"], IMPROVEMENT_I1_SECTION, need_edit=True),
@@ -203,6 +223,7 @@ def create_improvement_suggestion(
         raise HTTPException(status_code=500, detail="Could not save suggestion.") from e
     if not ins.data:
         raise HTTPException(status_code=500, detail="Could not save suggestion.")
+    invalidate_improvement_i1_list_cache()
     return {"success": True, "data": _row_out(ins.data[0])}
 
 
@@ -219,7 +240,7 @@ def update_improvement_suggestion(
         raise HTTPException(status_code=400, detail="No fields to update.")
     existing = (
         supabase.table("improvement_suggestions")
-        .select("*")
+        .select("id, status")
         .eq("id", row_id)
         .limit(1)
         .execute()
@@ -262,6 +283,7 @@ def update_improvement_suggestion(
     if not ur.data:
         raise HTTPException(status_code=404, detail="Suggestion not found.")
     updated = ur.data[0]
+    invalidate_improvement_i1_list_cache()
     email_sent = False
     email_error: str | None = None
     new_status = (updated.get("status") or "not_done").strip()
@@ -293,4 +315,5 @@ def delete_improvement_suggestion(row_id: str, auth: dict = Depends(_require_i1_
         supabase.table("improvement_suggestions").delete().eq("id", row_id).execute()
     except Exception as e:
         raise HTTPException(status_code=500, detail="Could not delete suggestion.") from e
+    invalidate_improvement_i1_list_cache()
     return {"success": True, "reference_no": ref}

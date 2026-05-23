@@ -432,14 +432,14 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
 
   const openSoftSugg = () => {
     if (!canSoftSugg) {
-      message.warning('Enable "S - Sugg" under Users → Section permissions, then log in again.')
+      message.warning('Enable "IP Suggestion" under Users → Section permissions, then log in again.')
       return
     }
     setSoftSuggOpen(true)
   }
   const openSuggDetails = () => {
     if (!canSuggDetails) {
-      message.warning('Enable "Sugg Details" under Users → Section permissions, then log in again.')
+      message.warning('Enable "IP Details" under Users → Section permissions, then log in again.')
       return
     }
     setSuggDetailsOpen(true)
@@ -467,14 +467,14 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
       }}
     >
       <Button type="text" icon={<CloseOutlined />} onClick={onClose} aria-label="Close menu" />
-      <ContextMenuTarget openHref={softSuggHref} openLabel="S - Sugg">
+      <ContextMenuTarget openHref={softSuggHref} openLabel="IP Suggestion">
         <Button size="small" type="default" onClick={openSoftSugg}>
-          S - Sugg
+          IP Suggestion
         </Button>
       </ContextMenuTarget>
-      <ContextMenuTarget openHref={softSuggDetailsHref} openLabel="Sugg Details">
+      <ContextMenuTarget openHref={softSuggDetailsHref} openLabel="IP Details">
         <Button size="small" type="default" onClick={openSuggDetails}>
-          Sugg Details
+          IP Details
         </Button>
       </ContextMenuTarget>
     </div>

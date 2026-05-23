@@ -22,6 +22,7 @@ import { OPEN_ACTION, buildOpenActionUrl } from '../../utils/openActions'
 import { useDeepLinkAction } from '../../hooks/useDeepLinkAction'
 import type { UserRole } from '../../types/auth'
 import { dashboardApi } from '../../api/dashboard'
+import { improvementSuggestionsApi } from '../../api/improvementSuggestions'
 import { DASHBOARD_KPI_NAMES, prefetchDashboardKpiPerson, MONTHS } from '../../api/dashboardKpi'
 import { getDefaultPreviousWeekFilter } from '../../pages/Dashboard/kpiWeekUtils'
 import { canViewDashboardKpiPerson } from '../../utils/dashboardKpiPermissions'
@@ -61,6 +62,12 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
     }, 2500)
     return () => window.clearTimeout(t)
   }, [])
+
+  useEffect(() => {
+    if (!canImprovementI1) return
+    const t = window.setTimeout(() => improvementSuggestionsApi.prefetchList(), 3500)
+    return () => window.clearTimeout(t)
+  }, [canImprovementI1])
 
   const improvementHref = buildOpenActionUrl(
     location.pathname,

@@ -70,9 +70,6 @@ _AUTH_PATHS = {
 # Do NOT include /tickets — paginated list is called often (prefetch + scroll); use global tier.
 _EXPENSIVE_PREFIXES = (
     "/onboarding/client-payment/payment-summary",
-    # bootstrap/metrics use in-process TTL cache — keep on global tier so prefetch + navigation are not throttled together
-    "/dashboard/kpi",
-    "/dashboard/soumya-kpi",
     "/dashboard/detail",
     "/success/performance/list",
 )

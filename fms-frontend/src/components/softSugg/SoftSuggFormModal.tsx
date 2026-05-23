@@ -63,7 +63,7 @@ export function SoftSuggFormModal({ open, onClose, onSubmitted }: Props) {
 
   return (
     <Modal
-      title="S - Sugg"
+      title="IP Suggestion"
       open={open}
       onCancel={onClose}
       onOk={handleSubmit}
