@@ -34,32 +34,10 @@ def _role(user_id: str) -> str:
     return _get_role_from_profile(user_id)
 
 
-def _perm_rows(user_id: str) -> list[dict[str, Any]]:
-    try:
-        r = (
-            supabase.table("user_section_permissions")
-            .select("section_key, can_view, can_edit")
-            .eq("user_id", user_id)
-            .execute()
-        )
-        return r.data or []
-    except Exception:
-        return []
-
-
 def _section_access(user_id: str, section_key: str, *, need_edit: bool = False) -> bool:
-    """Match Edit User matrix (legacy: elevated roles with no rows = full access)."""
-    role = _role(user_id)
-    rows = _perm_rows(user_id)
-    elevated = role in ("master_admin", "admin", "approver")
-    if elevated and len(rows) == 0:
-        return True
-    p = next((r for r in rows if r.get("section_key") == section_key), None)
-    if not p:
-        return False
-    if need_edit:
-        return bool(p.get("can_view")) and bool(p.get("can_edit"))
-    return bool(p.get("can_view"))
+    from app.section_permissions_util import can_view_section
+
+    return can_view_section(user_id, section_key, need_edit=need_edit)
 
 
 def _require_improvement_view(auth: dict = Depends(get_current_user)) -> dict:
