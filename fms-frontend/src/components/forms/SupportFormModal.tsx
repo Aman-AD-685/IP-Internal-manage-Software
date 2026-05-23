@@ -103,7 +103,7 @@ interface SupportFormModalProps {
   open: boolean
   onClose: () => void
   onSuccess?: (ticket?: import('../../api/tickets').Ticket) => void
-  /** Prefill from Sugg Details → Move to Soft (skips draft restore). */
+  /** Prefill from IP Details → Move to Soft (skips draft restore). */
   prefill?: SupportFormPrefill | null
 }
 

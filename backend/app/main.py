@@ -2407,6 +2407,8 @@ def invalidate_dashboard_read_caches() -> None:
     _DASH_TRENDS_CACHE.clear()
     _DASH_BOOTSTRAP_CACHE.clear()
     _SUPPORT_DASH_CACHE.clear()
+    _invalidate_ttl_cache_key_prefix("dash:")
+    _invalidate_ttl_cache_key_prefix("dash:soumya:")
 
 
 @api_router.get("/dashboard/metrics")
@@ -3383,7 +3385,6 @@ def _build_akash_kpi_payload(
 
 
 @api_router.get("/dashboard/soumya-kpi")
-@cached(ttl=300, key_prefix="dash:soumya:")
 def dashboard_soumya_kpi(
     month: str = Query("Feb", description="Month: Jan..Dec"),
     year: str = Query("2026", description="Year"),
@@ -3397,6 +3398,28 @@ def dashboard_soumya_kpi(
     auth: dict = Depends(get_current_user),
 ):
     """Soumya Dashboard — week-based KPI (Support chores/bugs, excludes Demo C)."""
+    from app.section_permissions_util import require_dashboard_kpi_person
+
+    require_dashboard_kpi_person(auth["id"], "Soumya")
+    return _dashboard_soumya_kpi_data(
+        month=month,
+        year=year,
+        week=week,
+        ranked_offset=ranked_offset,
+        ranked_limit=ranked_limit,
+        leaderboard_scope=leaderboard_scope,
+    )
+
+
+@cached(ttl=300, key_prefix="dash:soumya:")
+def _dashboard_soumya_kpi_data(
+    month: str,
+    year: str,
+    week: str,
+    ranked_offset: int,
+    ranked_limit: int,
+    leaderboard_scope: str,
+):
     from app.soumya_dashboard_kpi import compute_soumya_dashboard
 
     return compute_soumya_dashboard(
@@ -3426,7 +3449,6 @@ async def cron_soumya_sla_scan(
 
 
 @api_router.get("/dashboard/kpi")
-@cached(ttl=300, key_prefix="dash:")
 def dashboard_kpi(
     name: str = Query(..., description="Person name: Shreyasi, Rimpa, Akash, Adrija, Soumya, etc."),
     month: str = Query("Feb", description="Month: Jan..Dec"),
@@ -3435,6 +3457,24 @@ def dashboard_kpi(
     auth: dict = Depends(get_current_user),
 ):
     """KPI data for Checklist, Delegation, Support FMS from DB. No hardcoded data; no Attendance."""
+    from app.section_permissions_util import require_dashboard_kpi_person
+
+    require_dashboard_kpi_person(auth["id"], name)
+    viewer_email = (auth.get("email") or "").strip()
+    return _dashboard_kpi_data(
+        name=name, month=month, year=year, week=week, viewer_email=viewer_email
+    )
+
+
+@cached(ttl=300, key_prefix="dash:")
+def _dashboard_kpi_data(
+    name: str,
+    month: str,
+    year: str,
+    week: str,
+    viewer_email: str = "",
+):
+    """Cached KPI payload (auth enforced on dashboard_kpi wrapper)."""
     try:
         user_id = _dashboard_kpi_resolve_user_id(name)
         if not user_id:
@@ -3542,7 +3582,7 @@ def dashboard_kpi(
         try:
             # Show delegation tasks where this user is either the assignee or the submitter
             q = supabase.table("delegation_tasks").select(
-                "id,title,task,status,due_date,delegation_on,shifted_week,document_url,assignee_id,submitted_by"
+                "id,title,status,due_date,delegation_on,document_url,assignee_id,submitted_by"
             )
             q = q.or_(f"assignee_id.eq.{user_id},submitted_by.eq.{user_id}")
             r = q.execute()
@@ -3974,7 +4014,7 @@ def dashboard_kpi(
                 "pillars": akash_monthly["pillars"],
                 "dailyLogMonthApplied": bool(daily_agg_month.get("has_rows")),
             }
-            akash_kpi["kpiDailyLogEditor"] = _kpi_daily_log_email_allowed(auth.get("email"))
+            akash_kpi["kpiDailyLogEditor"] = _kpi_daily_log_email_allowed(viewer_email)
 
         if (name or "").strip().lower() == "adrija":
             from app.dashboard_success_kpi import _format_dashboard_week_label
@@ -4039,7 +4079,7 @@ def dashboard_kpi(
                 "postCompletionDetails": post_details,
                 "reelCompletionDetails": reel_details,
                 "linkedinCompletionDetails": linkedin_details,
-                "editor": _adrija_social_kpi_editor(auth.get("email")),
+                "editor": _adrija_social_kpi_editor(viewer_email),
             }
 
         applied = {"name": name, "month": month, "year": year, "week": week}
@@ -4117,6 +4157,9 @@ def dashboard_success_kpi_till_date(
     auth: dict = Depends(get_current_user),
 ):
     """Rimpa Success KPI source, computed from start (all-time) till date."""
+    from app.section_permissions_util import require_dashboard_kpi_person
+
+    require_dashboard_kpi_person(auth["id"], "Rimpa")
     try:
         from app.dashboard_success_kpi import compute_success_kpi_for_dashboard
 
@@ -11951,6 +11994,7 @@ def complete_checklist_task(task_id: str, payload: CompleteChecklistRequest, aut
     }
     try:
         supabase.table("checklist_completions").upsert(data, on_conflict="task_id,occurrence_date").execute()
+        invalidate_dashboard_read_caches()
         return {"success": True, "message": "Task marked as completed"}
     except Exception as e:
         raise HTTPException(400, str(e)[:200])
@@ -12158,6 +12202,7 @@ def update_delegation_task(task_id: str, payload: dict, auth: dict = Depends(get
         raise HTTPException(400, "No valid fields to update")
     try:
         r = supabase.table("delegation_tasks").update(data).eq("id", task_id).execute()
+        invalidate_dashboard_read_caches()
         return r.data[0] if r.data else {}
     except Exception as e:
         raise HTTPException(400, str(e)[:200])

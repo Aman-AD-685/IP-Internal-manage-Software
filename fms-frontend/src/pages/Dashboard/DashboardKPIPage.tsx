@@ -379,13 +379,17 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
       .then((res) => {
         if (res && res.success !== false) setData(res)
         else {
-          message.error('Failed to load dashboard data')
-          setData(null)
+          message.error(res?.error || 'Failed to load dashboard data')
+          setData(res?.success === false ? res : null)
         }
       })
-      .catch(() => {
+      .catch((e: unknown) => {
         if (!cached) {
-          message.error('Failed to load dashboard data')
+          const err = e as { response?: { data?: { detail?: string } } }
+          const detail = err?.response?.data?.detail
+          message.error(
+            typeof detail === 'string' ? detail : 'Failed to load dashboard data',
+          )
           setData(null)
         }
       })

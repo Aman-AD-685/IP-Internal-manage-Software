@@ -18,6 +18,7 @@ export const ROLE_DISPLAY_NAMES: Record<string, string> = {
 }
 
 /** Section keys and labels for Edit User permissions (View / Edit checkboxes). Add new app sections here and in backend SECTION_KEYS. */
+/** Keep in sync with backend SECTION_LABELS in app/main.py (_SECTION_LABELS_BASE). */
 export const SECTION_LABELS: Record<string, string> = {
   dashboard: 'Dashboard',
   dashboard_kpi: 'Dashboard - KPI',

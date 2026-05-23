@@ -25,6 +25,35 @@ Do not remove entries; add dated bullets.
 - 2026-05-22: **Regression checklist** — After perf change: (1) Dashboard bootstrap &lt;3s cached, (2) Chores & Bugs list first page, (3) Approval Status features, (4) Support Dashboard stats; hard refresh + repeat navigation; cold Render start is separate (keepalive cron).
 - 2026-05-22: **Dashboard KPI 10s+** — `/dashboard/kpi` must NOT load all tickets; use `_fetch_kpi_chore_bug_tickets(month)` + `_enrich_kpi_ticket_slices` only; one month checklist completion query; `@cached(ttl=300)`; KPI/soumya on **global** rate-limit tier; frontend cache-first + stagger prefetch on chooser (400ms apart).
 - 2026-05-22: **I-1 board 5s+** — backend `_I1_LIST_CACHE` 120s + narrow columns; frontend `improvement-i1:list` session cache 5m + cache-first modal + Header idle prefetch 3.5s; invalidate on mutate.
+- 2026-05-22: **100% pre-push bar — Security** — Never UI-only gate for KPI/IP/I-1; use `app/section_permissions_util.py` + `require_dashboard_kpi_person` on `/dashboard/kpi`, `/dashboard/soumya-kpi`, `/dashboard/success-kpi-till-date`; auth **before** cache (wrapper route → cached `_dashboard_kpi_data`); `@cached` must not skip permission checks.
+- 2026-05-22: **100% pre-push bar — Performance** — Run `database/TICKETS_OPEN_QUEUE_INDEXES.sql` + `database/DASHBOARD_KPI_INDEXES.sql` in Supabase after deploy; bounded `_fetch_kpi_chore_bug_tickets`; invalidate `dash:` / `dash:soumya:` via `invalidate_dashboard_read_caches()` on ticket + checklist + delegation writes.
+- 2026-05-22: **100% pre-push bar — Maintainability** — Section labels: backend `_SECTION_LABELS_BASE` in `main.py` is canonical; frontend `SECTION_LABELS` in `constants.ts` must stay in sync; person KPI keys only in `dashboard_kpi_sections.py`.
+- 2026-05-22: **100% pre-push bar — Scalability** — In-process TTL caches OK on single Render service; shared KPI cache keyed by person+week (not per-user) after auth wrapper; multi-instance would need Redis — not required until horizontal scale.
+
+## Pre-push scorecard (target 100/100 — block push if failed)
+
+| Area | Must pass before push |
+|------|------------------------|
+| **Security** | No staged secrets; KPI/IP/I-1/soumya/success-kpi APIs: server-side section permission; auth before cache; no open redirect regressions |
+| **Performance** | No full-table `tickets` scan on dashboard/list/KPI; indexes SQL noted if new query paths; regression checklist &lt;3s cached |
+| **Maintainability** | Minimal diff; labels/keys consistent; reuse `section_permissions_util` not copy-paste perm checks |
+| **Scalability** | Cache invalidation on writes that affect dashboard/KPI; bounded queries + TTL; document if new global cache |
+
+## Production-level test (mandatory before every `git push`)
+
+**User rule (2026-05-22):** Before **every** push, run production-level checks and **print the Pre-Push Report** (verdict + scores + test results). Do not push without this.
+
+| Step | Command / action | Pass criteria |
+|------|------------------|---------------|
+| 1 | `collect-push-scope.ps1` + read `memory.md` + today’s journal | Scope known; no rejected advice repeated |
+| 2 | `npm run build` in `fms-frontend/` | Exit 0; no TypeScript/build errors |
+| 3 | KPI smoke (if `main.py` / KPI touched) | `_dashboard_kpi_data` returns `success: true` for Shreyasi, Rimpa, Akash, Adrija (May 2026 week 3 sample) |
+| 4 | `python -c "from app.main import app"` in `backend/` | Imports OK |
+| 5 | `git diff` — no `.env`, `backend_errors.log`, `__pycache__` | Clean staging |
+| 6 | Print **Pre-Push Report** with Security/Performance/Maintainability/Scalability scores + **Production test results** table | Verdict: Production Push Safe or Push Blocked |
+| 7 | After deploy reminder in report | Run `TICKETS_OPEN_QUEUE_INDEXES.sql` + `DASHBOARD_KPI_INDEXES.sql` in Supabase if not yet applied |
+
+**Post-deploy production smoke (user):** Hard refresh → Dashboard bootstrap → each KPI person dashboard → Chores & Bugs list → Support Dashboard.
 
 ## Rejected suggestions
 
@@ -33,6 +62,7 @@ Do not remove entries; add dated bullets.
 ## Repository landmines
 
 - `backend/app/main.py` is huge — prefer minimal diffs; reuse existing helpers.
+- 2026-05-22: KPI split wrapper + `_dashboard_kpi_data` — do not use `auth` in cached body; pass `viewer_email`. Delegation KPI query: no `task` column on `delegation_tasks`.
 - Never commit: `.env`, `backend_errors.log`, `**/__pycache__/**`.
 - Production API must be Render backend URL, not Vercel frontend URL.
 - Branch `fix/production-frontend-cache` is active deploy branch (verify before merging to main).
@@ -53,3 +83,5 @@ Do not remove entries; add dated bullets.
 - 2026-05-21: **Fix in same session** — when `ce:review` / pre-push reports P1+ issues, implement fixes (don't stop at report-only unless user asked for report-only only).
 - 2026-05-21: Supabase seed scripts — idempotent insert (`NOT EXISTS` on natural key), `BEGIN`/`COMMIT`, fail-fast `RAISE` on missing FKs, explicit `created_by` UUID in config (no `LIMIT 1` actor).
 - 2026-05-22: User expects **all pages + Dashboard 1–3s** in production after warm cache; if slow again, check full-table scans, rate-limit on bootstrap, missing Supabase indexes, Render sleep — fix code + update this memory/journal same session.
+- 2026-05-22: User wants **100/100 pre-push scores** — server-side KPI auth, SQL indexes, cache invalidation, memory scorecard; block push on UI-only permission gates for sensitive APIs.
+- 2026-05-22: **Always production-test before push** — `npm run build` + KPI/API smoke + full Pre-Push Report every time user says push; journal + memory updated after verdict.

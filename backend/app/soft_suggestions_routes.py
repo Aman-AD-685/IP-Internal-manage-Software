@@ -1,4 +1,4 @@
-"""Soft suggestions API — S-Sugg form, Sugg Details board, Move to Support."""
+"""Soft suggestions API — IP Suggestion form, IP Details board, Move to Support."""
 from __future__ import annotations
 
 import re
@@ -23,33 +23,13 @@ def _role(user_id: str) -> str:
     return _get_role_from_profile(user_id)
 
 
-def _perm_rows(user_id: str) -> list[dict[str, Any]]:
-    try:
-        r = (
-            supabase.table("user_section_permissions")
-            .select("section_key, can_view, can_edit")
-            .eq("user_id", user_id)
-            .execute()
-        )
-        return r.data or []
-    except Exception:
-        return []
-
-
 def _section_access(user_id: str, section_key: str, *, need_edit: bool = False) -> bool:
     role = _role(user_id)
     if role == "master_admin" and section_key in (SOFT_SUGG_SECTION, SOFT_SUGG_DETAILS_SECTION):
         return True
-    rows = _perm_rows(user_id)
-    elevated = role in ("master_admin", "admin", "approver")
-    if elevated and len(rows) == 0:
-        return True
-    p = next((r for r in rows if r.get("section_key") == section_key), None)
-    if not p:
-        return False
-    if need_edit:
-        return bool(p.get("can_view")) and bool(p.get("can_edit"))
-    return bool(p.get("can_view"))
+    from app.section_permissions_util import can_view_section
+
+    return can_view_section(user_id, section_key, need_edit=need_edit)
 
 
 def _can_edit_all(user_id: str) -> bool:
