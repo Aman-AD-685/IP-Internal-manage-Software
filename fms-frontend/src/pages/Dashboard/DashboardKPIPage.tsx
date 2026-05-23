@@ -483,6 +483,15 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
     else setData(null)
   }, [selectedPerson, loadData])
 
+  /** Warm visible person dashboards while on chooser (memory: KPI cache-first, stagger prefetch). */
+  useEffect(() => {
+    if (selectedPerson !== null) return
+    const filters = { month, year, week }
+    visibleDashboardOptions.forEach((opt, i) => {
+      window.setTimeout(() => prefetchDashboardKpiPerson(opt.key, filters), 600 + i * 400)
+    })
+  }, [selectedPerson, visibleDashboardOptions, month, year, week])
+
   /** Deep-link from main Dashboard (e.g. ?person=Shreyasi). */
   useEffect(() => {
     if (forceOpen) return

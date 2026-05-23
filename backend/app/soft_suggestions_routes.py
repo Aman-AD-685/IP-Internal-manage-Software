@@ -64,13 +64,13 @@ def _can_edit_move(user_id: str) -> bool:
 
 def _require_soft_sugg_view(auth: dict = Depends(get_current_user)) -> dict:
     if not _section_access(auth["id"], SOFT_SUGG_SECTION):
-        raise HTTPException(status_code=403, detail="No access to S - Sugg")
+        raise HTTPException(status_code=403, detail="No access to IP Suggestion")
     return auth
 
 
 def _require_details_view(auth: dict = Depends(get_current_user)) -> dict:
     if not _section_access(auth["id"], SOFT_SUGG_DETAILS_SECTION):
-        raise HTTPException(status_code=403, detail="No access to Sugg Details")
+        raise HTTPException(status_code=403, detail="No access to IP Details")
     return auth
 
 

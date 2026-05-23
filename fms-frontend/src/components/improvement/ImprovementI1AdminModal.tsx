@@ -5,9 +5,11 @@ import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 import {
   improvementSuggestionsApi,
+  invalidateImprovementI1Cache,
   type ImprovementSuggestion,
   type ImprovementStatus,
 } from '../../api/improvementSuggestions'
+import { sessionApiCacheGet } from '../../utils/sessionApiCache'
 
 interface Props {
   open: boolean
@@ -20,16 +22,27 @@ export function ImprovementI1AdminModal({ open, onClose }: Props) {
   const [savingId, setSavingId] = useState<string | null>(null)
   const [canEdit, setCanEdit] = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (options?: { skipCache?: boolean }) => {
+    const cached = sessionApiCacheGet<{ data: ImprovementSuggestion[]; can_edit: boolean }>(
+      'improvement-i1:list',
+    )
+    if (cached?.data?.length !== undefined && !options?.skipCache) {
+      setRows(cached.data)
+      setCanEdit(!!cached.can_edit)
+      setLoading(false)
+    } else {
+      setLoading(true)
+    }
     try {
-      const res = await improvementSuggestionsApi.list()
+      const res = await improvementSuggestionsApi.list(options)
       setRows(res.data?.data ?? [])
       setCanEdit(!!res.data?.can_edit)
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } }
-      message.error(err?.response?.data?.detail || 'Could not load I-1 board')
-      setRows([])
+      if (!cached?.data?.length) {
+        message.error(err?.response?.data?.detail || 'Could not load I-1 board')
+        setRows([])
+      }
     } finally {
       setLoading(false)
     }
@@ -50,6 +63,7 @@ export function ImprovementI1AdminModal({ open, onClose }: Props) {
       if (updated) {
         setRows((prev) => prev.map((r) => (r.id === id ? updated : r)))
       }
+      invalidateImprovementI1Cache()
       if (patch.status === 'done') {
         if (res.data?.email_sent) {
           message.success(`Saved — notification email sent to ${updated?.user_display_name || 'user'}`)
@@ -80,6 +94,7 @@ export function ImprovementI1AdminModal({ open, onClose }: Props) {
     setSavingId(id)
     try {
       await improvementSuggestionsApi.remove(id)
+      invalidateImprovementI1Cache()
       setRows((prev) => prev.filter((r) => r.id !== id))
       message.success('Deleted')
     } catch (e: unknown) {
@@ -212,7 +227,7 @@ export function ImprovementI1AdminModal({ open, onClose }: Props) {
       onCancel={onClose}
       footer={null}
       width="min(1100px, 96vw)"
-      destroyOnClose
+      destroyOnClose={false}
     >
       <p style={{ color: '#64748b', marginBottom: 12 }}>
         Suggestions from the <strong>Improvement</strong> button. Grant <strong>I - 1 → Edit</strong> in Users
