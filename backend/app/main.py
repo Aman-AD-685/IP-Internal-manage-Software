@@ -1882,7 +1882,16 @@ def list_tickets(
         safe_ref = _sanitize_ilike_input(reference_filter, max_len=80)
         if safe_ref:
             q = q.ilike("reference_no", f"%{safe_ref}%")
-    order_col = sort_by if sort_by in ("created_at", "updated_at", "query_arrival_at", "query_response_at", "title", "status", "priority") else "created_at"
+    order_col = sort_by if sort_by in (
+        "created_at",
+        "updated_at",
+        "query_arrival_at",
+        "query_response_at",
+        "title",
+        "status",
+        "priority",
+        "reference_no",
+    ) else "created_at"
     q = q.order(order_col, desc=(sort_order.lower() == "desc"))
     if (status_2_filter or "").strip().lower() != "na":
         q = apply_exclude_ticket_na(q)
