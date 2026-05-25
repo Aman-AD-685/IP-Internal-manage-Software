@@ -5,6 +5,15 @@ export function dashboardKpiCacheKey(filters: { name: string; month: string; yea
   return `dashboardKpi:${filters.name}:${filters.year}:${filters.month}:${filters.week}`
 }
 
+export type SupportFmsDetailPillar = 'response_delay' | 'completion_delay' | 'pending'
+
+export function supportFmsDetailsCacheKey(
+  filters: { name: string; month: string; year: string; week: string },
+  pillar: SupportFmsDetailPillar,
+) {
+  return `dashboardKpi:supportFms:${filters.name}:${filters.year}:${filters.month}:${filters.week}:${pillar}`
+}
+
 export function soumyaKpiCacheKey(params: {
   month: string
   year: string
@@ -491,6 +500,26 @@ export const dashboardKpiApi = {
       })
       .then((r) => r.data)
     sessionApiCacheSet(key, data, API_CACHE_TTL_MS.dashboardKpi)
+    return data
+  },
+
+  getSupportFmsDetails: async (
+    filters: { name: string; month: string; year: string; week: string },
+    pillar: SupportFmsDetailPillar,
+  ) => {
+    const key = supportFmsDetailsCacheKey(filters, pillar)
+    const cached = sessionApiCacheGet<{ success: boolean; items: SupportFmsDelayItem[] }>(key)
+    if (cached) return cached
+    const data = await apiClient
+      .get<{ success: boolean; items: SupportFmsDelayItem[]; error?: string }>(
+        '/dashboard/kpi/support-fms-details',
+        {
+          params: { ...filters, pillar },
+          timeout: 60000,
+        },
+      )
+      .then((r) => r.data)
+    sessionApiCacheSet(key, data, API_CACHE_TTL_MS.dashboardKpiSupportFmsDetails)
     return data
   },
 

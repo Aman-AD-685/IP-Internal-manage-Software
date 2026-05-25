@@ -80,8 +80,11 @@ Do not remove entries; add dated bullets.
 - 2026-05: User ships on `fix/production-frontend-cache`; production fixes need Render + Vercel + Supabase SQL together.
 - 2026-05: NA exclusion pattern is standard — apply at query + KPI + reminder layers, not UI-only.
 - 2026-05: User wants pre-push gate + day-by-day journal so reviewer learns from real work, not generic advice.
-- 2026-05-21: **Fix in same session** — when `ce:review` / pre-push reports P1+ issues, implement fixes (don't stop at report-only unless user asked for report-only only).
+- 2026-05-21: **Fix in same session** — when `ce-code-review` / pre-push reports P1+ issues, implement fixes (don't stop at report-only unless user asked for report-only only).
+- 2026-05-22: **Compound Engineering wired** — plugin enabled in `.cursor/settings.json`; pre-push runs `ce-status.ps1` then **`ce-code-review mode:report-only`**; report line `ran (ce-code-review, report-only)` not `not installed`.
 - 2026-05-21: Supabase seed scripts — idempotent insert (`NOT EXISTS` on natural key), `BEGIN`/`COMMIT`, fail-fast `RAISE` on missing FKs, explicit `created_by` UUID in config (no `LIMIT 1` actor).
 - 2026-05-22: User expects **all pages + Dashboard 1–3s** in production after warm cache; if slow again, check full-table scans, rate-limit on bootstrap, missing Supabase indexes, Render sleep — fix code + update this memory/journal same session.
 - 2026-05-22: User wants **100/100 pre-push scores** — server-side KPI auth, SQL indexes, cache invalidation, memory scorecard; block push on UI-only permission gates for sensitive APIs.
 - 2026-05-22: **Always production-test before push** — `npm run build` + KPI/API smoke + full Pre-Push Report every time user says push; journal + memory updated after verdict.
+- 2026-05-22: **Support FMS KPI lazy details** — `/dashboard/kpi` omits `details` arrays; modal loads `GET /dashboard/kpi/support-fms-details?pillar=`; auth via `require_dashboard_kpi_person`; frontend 60s timeout + session cache 5m.
+- 2026-05-22: **Pre-push 7-step gate (user)** — Every push: memory.md + SKILL.md + journal → ce-status + ce-code-review report-only → native audit → production smoke → report → journal/memory → push. See TRAINING.md § Automatic 7-step gate.

@@ -12,7 +12,7 @@ description: >-
 # Pre-Push Compound Review
 
 You are the permanent **senior architect + security auditor + performance engineer** for this repo.
-Behave like Compound Engineering (`ce:review`) + VibeDoctor + staff-level production inspector.
+Behave like Compound Engineering (`ce-code-review`) + VibeDoctor + staff-level production inspector.
 
 **Never push to git until this workflow completes and you issue a verdict.**
 
@@ -61,21 +61,36 @@ Read the output. If the script fails, manually run:
 
 Scope = **staged + unstaged** files intended for commit, or **commits not yet pushed** on the current branch.
 
-### 2. Compound Engineering (if installed)
+### 2. Compound Engineering (`ce-code-review`)
 
-If [EveryInc/compound-engineering-plugin](https://github.com/EveryInc/compound-engineering-plugin) is installed in Cursor:
+Detect plugin status:
 
-- Invoke **`ce:review`** with **`mode:report-only`** and **`base:origin/<branch>`** (or `base:main`) on the push scope.
-- Do **not** let CE mutate files during pre-push (report-only only).
-- Merge CE P0/P1 findings into your report (dedupe with step 3).
+```powershell
+powershell -NoProfile -File .cursor/skills/pre-push-compound-review/scripts/ce-status.ps1
+```
 
-If not installed: note `CE: not installed — native audit only` and continue. See [COMPOUND_ENGINEERING.md](COMPOUND_ENGINEERING.md) for setup.
+**This repo:** `.cursor/settings.json` has `compound-engineering.enabled: true` — CE is **required** on every pre-push (unless user asked journal-only with no push).
 
-### 3. Native deep audit
+When `CE_STATUS=enabled`:
+
+1. Read and follow the **`ce-code-review`** skill (Compound Engineering plugin).
+2. Invoke with **`mode:report-only`** and **`base:origin/<tracking-branch>`** (from `git rev-parse --abbrev-ref --symbolic-full-name @{u}` or `base:main`).
+3. Do **not** use `mode:autofix` during pre-push (no auto-edits).
+4. Merge CE P0/P1 findings into your report (dedupe with step 3).
+
+When `CE_STATUS=disabled`: note `Compound Engineering: not available (plugin disabled)` and continue with step 3 + production smoke only. See [COMPOUND_ENGINEERING.md](COMPOUND_ENGINEERING.md).
+
+**Report line (required):** use `ran (ce-code-review, report-only)` | `skipped (<reason>)` | `not available (plugin disabled)` — never `not installed` when `ce-status.ps1` shows enabled.
+
+### 3. Native deep audit (always)
 
 Audit **changed files** and **runtime paths they touch**. Use [reference.md](reference.md) checklist.
 
-**User preference (2026-05-21):** After reporting P1/P2 findings, **implement fixes in the same session** unless the user invoked **report-only** explicitly (`ce:review mode:report-only` with no fix request). Do not leave actionable issues as report-only homework by default.
+**User preference (2026-05-21):** After reporting P1/P2 findings, **implement fixes in the same session** unless the user invoked **report-only** explicitly (`ce-code-review mode:report-only` with no fix request). Do not leave actionable issues as report-only homework by default.
+
+### 3b. Production smoke (mandatory before push)
+
+Follow the table in [memory.md](memory.md) § Production-level test: `npm run build`, KPI smoke if backend/KPI touched, import check, no secrets staged. Include results in the Pre-Push Report.
 
 **Stack context (this repo):** React + Vite frontend (`fms-frontend/`), FastAPI backend (`backend/app/`), Supabase/PostgreSQL (`database/`), Render + Vercel, Postmark, cron/reminders.
 
@@ -159,7 +174,8 @@ Then:
 ## Summary
 - Files in scope: N
 - Critical: N | High: N | Medium: N | Low: N
-- Compound Engineering: installed | not installed
+- Compound Engineering: ran (ce-code-review, report-only) | skipped | not available
+- Production smoke: passed | failed (list steps)
 
 ## Scores
 Security: /100 | Performance: /100 | Maintainability: /100 | Scalability: /100
