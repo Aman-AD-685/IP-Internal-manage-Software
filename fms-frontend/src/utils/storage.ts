@@ -1,11 +1,12 @@
 import { STORAGE_KEYS } from './constants'
 import { User } from '../types/auth'
+import { clearAuthBrowserSessionMarkers } from './authBrowserSession'
 
 /**
- * Auth (token, refresh, user) uses localStorage so every tab in this browser
- * shares one session — "Open in new tab" stays logged in.
+ * Auth (token, refresh, user) uses sessionStorage. Closing all browser tabs ends the session
+ * (see authBrowserSession.ts: tab lease + reload backup). Reopening the browser requires login.
  *
- * Only one user id per browser: login as a different account is blocked until logout.
+ * Legacy localStorage auth from older builds is cleared on load (not read).
  * OTP email stays in sessionStorage (tab-local).
  */
 
@@ -29,29 +30,26 @@ function getSession(): Storage | null {
   }
 }
 
-/** Move auth from old sessionStorage-only builds into localStorage once. */
-let sessionAuthMigrated = false
-function ensureSessionAuthMigratedToLocal(): void {
-  if (sessionAuthMigrated) return
-  sessionAuthMigrated = true
-  const local = getLocal()
-  const sess = getSession()
-  if (!local || !sess) return
+/** Drop persisted auth from older builds so reopening the browser does not auto-login. */
+let legacyLocalAuthCleared = false
+function clearLegacyPersistedAuth(): void {
+  if (legacyLocalAuthCleared) return
+  legacyLocalAuthCleared = true
   try {
     for (const key of AUTH_KEYS) {
-      if (local.getItem(key)) continue
-      const fromSession = sess.getItem(key)
-      if (fromSession) {
-        local.setItem(key, fromSession)
-        sess.removeItem(key)
-      }
+      getLocal()?.removeItem(key)
     }
   } catch {
     /* ignore */
   }
 }
 
-function clearAuthFromBothStorages(): void {
+function getAuthStore(): Storage | null {
+  clearLegacyPersistedAuth()
+  return getSession()
+}
+
+function clearAuthFromAllStorages(): void {
   try {
     for (const key of AUTH_KEYS) {
       getLocal()?.removeItem(key)
@@ -66,11 +64,11 @@ export type SingleSessionCheck =
   | { ok: true }
   | { ok: false; message: string; currentUser: User }
 
-/** Block logging in as another user while this browser already has a session. */
+/** Block logging in as another user while this browser tab already has a session. */
 export function checkSingleBrowserSession(nextUser: User): SingleSessionCheck {
-  ensureSessionAuthMigratedToLocal()
-  const token = getLocal()?.getItem(STORAGE_KEYS.AUTH_TOKEN)
-  const userStr = getLocal()?.getItem(STORAGE_KEYS.USER)
+  const store = getAuthStore()
+  const token = store?.getItem(STORAGE_KEYS.AUTH_TOKEN)
+  const userStr = store?.getItem(STORAGE_KEYS.USER)
   if (!token || !userStr) return { ok: true }
   try {
     const current = JSON.parse(userStr) as User
@@ -78,7 +76,7 @@ export function checkSingleBrowserSession(nextUser: User): SingleSessionCheck {
       const who = current.full_name || current.email || 'another user'
       return {
         ok: false,
-        message: `This browser is already signed in as ${who}. Log out first to use a different account.`,
+        message: `This tab is already signed in as ${who}. Log out first to use a different account.`,
         currentUser: current,
       }
     }
@@ -91,8 +89,7 @@ export function checkSingleBrowserSession(nextUser: User): SingleSessionCheck {
 export const storage = {
   getToken: (): string | null => {
     try {
-      ensureSessionAuthMigratedToLocal()
-      return getLocal()?.getItem(STORAGE_KEYS.AUTH_TOKEN) ?? null
+      return getAuthStore()?.getItem(STORAGE_KEYS.AUTH_TOKEN) ?? null
     } catch {
       return null
     }
@@ -100,8 +97,8 @@ export const storage = {
 
   setToken: (token: string): void => {
     try {
-      getLocal()?.setItem(STORAGE_KEYS.AUTH_TOKEN, token)
-      getSession()?.removeItem(STORAGE_KEYS.AUTH_TOKEN)
+      getAuthStore()?.setItem(STORAGE_KEYS.AUTH_TOKEN, token)
+      getLocal()?.removeItem(STORAGE_KEYS.AUTH_TOKEN)
     } catch (error) {
       console.error('Failed to save token:', error)
     }
@@ -118,8 +115,7 @@ export const storage = {
 
   getRefreshToken: (): string | null => {
     try {
-      ensureSessionAuthMigratedToLocal()
-      return getLocal()?.getItem(STORAGE_KEYS.REFRESH_TOKEN) ?? null
+      return getAuthStore()?.getItem(STORAGE_KEYS.REFRESH_TOKEN) ?? null
     } catch {
       return null
     }
@@ -127,8 +123,8 @@ export const storage = {
 
   setRefreshToken: (token: string): void => {
     try {
-      getLocal()?.setItem(STORAGE_KEYS.REFRESH_TOKEN, token)
-      getSession()?.removeItem(STORAGE_KEYS.REFRESH_TOKEN)
+      getAuthStore()?.setItem(STORAGE_KEYS.REFRESH_TOKEN, token)
+      getLocal()?.removeItem(STORAGE_KEYS.REFRESH_TOKEN)
     } catch (error) {
       console.error('Failed to save refresh token:', error)
     }
@@ -145,8 +141,7 @@ export const storage = {
 
   getUser: (): User | null => {
     try {
-      ensureSessionAuthMigratedToLocal()
-      const userStr = getLocal()?.getItem(STORAGE_KEYS.USER)
+      const userStr = getAuthStore()?.getItem(STORAGE_KEYS.USER)
       return userStr ? JSON.parse(userStr) : null
     } catch {
       return null
@@ -155,8 +150,8 @@ export const storage = {
 
   setUser: (user: User): void => {
     try {
-      getLocal()?.setItem(STORAGE_KEYS.USER, JSON.stringify(user))
-      getSession()?.removeItem(STORAGE_KEYS.USER)
+      getAuthStore()?.setItem(STORAGE_KEYS.USER, JSON.stringify(user))
+      getLocal()?.removeItem(STORAGE_KEYS.USER)
     } catch (error) {
       console.error('Failed to save user:', error)
     }
@@ -200,6 +195,7 @@ export const storage = {
     storage.removeRefreshToken()
     storage.removeUser()
     storage.removeOTPEmail()
-    clearAuthFromBothStorages()
+    clearAuthFromAllStorages()
+    clearAuthBrowserSessionMarkers()
   },
 }

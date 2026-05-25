@@ -27,7 +27,7 @@ export function absoluteAppUrl(path: string): string {
 
 export function openInNewTab(url: string): void {
   try {
-    // Same-origin tabs share localStorage auth — no extra login prompt.
+    // Auth is sessionStorage (browser session). Duplicate tab may share session; a fresh tab may need login.
     window.open(url, '_blank', 'noopener,noreferrer')
   } catch {
     /* ignore */

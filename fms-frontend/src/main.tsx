@@ -2,7 +2,14 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
+import {
+  bootstrapAuthBrowserSession,
+  installAuthBrowserSessionHandlers,
+} from './utils/authBrowserSession'
 import App from './App'
+
+installAuthBrowserSessionHandlers()
+bootstrapAuthBrowserSession()
 import 'antd/dist/reset.css'
 import './styles/print.css'
 import './styles/responsive.css'
