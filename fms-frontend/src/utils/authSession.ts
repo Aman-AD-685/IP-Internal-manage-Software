@@ -2,7 +2,7 @@ import { storage } from './storage'
 import { normalizeUserSectionPermissions } from './helpers'
 import type { User } from '../types/auth'
 
-/** Read shared browser session synchronously (localStorage) for instant hydration in new tabs. */
+/** Read session synchronously after bootstrapAuthBrowserSession() (reload-safe, browser-close clears). */
 export function readStoredAuthSession(): {
   token: string | null
   user: User | null

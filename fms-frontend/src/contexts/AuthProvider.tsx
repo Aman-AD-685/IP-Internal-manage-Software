@@ -8,6 +8,7 @@ import { authApi } from '../api/auth'
 import type { User } from '../types/auth'
 import { normalizeUserSectionPermissions } from '../utils/helpers'
 import { readStoredAuthSession } from '../utils/authSession'
+import { markAuthBrowserSessionActive } from '../utils/authBrowserSession'
 import { scheduleWhenIdle } from '../utils/warmupAfterLogin'
 
 /** Refresh access token every 50 min so session does not expire until user logs out (JWT often expires in 1 hr). */
@@ -169,10 +170,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     })
   }, [])
 
-  // Sync auth when another tab logs in or out (localStorage is shared per browser).
+  // Sync auth when another tab in the same session logs in or out (sessionStorage).
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
-      if (e.storageArea !== localStorage) return
+      if (e.storageArea !== sessionStorage) return
       if (e.key !== STORAGE_KEYS.AUTH_TOKEN && e.key !== STORAGE_KEYS.USER) return
 
       const nextToken = storage.getToken()
@@ -197,6 +198,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     storage.setToken(newToken)
     storage.setUser(merged)
     if (refreshToken) storage.setRefreshToken(refreshToken)
+    markAuthBrowserSessionActive()
   }
 
   const login = (newToken: string, newUser: User, refreshToken?: string) => {
