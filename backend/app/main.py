@@ -3466,6 +3466,68 @@ def dashboard_kpi(
     )
 
 
+_SUPPORT_FMS_DETAIL_PILLARS = frozenset({"response_delay", "completion_delay", "pending"})
+
+
+@api_router.get("/dashboard/kpi/support-fms-details")
+def dashboard_kpi_support_fms_details(
+    name: str = Query(..., description="Person name (Support FMS: Shreyasi)"),
+    month: str = Query("Feb"),
+    year: str = Query("2026"),
+    week: str = Query("week 2"),
+    pillar: str = Query(..., description="response_delay | completion_delay | pending"),
+    auth: dict = Depends(get_current_user),
+):
+    """Lazy-load Support FMS modal rows for one pillar (avoids huge /dashboard/kpi payloads)."""
+    from app.section_permissions_util import require_dashboard_kpi_person
+
+    require_dashboard_kpi_person(auth["id"], name)
+    pillar_key = (pillar or "").strip().lower()
+    if pillar_key not in _SUPPORT_FMS_DETAIL_PILLARS:
+        raise HTTPException(
+            status_code=400,
+            detail="pillar must be response_delay, completion_delay, or pending",
+        )
+    if _dashboard_kpi_is_akash(name):
+        return {"success": True, "pillar": pillar_key, "items": []}
+    try:
+        month_num = 1
+        for i, m in enumerate(_MONTH_NAMES, 1):
+            if m.lower() == (month or "").strip().lower():
+                month_num = i
+                break
+        try:
+            y = int(year or datetime.now().year)
+        except Exception:
+            y = datetime.now().year
+        range_week = _dashboard_kpi_week_range(y, month_num, week or "week 2")
+        if not range_week:
+            import calendar
+
+            range_start = date(y, month_num, 1)
+            _, last = calendar.monthrange(y, month_num)
+            range_end = date(y, month_num, last)
+        else:
+            range_start, range_end = range_week
+        import calendar
+
+        _, last_day = calendar.monthrange(y, month_num)
+        month_start = date(y, month_num, 1)
+        month_end = date(y, month_num, last_day)
+        tickets = _fetch_kpi_chore_bug_tickets(month_start, month_end)
+        week_tickets, stage2_completed = _support_fms_week_slices(tickets, range_start, range_end)
+        _enrich_kpi_ticket_slices(week_tickets, stage2_completed)
+        items = _support_fms_detail_items_for_pillar(
+            week_tickets, stage2_completed, pillar_key, month
+        )
+        return {"success": True, "pillar": pillar_key, "items": items}
+    except HTTPException:
+        raise
+    except Exception as e:
+        _log(f"dashboard/kpi support-fms-details: {e}")
+        return {"success": False, "pillar": pillar_key, "items": [], "error": str(e)[:200]}
+
+
 @cached(ttl=300, key_prefix="dash:")
 def _dashboard_kpi_data(
     name: str,
@@ -3647,88 +3709,21 @@ def _dashboard_kpi_data(
         if not is_akash:
             try:
                 tickets = _fetch_kpi_chore_bug_tickets(month_start, month_end)
-
-                week_tickets = []
-                for t in tickets:
-                    d_arrival = _parse_iso_to_date(t.get("query_arrival_at") or t.get("created_at"))
-                    if d_arrival is not None and range_start <= d_arrival <= range_end:
-                        week_tickets.append(t)
-
-                stage2_completed_tickets = []
-                for t in tickets:
-                    if not _stage2_marked_completed(t.get("status_2")):
-                        continue
-                    if not (str(t.get("actual_2") or "").strip()):
-                        continue
-                    d2 = _parse_iso_to_date(t.get("actual_2"))
-                    if d2 is not None and range_start <= d2 <= range_end:
-                        stage2_completed_tickets.append(t)
-
-                _enrich_kpi_ticket_slices(week_tickets, stage2_completed_tickets)
-
-                def _support_fms_row_item(ticket: dict) -> dict:
-                    created = ticket.get("created_at") or ""
-                    ref = (ticket.get("reference_no") or "").strip() or "N/A"
-                    company_val = (ticket.get("company_name") or "").strip() or "—"
-                    return {
-                        "type": (ticket.get("type") or "Chore").title(),
-                        "company": company_val,
-                        "requested_person": "",
-                        "submitted_by": "",
-                        "title": (ticket.get("title") or "").strip() or "—",
-                        "description": (ticket.get("description") or "").strip() or "",
-                        "reference_no": ref,
-                        "query_arrival": _normalize_query_arrival_iso(ticket.get("query_arrival_at") or created),
-                        "month": month,
-                    }
-
-                for t in week_tickets:
-                    row_item = _support_fms_row_item(t)
-                    # Response delay: same SLA logic as Support Dashboard (30 min from query_arrival to response)
-                    has_resp, resp_text = _has_response_delay(
-                        t.get("query_arrival_at") or t.get("created_at"),
-                        t.get("query_response_at"),
-                    )
-                    if has_resp:
-                        response_delay_count += 1
-                        response_delay_details.append({**row_item, "delay_time": resp_text or "Delay"})
-
-                    # Pending chores & bugs for this owner in the selected week
-                    status = t.get("status") or ""
-                    if _is_pending(status) and not _is_resolved(status, t.get("status_4")):
-                        pending_count += 1
-                        pending_details.append(
-                            {**row_item, "delay_time": _stage2_delay_text_for_ticket(t)}
-                        )
-
-                # Completion delay (Stage 2): bucket by week of actual_2 (when Stage 2 completed), not ticket creation week.
-                stage2_completed_in_week = len(stage2_completed_tickets)
-
-                # Completion Delay includes only tickets completed at Stage 2 in selected week
-                # and whose Stage 2 TAT crossed the SLA.
-                for t in stage2_completed_tickets:
-                    has_comp, comp_text = _has_completion_delay(
-                        resolved_at=t.get("actual_4"),
-                        created_at=t.get("created_at"),
-                        ticket_type=t.get("type"),
-                        planned_2=t.get("planned_2"),
-                        actual_2=t.get("actual_2"),
-                        status_2=t.get("status_2"),
-                        actual_1=t.get("actual_1"),
-                    )
-                    if not has_comp:
-                        continue
-                    completion_delay_count += 1
-                    completion_delay_details.append({**_support_fms_row_item(t), "delay_time": comp_text or "TAT crossed"})
-
-                # Target = total chores & bugs for this week (same as Support Dashboard weekly stats)
-                total_cb = len(week_tickets)
-                target_pending = max(total_cb, 1)
                 week_metrics = _compute_support_fms_week_metrics(tickets, range_start, range_end)
+                response_delay_count = week_metrics["response_delay_count"]
+                completion_delay_count = week_metrics["completion_delay_count"]
+                pending_count = week_metrics["pending_count"]
+                total_cb = week_metrics["total_cb"]
+                stage2_completed_in_week = week_metrics["stage2_completed_in_week"]
+                target_pending = max(total_cb, 1)
                 support_fms_weekly_pct = week_metrics["weekly_pct"]
                 support_fms_resp_health = week_metrics["response_health"]
                 support_fms_comp_health = week_metrics["completion_health"]
                 support_fms_pend_health = week_metrics["pending_health"]
+                # Details load on demand via GET /dashboard/kpi/support-fms-details (keeps KPI payload small).
+                response_delay_details = []
+                completion_delay_details = []
+                pending_details = []
             except Exception as e:
                 _log(f"dashboard/kpi support FMS: {e}")
                 support_fms_weekly_pct = 0
@@ -4343,6 +4338,94 @@ def _support_fms_pillar_health(bad_count: int, total: int) -> int:
 def _support_fms_pillar_status(bad_count: int) -> str | None:
     """Show Good when there are zero delays/pending items in the pillar."""
     return "Good" if bad_count == 0 else None
+
+
+def _support_fms_row_item(ticket: dict, month_label: str) -> dict:
+    created = ticket.get("created_at") or ""
+    ref = (ticket.get("reference_no") or "").strip() or "N/A"
+    company_val = (ticket.get("company_name") or "").strip() or "—"
+    return {
+        "type": (ticket.get("type") or "Chore").title(),
+        "company": company_val,
+        "requested_person": "",
+        "submitted_by": "",
+        "title": (ticket.get("title") or "").strip() or "—",
+        "description": (ticket.get("description") or "").strip() or "",
+        "reference_no": ref,
+        "query_arrival": _normalize_query_arrival_iso(ticket.get("query_arrival_at") or created),
+        "month": month_label,
+    }
+
+
+def _support_fms_week_slices(
+    tickets: list,
+    range_start: date,
+    range_end: date,
+) -> tuple[list, list]:
+    week_tickets: list = []
+    for t in tickets:
+        d_arrival = _parse_iso_to_date(t.get("query_arrival_at") or t.get("created_at"))
+        if d_arrival is not None and range_start <= d_arrival <= range_end:
+            week_tickets.append(t)
+    stage2_completed_tickets: list = []
+    for t in tickets:
+        if not _stage2_marked_completed(t.get("status_2")):
+            continue
+        if not (str(t.get("actual_2") or "").strip()):
+            continue
+        d2 = _parse_iso_to_date(t.get("actual_2"))
+        if d2 is not None and range_start <= d2 <= range_end:
+            stage2_completed_tickets.append(t)
+    return week_tickets, stage2_completed_tickets
+
+
+def _support_fms_detail_items_for_pillar(
+    week_tickets: list,
+    stage2_completed_tickets: list,
+    pillar: str,
+    month_label: str,
+) -> list[dict]:
+    """Build modal row list for one Support FMS pillar (response_delay | completion_delay | pending)."""
+    p = (pillar or "").strip().lower()
+    items: list[dict] = []
+    if p == "response_delay":
+        for t in week_tickets:
+            has_resp, resp_text = _has_response_delay(
+                t.get("query_arrival_at") or t.get("created_at"),
+                t.get("query_response_at"),
+            )
+            if has_resp:
+                items.append(
+                    {**_support_fms_row_item(t, month_label), "delay_time": resp_text or "Delay"}
+                )
+        return items
+    if p == "pending":
+        for t in week_tickets:
+            status = t.get("status") or ""
+            if _is_pending(status) and not _is_resolved(status, t.get("status_4")):
+                items.append(
+                    {
+                        **_support_fms_row_item(t, month_label),
+                        "delay_time": _stage2_delay_text_for_ticket(t),
+                    }
+                )
+        return items
+    if p == "completion_delay":
+        for t in stage2_completed_tickets:
+            has_comp, comp_text = _has_completion_delay(
+                resolved_at=t.get("actual_4"),
+                created_at=t.get("created_at"),
+                ticket_type=t.get("type"),
+                planned_2=t.get("planned_2"),
+                actual_2=t.get("actual_2"),
+                status_2=t.get("status_2"),
+                actual_1=t.get("actual_1"),
+            )
+            if has_comp:
+                items.append(
+                    {**_support_fms_row_item(t, month_label), "delay_time": comp_text or "TAT crossed"}
+                )
+    return items
 
 
 def _compute_support_fms_week_metrics(

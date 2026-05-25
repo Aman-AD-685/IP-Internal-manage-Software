@@ -20,6 +20,7 @@ import {
   DatePicker,
   Checkbox,
   Tooltip,
+  Spin,
 } from 'antd'
 import {
   DashboardOutlined,
@@ -44,6 +45,7 @@ import {
   type DashboardKpiPerson,
   type DashboardKpiResponse,
   type SupportFmsDelayItem,
+  type SupportFmsDetailPillar,
   type AkashCustomerSupportBlock,
   type KpiDailyLogApiRow,
   type AdrijaSocialKpiDailyRow,
@@ -221,7 +223,11 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
   const [week, setWeek] = useState<string>(`week ${previousWeekDefaults.week}`)
   const [data, setData] = useState<DashboardKpiResponse | null>(null)
   const [loading, setLoading] = useState(false)
-  const [detailModal, setDetailModal] = useState<{ title: string; items: SupportFmsDelayItem[] } | null>(null)
+  const [detailModal, setDetailModal] = useState<{
+    title: string
+    items: SupportFmsDelayItem[]
+    loading: boolean
+  } | null>(null)
   const [akashCsModal, setAkashCsModal] = useState<AkashCustomerSupportBlock | null>(null)
   const [successModal, setSuccessModal] = useState<
     | null
@@ -395,6 +401,31 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
       })
       .finally(() => setLoading(false))
   }, [selectedPerson, month, year, week])
+
+  const openSupportFmsDetail = useCallback(
+    async (pillar: SupportFmsDetailPillar, title: string) => {
+      if (!selectedPerson || selectedPerson === 'Soumya') return
+      const filters = { name: selectedPerson, month, year, week }
+      setDetailModal({ title, items: [], loading: true })
+      try {
+        const res = await dashboardKpiApi.getSupportFmsDetails(filters, pillar)
+        if (res?.success === false) {
+          message.error(
+            (res as { error?: string }).error || 'Failed to load Support FMS list',
+          )
+        }
+        setDetailModal({
+          title,
+          items: res?.items ?? [],
+          loading: false,
+        })
+      } catch (e) {
+        message.error(kpiDailyLogErrorDetail(e, 'Failed to load Support FMS list'))
+        setDetailModal({ title, items: [], loading: false })
+      }
+    },
+    [selectedPerson, month, year, week],
+  )
 
   const loadAdrijaSocialMonth = useCallback(async () => {
     if (!adrijaSocialLogMonth) return
@@ -772,6 +803,22 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
 
         {loading && <DashboardBlockSkeleton />}
 
+        {loading && selectedPerson === 'Shreyasi' && !supportFMS && (
+          <Card className="kpi-section-card kpi-section-card--support-fms" style={{ marginTop: 16 }}>
+            <Row gutter={[16, 16]}>
+              {(['Response Delay', 'Completion Delay', 'Pending Chores & Bugs'] as const).map((label) => (
+                <Col xs={24} md={8} key={label}>
+                  <Card size="small" title={label} className="kpi-support-card">
+                    <div style={{ minHeight: 72, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Spin tip="Loading Support FMS…" />
+                    </div>
+                  </Card>
+                </Col>
+              ))}
+            </Row>
+          </Card>
+        )}
+
         {!loading && data && data.success !== false && (
           <>
             {/* Monthly KPI summary – click to show weekly % graph */}
@@ -1138,13 +1185,14 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                       size="small"
                       title="Response Delay"
                       hoverable
-                      onClick={() => {
-                        const items = supportFMS.responseDelay?.details ?? []
-                        setDetailModal({ title: 'Response Delay – Details', items })
-                      }}
+                      onClick={() => void openSupportFmsDetail('response_delay', 'Response Delay – Details')}
                       className="kpi-support-card kpi-support-card--response"
                       style={{ cursor: 'pointer', borderTop: '3px solid #FFC107' }}
-                      extra={((supportFMS.responseDelay?.details?.length) ?? 0) > 0 ? <UnorderedListOutlined title="Click to view list" /> : null}
+                      extra={
+                        (supportFMS.responseDelay?.value ?? 0) > 0 ? (
+                          <UnorderedListOutlined title="Click to view list" />
+                        ) : null
+                      }
                     >
                       {supportFMS.responseDelay?.status === 'Good' ? (
                         <Text strong style={{ color: '#52c41a', fontSize: 16 }}>
@@ -1163,9 +1211,9 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                           <Text type="secondary"> · {supportFMS.responseDelay.healthPercent}%</Text>
                         )}
                       </div>
-                      {((supportFMS.responseDelay?.details?.length) ?? 0) > 0 && (
+                      {(supportFMS.responseDelay?.value ?? 0) > 0 && (
                         <div style={{ marginTop: 8, fontSize: 12, color: '#FFC107' }}>
-                          Click to view list ({supportFMS.responseDelay!.details!.length})
+                          Click to view list ({supportFMS.responseDelay?.value ?? 0})
                         </div>
                       )}
                     </Card>
@@ -1175,13 +1223,14 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                       size="small"
                       title="Completion Delay"
                       hoverable
-                      onClick={() => {
-                        const items = supportFMS.completionDelay?.details ?? []
-                        setDetailModal({ title: 'Completion Delay – Details', items })
-                      }}
+                      onClick={() => void openSupportFmsDetail('completion_delay', 'Completion Delay – Details')}
                       className="kpi-support-card kpi-support-card--completion"
                       style={{ cursor: 'pointer', borderTop: '3px solid #FFC107' }}
-                      extra={((supportFMS.completionDelay?.details?.length) ?? 0) > 0 ? <UnorderedListOutlined title="Click to view list" /> : null}
+                      extra={
+                        (supportFMS.completionDelay?.value ?? 0) > 0 ? (
+                          <UnorderedListOutlined title="Click to view list" />
+                        ) : null
+                      }
                     >
                       {supportFMS.completionDelay?.status === 'Good' ? (
                         <Text strong style={{ color: '#52c41a', fontSize: 16 }}>
@@ -1200,8 +1249,10 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                           <Text type="secondary"> · {supportFMS.completionDelay.healthPercent}%</Text>
                         )}
                       </div>
-                      {((supportFMS.completionDelay?.details?.length) ?? 0) > 0 && (
-                        <div style={{ marginTop: 8, fontSize: 12, color: '#FFC107' }}>Click to view list ({supportFMS.completionDelay!.details!.length})</div>
+                      {(supportFMS.completionDelay?.value ?? 0) > 0 && (
+                        <div style={{ marginTop: 8, fontSize: 12, color: '#FFC107' }}>
+                          Click to view list ({supportFMS.completionDelay?.value ?? 0})
+                        </div>
                       )}
                     </Card>
                   </Col>
@@ -1210,13 +1261,16 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                       size="small"
                       title="Pending Chores & Bugs"
                       hoverable
-                      onClick={() => {
-                        const items = supportFMS.pendingChores?.details ?? []
-                        setDetailModal({ title: 'Pending Chores & Bugs – Details', items })
-                      }}
+                      onClick={() =>
+                        void openSupportFmsDetail('pending', 'Pending Chores & Bugs – Details')
+                      }
                       className="kpi-support-card kpi-support-card--pending"
                       style={{ cursor: 'pointer', borderTop: '3px solid #FFC107' }}
-                      extra={((supportFMS.pendingChores?.details?.length) ?? 0) > 0 ? <UnorderedListOutlined title="Click to view list" /> : null}
+                      extra={
+                        (supportFMS.pendingChores?.value ?? 0) > 0 ? (
+                          <UnorderedListOutlined title="Click to view list" />
+                        ) : null
+                      }
                     >
                       {supportFMS.pendingChores?.status === 'Good' ? (
                         <Text strong style={{ color: '#52c41a', fontSize: 16 }}>
@@ -1235,8 +1289,10 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                           <Text type="secondary"> · {supportFMS.pendingChores.healthPercent}%</Text>
                         )}
                       </div>
-                      {((supportFMS.pendingChores?.details?.length) ?? 0) > 0 && (
-                        <div style={{ marginTop: 8, fontSize: 12, color: '#FFC107' }}>Click to view list ({supportFMS.pendingChores!.details!.length})</div>
+                      {(supportFMS.pendingChores?.value ?? 0) > 0 && (
+                        <div style={{ marginTop: 8, fontSize: 12, color: '#FFC107' }}>
+                          Click to view list ({supportFMS.pendingChores?.value ?? 0})
+                        </div>
                       )}
                     </Card>
                   </Col>
@@ -1619,8 +1675,10 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
               footer={null}
               width="min(96vw, 900px)"
               className="kpi-modal"
+              destroyOnClose
             >
               {detailModal && (
+                <Spin spinning={detailModal.loading}>
                 <Table
                   size="small"
                   dataSource={detailModal.items.map((item, i) => ({ ...item, key: i }))}
@@ -1675,9 +1733,10 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                   ]}
                   pagination={detailModal.items.length > 10 ? { pageSize: 10 } : false}
                 />
-              )}
-              {detailModal && detailModal.items.length === 0 && (
-                <Text type="secondary">No items in this list.</Text>
+                {!detailModal.loading && detailModal.items.length === 0 ? (
+                  <Text type="secondary">No items in this list.</Text>
+                ) : null}
+                </Spin>
               )}
             </Modal>
 

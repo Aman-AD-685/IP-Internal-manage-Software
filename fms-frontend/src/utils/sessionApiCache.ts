@@ -17,6 +17,7 @@ export const API_CACHE_TTL_MS = {
   dashboardSuccessPerformanceList: 2 * 60 * 1000,
   dashboardActivity: 60 * 1000,
   dashboardKpi: 10 * 60 * 1000,
+  dashboardKpiSupportFmsDetails: 5 * 60 * 1000,
   dashboardSoumyaKpi: 10 * 60 * 1000,
   improvementI1List: 5 * 60 * 1000,
   ticketsList: 3 * 60 * 1000,
