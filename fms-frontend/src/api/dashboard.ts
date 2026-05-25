@@ -59,6 +59,22 @@ export interface DashboardDetailTicket {
   delegationOn?: string
 }
 
+export interface Stage2RemarkNotificationItem {
+  id: string
+  ticket_id: string
+  reference_no: string
+  ticket_type: string
+  remark_text: string
+  added_at: string
+  added_by_name: string
+}
+
+export interface Stage2RemarkNotificationResponse {
+  count: number
+  items: Stage2RemarkNotificationItem[]
+  expires_hours: number
+}
+
 export interface SuccessPerformanceListItem {
   id: string
   reference_no?: string
@@ -125,13 +141,19 @@ export const dashboardApi = {
     return r.data
   },
   getActivityCount: async (): Promise<number> => {
-    const key = 'dashboard:activity-count'
-    const cached = sessionApiCacheGet<number>(key)
-    if (cached != null && typeof cached === 'number') return cached
-    const r = await apiClient.get<{ count: number }>('/activity/count')
-    const n = r.data?.count ?? 0
-    sessionApiCacheSet(key, n, API_CACHE_TTL_MS.dashboardActivity)
-    return n
+    const data = await dashboardApi.getStage2RemarkNotifications()
+    return data.count
+  },
+
+  getStage2RemarkNotifications: async (): Promise<Stage2RemarkNotificationResponse> => {
+    const key = 'dashboard:stage2-remark-notifications'
+    const cached = sessionApiCacheGet<Stage2RemarkNotificationResponse>(key)
+    if (cached) return cached
+    const r = await apiClient.get<Stage2RemarkNotificationResponse>('/activity/stage2-remark-notifications')
+    const data = r.data ?? { count: 0, items: [], expires_hours: 24 }
+    sessionApiCacheSet(key, data, API_CACHE_TTL_MS.stage2RemarkNotifications)
+    sessionApiCacheSet('dashboard:activity-count', data.count, API_CACHE_TTL_MS.stage2RemarkNotifications)
+    return data
   },
   getPaymentActions: async (): Promise<{
     items: Array<{

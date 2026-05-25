@@ -10,7 +10,11 @@ import {
 } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import dayjs from 'dayjs'
+import relativeTime from 'dayjs/plugin/relativeTime'
+
+dayjs.extend(relativeTime)
 import { useAuth } from '../../hooks/useAuth'
 import { useRole } from '../../hooks/useRole'
 import { ImprovementSuggestionModal } from '../improvement/ImprovementSuggestionModal'
@@ -21,7 +25,8 @@ import { ContextMenuTarget } from '../common/ContextMenuTarget'
 import { OPEN_ACTION, buildOpenActionUrl } from '../../utils/openActions'
 import { useDeepLinkAction } from '../../hooks/useDeepLinkAction'
 import type { UserRole } from '../../types/auth'
-import { dashboardApi } from '../../api/dashboard'
+import { dashboardApi, type Stage2RemarkNotificationItem } from '../../api/dashboard'
+import { STAGE2_REMARK_ADDED_EVENT } from '../../utils/stage2RemarkEvents'
 import { improvementSuggestionsApi } from '../../api/improvementSuggestions'
 import { DASHBOARD_KPI_NAMES, prefetchDashboardKpiPerson, MONTHS } from '../../api/dashboardKpi'
 import { getDefaultPreviousWeekFilter } from '../../pages/Dashboard/kpiWeekUtils'
@@ -44,7 +49,8 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
   const sectionPermissions = user?.section_permissions
   const canImprovement = canViewSection('improvement', userRole as UserRole, sectionPermissions)
   const canImprovementI1 = canViewSection('improvement_i1', userRole as UserRole, sectionPermissions)
-  const [activityCount, setActivityCount] = useState(0)
+  const [stage2Notifications, setStage2Notifications] = useState<Stage2RemarkNotificationItem[]>([])
+  const [stage2NotifyCount, setStage2NotifyCount] = useState(0)
   const [improvementOpen, setImprovementOpen] = useState(false)
   const [i1Open, setI1Open] = useState(false)
   const searchParams = new URLSearchParams(location.search)
@@ -56,12 +62,43 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
     ? canViewSection('dashboard_kpi', user.role as UserRole, user.section_permissions)
     : false
 
-  useEffect(() => {
-    const t = window.setTimeout(() => {
-      dashboardApi.getActivityCount().then(setActivityCount).catch(() => setActivityCount(0))
-    }, 2500)
-    return () => window.clearTimeout(t)
+  const loadStage2Notifications = useCallback(() => {
+    dashboardApi
+      .getStage2RemarkNotifications()
+      .then((res) => {
+        setStage2Notifications(res.items ?? [])
+        setStage2NotifyCount(res.count ?? 0)
+      })
+      .catch(() => {
+        setStage2Notifications([])
+        setStage2NotifyCount(0)
+      })
   }, [])
+
+  useEffect(() => {
+    const t = window.setTimeout(loadStage2Notifications, 2500)
+    const poll = window.setInterval(loadStage2Notifications, 60_000)
+    const onRemark = () => loadStage2Notifications()
+    window.addEventListener(STAGE2_REMARK_ADDED_EVENT, onRemark)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') loadStage2Notifications()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.clearTimeout(t)
+      window.clearInterval(poll)
+      window.removeEventListener(STAGE2_REMARK_ADDED_EVENT, onRemark)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [loadStage2Notifications])
+
+  const openStage2Ticket = (item: Stage2RemarkNotificationItem) => {
+    const ticketType = item.ticket_type === 'bug' ? 'bug' : 'chore'
+    navigate(
+      { pathname: ROUTES.TICKETS, search: '?section=chores-bugs' },
+      { state: { openTicketId: item.ticket_id, openTicketType: ticketType } },
+    )
+  }
 
   useEffect(() => {
     if (!canImprovementI1) return
@@ -235,6 +272,9 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
         )}
         <Dropdown
           trigger={['click']}
+          onOpenChange={(open) => {
+            if (open) loadStage2Notifications()
+          }}
           dropdownRender={() => (
             <div
               style={{
@@ -248,21 +288,56 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
               }}
             >
               <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', fontWeight: 600 }}>
-                Activity
+                Stage 2 remarks
+                <Text type="secondary" style={{ fontSize: 11, fontWeight: 400, display: 'block', marginTop: 2 }}>
+                  Support · Chores &amp; Bugs · last 24 hours
+                </Text>
               </div>
-              <div style={{ padding: 24, color: '#8c8c8c', textAlign: 'center' }}>
-                Recent activity will appear here.
-              </div>
+              {stage2Notifications.length === 0 ? (
+                <div style={{ padding: 24, color: '#8c8c8c', textAlign: 'center' }}>
+                  No new Stage 2 remarks in the last 24 hours.
+                </div>
+              ) : (
+                <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                  {stage2Notifications.map((item) => (
+                    <li key={item.id}>
+                      <button
+                        type="button"
+                        onClick={() => openStage2Ticket(item)}
+                        style={{
+                          display: 'block',
+                          width: '100%',
+                          textAlign: 'left',
+                          border: 'none',
+                          borderBottom: '1px solid #f0f0f0',
+                          background: 'transparent',
+                          padding: '10px 16px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <Text strong style={{ color: '#4A6BFF' }}>
+                          {item.reference_no || '—'}
+                        </Text>
+                        <div style={{ fontSize: 12, color: '#595959', marginTop: 4 }}>{item.remark_text}</div>
+                        <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 4 }}>
+                          {item.added_by_name ? `${item.added_by_name} · ` : ''}
+                          {item.added_at ? dayjs(item.added_at).fromNow() : ''}
+                        </div>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
         >
-          <Badge count={activityCount} size="small" offset={[-2, 2]}>
-          <Button
-            type="text"
-            icon={<BellOutlined />}
-            style={{ fontSize: 18 }}
-            aria-label="Activity"
-          />
+          <Badge count={stage2NotifyCount} size="small" offset={[-2, 2]} overflowCount={99}>
+            <Button
+              type="text"
+              icon={<BellOutlined />}
+              style={{ fontSize: 18 }}
+              aria-label="Stage 2 remark notifications"
+            />
           </Badge>
         </Dropdown>
         <Space>
