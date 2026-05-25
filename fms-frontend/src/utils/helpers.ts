@@ -23,6 +23,24 @@ export function normalizeUserSectionPermissions(user: User): User {
   return { ...user, section_permissions }
 }
 
+/** Numeric descending compare for CH-#### / BU-#### / FE-#### style refs. */
+export function compareTicketReferenceDesc(a?: string | null, b?: string | null): number {
+  return (b || '').localeCompare(a || '', undefined, { numeric: true })
+}
+
+/** Newest reference numbers first (0471 above 0456), then created_at desc. */
+export function sortTicketsByReferenceDesc<T extends { reference_no?: string | null; created_at?: string | null }>(
+  list: T[],
+): T[] {
+  return [...list].sort((a, b) => {
+    const refCompare = compareTicketReferenceDesc(a.reference_no, b.reference_no)
+    if (refCompare !== 0) return refCompare
+    const tA = a.created_at ? new Date(a.created_at).getTime() : 0
+    const tB = b.created_at ? new Date(b.created_at).getTime() : 0
+    return tB - tA
+  })
+}
+
 export const formatDate = (date: string | Date | null | undefined): string => {
   if (date == null) return '—'
   if (typeof date === 'string' && date.trim() === '') return '—'

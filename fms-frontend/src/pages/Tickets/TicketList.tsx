@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react'
 import {
   Table,
   Input,
@@ -28,6 +28,7 @@ import {
   getChoresBugsCurrentStage,
   getFeatureCurrentStage,
   getTicketTimeDelayDisplay,
+  sortTicketsByReferenceDesc,
   TICKET_EXPORT_COLUMNS,
   buildTicketExportRow,
   truncateTitleDescCell,
@@ -276,6 +277,8 @@ export const TicketList = () => {
         next.type = ''
         next.types_in = 'chore,bug'
         next.status = '' // Chores & Bugs uses status_2_filter (Pending/Completed/Staging/Hold), not old status
+        next.sort_by = 'reference_no'
+        next.sort_order = 'desc'
         next.date_from = urlDateFrom || ''
         next.date_to = urlDateTo || ''
       } else if (s === 'completed-chores-bugs') {
@@ -431,14 +434,8 @@ export const TicketList = () => {
               : getFeatureCurrentStage(t).stageLabel === stageFilter
           )
         : allTickets
-      if (typeFromUrl === 'feature' || sectionFromUrl === 'completed-feature') {
-        list = [...list].sort((a, b) => {
-          const refCompare = (b.reference_no || '').localeCompare(a.reference_no || '', undefined, { numeric: true })
-          if (refCompare !== 0) return refCompare
-          const tA = a.created_at ? new Date(a.created_at).getTime() : 0
-          const tB = b.created_at ? new Date(b.created_at).getTime() : 0
-          return tB - tA
-        })
+      if (isChoresBugsSection || typeFromUrl === 'feature' || sectionFromUrl === 'completed-feature') {
+        list = sortTicketsByReferenceDesc(list)
       }
       setAllTicketsForStageFilter(list)
       const initial = list.slice(0, TICKETS_CHUNK)
@@ -455,6 +452,7 @@ export const TicketList = () => {
     stageFilter,
     showStageFilter,
     showStageFilterForFeature,
+    isChoresBugsSection,
     typeFromUrl,
     sectionFromUrl,
   ])
@@ -797,17 +795,13 @@ export const TicketList = () => {
       })
     : baseListUnfiltered
 
-  /** Feature section: new tickets on top (FE-0091 above FE-0090), then by created_at desc */
-  const ticketsForDisplay =
-    typeFromUrl === 'feature' || sectionFromUrl === 'completed-feature'
-      ? [...baseList].sort((a, b) => {
-          const refCompare = (b.reference_no || '').localeCompare(a.reference_no || '', undefined, { numeric: true })
-          if (refCompare !== 0) return refCompare
-          const tA = a.created_at ? new Date(a.created_at).getTime() : 0
-          const tB = b.created_at ? new Date(b.created_at).getTime() : 0
-          return tB - tA
-        })
-      : baseList
+  /** Chores & Bugs + Feature: highest reference_no first (CH-0471 … CH-0456), then created_at. */
+  const ticketsForDisplay = useMemo(() => {
+    if (isChoresBugsSection || typeFromUrl === 'feature' || sectionFromUrl === 'completed-feature') {
+      return sortTicketsByReferenceDesc(baseList)
+    }
+    return baseList
+  }, [baseList, isChoresBugsSection, typeFromUrl, sectionFromUrl])
 
   const getStageForExport = isChoresBugs
     ? (t: Record<string, unknown>) => getChoresBugsCurrentStage(t as Parameters<typeof getChoresBugsCurrentStage>[0])
@@ -883,6 +877,13 @@ export const TicketList = () => {
       key: 'reference_no',
       width: 100,
       fixed: 'left' as const,
+      sorter: isChoresBugsSection || typeFromUrl === 'feature',
+      sortOrder:
+        filters.sort_by === 'reference_no'
+          ? filters.sort_order === 'asc'
+            ? 'ascend'
+            : 'descend'
+          : undefined,
       render: (v: string) => v || '-',
     },
     ...(isMasterAdmin
