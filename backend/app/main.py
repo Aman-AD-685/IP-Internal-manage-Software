@@ -11096,6 +11096,31 @@ def _supabase_select_in_chunks(table: str, columns: str, in_column: str, ids: li
     return out
 
 
+def _company_name_for_id(company_id: str | None) -> str:
+    if not company_id:
+        return ""
+    try:
+        r = supabase.table("companies").select("name").eq("id", company_id).limit(1).execute()
+        rows = r.data or []
+        return str((rows[0] or {}).get("name") or "") if rows else ""
+    except Exception:
+        return ""
+
+
+def _fetch_followups_for_tf_ids(tf_ids: list) -> list:
+    """Load followup rows for ticket_features (chunked). Never request initial_percentage — that lives on performance_training."""
+    if not tf_ids:
+        return []
+    cols = (
+        "id, ticket_feature_id, status, remarks, created_at, "
+        "added_percentage, total_percentage, previous_percentage, feature_name"
+    )
+    rows = _supabase_select_in_chunks("feature_followups", cols, "ticket_feature_id", tf_ids)
+    if rows or not tf_ids:
+        return rows
+    return _supabase_select_in_chunks("feature_followups", "*", "ticket_feature_id", tf_ids)
+
+
 def _fetch_performance_list_enrichment(ticket_ids: list, company_ids: list) -> tuple[list, list, dict, dict, dict, dict]:
     """Parallel fetch training/ticket_features and company names for list enrichment."""
     from concurrent.futures import ThreadPoolExecutor
@@ -11316,12 +11341,7 @@ def get_performance_details(
         row = rows[0]
         na_ids = performance_marked_na_company_ids() if performance_marked_na_supported() else set()
         enrich_performance_rows_na([row], na_company_ids=na_ids)
-        company_id = row.get("company_id")
-        company_name = ""
-        if company_id:
-            c = supabase.table("companies").select("name").eq("id", company_id).maybe_single().execute()
-            company_name = (c.data or {}).get("name", "")
-        row["company_name"] = company_name
+        row["company_name"] = _company_name_for_id(row.get("company_id"))
         row["marked_na_supported"] = performance_marked_na_supported()
         training, tfs = _get_training_for_ticket(ticket_id)
         current_stage, pending_features = _compute_current_stage_from_training(
@@ -11330,22 +11350,12 @@ def get_performance_details(
         row["current_stage"] = current_stage
         row["pending_features"] = pending_features
         row["training"] = training
+        if training and training.get("total_percentage") is not None:
+            row["total_percentage"] = float(training["total_percentage"])
         row["feature_ids"] = [f["feature_id"] for f in tfs] if tfs else []
         row["features_locked"] = _features_locked(training) if training else False
-        tf_ids = [f["id"] for f in tfs] if tfs else []
-        followups = []
-        if tf_ids:
-            fu = (
-                supabase.table("feature_followups")
-                .select(
-                    "id, ticket_feature_id, status, remarks, created_at, initial_percentage, "
-                    "added_percentage, total_percentage, previous_percentage, feature_name"
-                )
-                .in_("ticket_feature_id", tf_ids)
-                .order("created_at", desc=False)
-                .execute()
-            )
-            followups = fu.data or []
+        tf_ids = [f["id"] for f in tfs if f.get("id")]
+        followups = _fetch_followups_for_tf_ids(tf_ids)
         fl_ids = list({f["feature_id"] for f in tfs}) if tfs else []
         feature_names = {}
         if fl_ids:

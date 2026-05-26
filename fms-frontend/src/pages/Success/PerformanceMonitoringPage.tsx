@@ -604,10 +604,29 @@ export const PerformanceMonitoringPage = () => {
     setDetailsData(cached ?? null)
     setDetailsLoading(!cached)
     try {
-      const data = await dashboardApi.getSuccessPerformanceDetails(record.id)
+      const data = (await dashboardApi.getSuccessPerformanceDetails(record.id)) as TicketDetails
       setDetailsData(data)
-    } catch {
-      if (!cached) message.error('Failed to load details')
+    } catch (err) {
+      const ax = err as { response?: { data?: { detail?: string } } }
+      const detail = ax.response?.data?.detail
+      if (!cached) {
+        setDetailsData({
+          id: record.id,
+          reference_no: record.reference_no,
+          company_name: record.company_name,
+          message_owner: record.message_owner,
+          response: record.response,
+          contact: record.contact,
+          completion_status: record.completion_status,
+          total_percentage: record.total_percentage ?? undefined,
+          current_stage: record.current_stage || '—',
+          pending_features: [],
+          feature_ids: [],
+        })
+        message.warning(detail ? String(detail).slice(0, 200) : 'Showing summary only; full details could not be loaded.')
+      } else if (detail) {
+        message.warning(String(detail).slice(0, 200))
+      }
     } finally {
       setDetailsLoading(false)
     }
