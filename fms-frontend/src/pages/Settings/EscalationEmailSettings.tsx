@@ -331,7 +331,8 @@ export function EscalationEmailSettings() {
         <Paragraph type="secondary">
           Automated pending escalation for Chores, Bugs, and Staging. Tickets are sorted by <strong>longest time delay first</strong>{' '}
           in each table. <strong>Demo&nbsp;C</strong> company tickets are excluded. Company names are filled from the company directory
-          when the ticket has a <Text code>company_id</Text> but an empty name.
+          when the ticket has a <Text code>company_id</Text> but an empty name. Cron does not send on <strong>Sundays</strong> or
+          Checklist holiday dates.
         </Paragraph>
 
         {emailDelivery && !emailDelivery.credentials_loaded && (

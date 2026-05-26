@@ -14,7 +14,10 @@ export const API_CACHE_TTL_MS = {
   dashboardDetail: 60 * 1000,
   dashboardPaymentActions: 60 * 1000,
   dashboardSuccessKpi: 5 * 60 * 1000,
-  dashboardSuccessPerformanceList: 2 * 60 * 1000,
+  dashboardSuccessPerformanceList: 5 * 60 * 1000,
+  successPerformanceDetails: 5 * 60 * 1000,
+  successPerformanceNaIds: 5 * 60 * 1000,
+  successPerformanceFeatures: 30 * 60 * 1000,
   dashboardActivity: 60 * 1000,
   stage2RemarkNotifications: 30 * 1000,
   dashboardKpi: 10 * 60 * 1000,
@@ -197,6 +200,7 @@ export function invalidateAfterDashboardPaymentSubmit(): void {
 /** Success Performance NA toggle — refresh Success dashboard KPI and performance lists. */
 export function invalidateAfterPerformanceNaChange(): void {
   sessionApiCacheClearLogicalPrefix('dashboard:')
+  sessionApiCacheClearLogicalPrefix('success:performance')
   try {
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(DASHBOARD_CROSS_TAB_BUMP_KEY, String(Date.now()))

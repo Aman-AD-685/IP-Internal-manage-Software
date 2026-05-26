@@ -251,15 +251,71 @@ export const dashboardApi = {
   },
   getSuccessPerformanceList: async (
     completionStatus: 'in_progress' | 'completed',
-  ): Promise<{ items: SuccessPerformanceListItem[] }> => {
-    const key = `dashboard:success-performance-list:${completionStatus}`
-    const cached = sessionApiCacheGet<{ items: SuccessPerformanceListItem[] }>(key)
-    if (cached) return cached
-    const r = await apiClient.get<{ items: SuccessPerformanceListItem[] }>(
-      '/success/performance/list',
-      { params: { completion_status: completionStatus } },
-    )
+    options?: { naFilter?: string; skipCache?: boolean; backgroundRefresh?: boolean },
+  ): Promise<{
+    items: SuccessPerformanceListItem[]
+    marked_na_supported?: boolean
+    na_filter?: string
+  }> => {
+    const naFilter = options?.naFilter ?? 'exclude_na'
+    const key = `dashboard:success-performance-list:${completionStatus}:${naFilter}`
+    type ListPayload = {
+      items: SuccessPerformanceListItem[]
+      marked_na_supported?: boolean
+      na_filter?: string
+    }
+    const cached = !options?.skipCache ? sessionApiCacheGet<ListPayload>(key) : null
+    if (cached?.items && !options?.backgroundRefresh) {
+      void apiClient
+        .get<ListPayload>('/success/performance/list', {
+          params: { completion_status: completionStatus, na_filter: naFilter, _: Date.now() },
+        })
+        .then((r) => sessionApiCacheSet(key, r.data, API_CACHE_TTL_MS.dashboardSuccessPerformanceList))
+        .catch(() => {})
+      return cached
+    }
+    const r = await apiClient.get<ListPayload>('/success/performance/list', {
+      params: {
+        completion_status: completionStatus,
+        na_filter: naFilter,
+        ...(options?.skipCache ? { _: Date.now() } : {}),
+      },
+    })
     sessionApiCacheSet(key, r.data, API_CACHE_TTL_MS.dashboardSuccessPerformanceList)
+    return r.data
+  },
+  getSuccessPerformanceDetails: async (
+    ticketId: string,
+    options?: { skipCache?: boolean },
+  ): Promise<Record<string, unknown>> => {
+    const key = `success:performance-details:${ticketId}`
+    if (!options?.skipCache) {
+      const cached = sessionApiCacheGet<Record<string, unknown>>(key)
+      if (cached) return cached
+    }
+    const r = await apiClient.get<Record<string, unknown>>('/success/performance/details', {
+      params: { ticket_id: ticketId, ...(options?.skipCache ? { _: Date.now() } : {}),
+      },
+    })
+    sessionApiCacheSet(key, r.data, API_CACHE_TTL_MS.successPerformanceDetails)
+    return r.data
+  },
+  getSuccessPerformanceNaCompanyIds: async (): Promise<{ company_ids: string[]; marked_na_supported?: boolean }> => {
+    const key = 'success:performance-na-company-ids'
+    const cached = sessionApiCacheGet<{ company_ids: string[]; marked_na_supported?: boolean }>(key)
+    if (cached) return cached
+    const r = await apiClient.get<{ company_ids: string[]; marked_na_supported?: boolean }>(
+      '/success/performance/na-company-ids',
+    )
+    sessionApiCacheSet(key, r.data, API_CACHE_TTL_MS.successPerformanceNaIds)
+    return r.data
+  },
+  getSuccessPerformanceFeatures: async (): Promise<{ items: Array<{ id: string; name: string }> }> => {
+    const key = 'success:performance-features'
+    const cached = sessionApiCacheGet<{ items: Array<{ id: string; name: string }> }>(key)
+    if (cached) return cached
+    const r = await apiClient.get<{ items: Array<{ id: string; name: string }> }>('/success/performance/features')
+    sessionApiCacheSet(key, r.data, API_CACHE_TTL_MS.successPerformanceFeatures)
     return r.data
   },
   getSuccessKpiTillDate: async (): Promise<{

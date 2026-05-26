@@ -174,6 +174,13 @@ export interface AkashCustomerSupportBlock {
   detailsPending?: SupportFmsDelayItem[]
 }
 
+export interface AkashBulkUploadBlock {
+  ticketsLogged?: number
+  /** Fixed weekly target (5 = 100%) */
+  weeklyTarget?: number
+  scorePercent?: number
+}
+
 export interface AkashKpiMonthlySummary {
   overall_score_percent: number
   pillars: AkashKpiPillar[]
@@ -189,6 +196,7 @@ export interface AkashKpiResponse {
   /** Blended headline % for the full selected calendar month (same weights as weekly) */
   overall_score_monthly_percent?: number
   pillars: AkashKpiPillar[]
+  bulkUpload?: AkashBulkUploadBlock
   customerSupport?: AkashCustomerSupportBlock
   /** Pillar-level % for the month; used by KPI Monthly drill-down chart */
   monthly?: AkashKpiMonthlySummary
@@ -206,6 +214,7 @@ export interface KpiDailyLogApiRow {
   accuracy_pct?: number | null
   videos_created?: number | null
   video_type?: string | null
+  bulk_upload_tickets?: number | null
   ai_tasks_used?: number | null
   process_improved?: number | null
 }

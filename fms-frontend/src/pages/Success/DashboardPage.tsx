@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, DatePicker, Skeleton, Typography } from 'antd'
 import dayjs from 'dayjs'
-import { API_BASE_URL } from '../../api/axios'
-import { storage } from '../../utils/storage'
+import { dashboardApi } from '../../api/dashboard'
+import { sessionApiCacheGet } from '../../utils/sessionApiCache'
 import { DashboardTable } from './dashboard/DashboardTable'
 import { WeeklyCard } from './dashboard/WeeklyCard'
 import type { MainDashboardRow, WeeklyRow } from './dashboard/types'
@@ -17,8 +17,6 @@ import {
 import './dashboard/su-dash.css'
 
 const { Title } = Typography
-
-const FETCH_TIMEOUT_MS = 45000
 
 interface DashboardData {
   week1: WeeklyRow[]
@@ -58,48 +56,40 @@ export function DashboardPage() {
   const [rawItems, setRawItems] = useState<PerformanceListItem[]>([])
   const [month, setMonth] = useState(() => dayjs().startOf('month'))
 
-  const fetchWithTimeout = useCallback((url: string, options: RequestInit = {}) => {
-    const controller = new AbortController()
-    const id = window.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
-    return fetch(url, { ...options, signal: controller.signal }).finally(() => window.clearTimeout(id))
-  }, [])
-
   const loadPerformanceData = useCallback(async () => {
-    setLoading(true)
     setSetupError(null)
-    const headers: HeadersInit = { Authorization: `Bearer ${storage.getToken() ?? ''}` }
+    const cachedOpen = sessionApiCacheGet<{ items?: PerformanceListItem[] }>(
+      'dashboard:success-performance-list:in_progress:exclude_na',
+    )
+    const cachedDone = sessionApiCacheGet<{ items?: PerformanceListItem[] }>(
+      'dashboard:success-performance-list:completed:exclude_na',
+    )
+    if (cachedOpen?.items?.length || cachedDone?.items?.length) {
+      const merged = [...(cachedOpen?.items || []), ...(cachedDone?.items || [])]
+      const byId = new Map<string, PerformanceListItem>()
+      for (const row of merged) {
+        if (row.id) byId.set(row.id, row)
+      }
+      setRawItems([...byId.values()])
+      setLoading(false)
+    } else {
+      setLoading(true)
+    }
     try {
-      const [resOpen, resDone] = await Promise.all([
-        fetchWithTimeout(`${API_BASE_URL}/success/performance/list?completion_status=in_progress`, {
-          headers,
-        }),
-        fetchWithTimeout(`${API_BASE_URL}/success/performance/list?completion_status=completed`, {
-          headers,
-        }),
+      const [openData, doneData] = await Promise.all([
+        dashboardApi.getSuccessPerformanceList('in_progress'),
+        dashboardApi.getSuccessPerformanceList('completed'),
       ])
-      const merged: PerformanceListItem[] = []
-      let saw503 = false
-      for (const res of [resOpen, resDone]) {
-        if (res.ok) {
-          const j = (await res.json()) as { items?: PerformanceListItem[] }
-          merged.push(...(j.items || []))
-        } else if (res.status === 503) {
-          saw503 = true
-          const err = (await res.json().catch(() => ({}))) as { detail?: string }
-          setSetupError(err?.detail || 'Run database/SUCCESS_PERFORMANCE_MONITORING.sql in Supabase.')
-        }
-      }
-      if (!saw503 && merged.length === 0 && (!resOpen.ok || !resDone.ok)) {
-        setSetupError('Could not load Performance Monitoring / Comp-Perform data.')
-      }
+      const merged: PerformanceListItem[] = [...(openData.items || []), ...(doneData.items || [])]
       const byId = new Map<string, PerformanceListItem>()
       for (const row of merged) {
         if (row.id) byId.set(row.id, row)
       }
       setRawItems([...byId.values()])
     } catch (e) {
-      if ((e as Error)?.name === 'AbortError') {
-        setSetupError('Request timed out. Check backend and network.')
+      const ax = e as { response?: { status?: number; data?: { detail?: string } } }
+      if (ax.response?.status === 503) {
+        setSetupError(ax.response?.data?.detail || 'Run database/SUCCESS_PERFORMANCE_MONITORING.sql in Supabase.')
       } else {
         setSetupError('Failed to load performance data.')
       }
@@ -107,7 +97,7 @@ export function DashboardPage() {
     } finally {
       setLoading(false)
     }
-  }, [fetchWithTimeout])
+  }, [])
 
   useEffect(() => {
     loadPerformanceData()

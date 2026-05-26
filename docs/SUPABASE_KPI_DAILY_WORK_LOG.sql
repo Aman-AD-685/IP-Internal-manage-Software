@@ -1,46 +1,86 @@
--- KPI daily work log (Akash dashboard manual entry) — run in Supabase SQL editor
--- Matches spreadsheet: Item cleaning, Video content, AI learning (per day, Mon–Fri style use)
---
--- Save failures from the app: ensure the API host has SUPABASE_SERVICE_ROLE_KEY set.
--- Troubleshooting queries: docs/SUPABASE_KPI_DAILY_WORK_LOG_RLS_DELEGATES.sql
+-- KPI daily work log (Akash dashboard) — safe to re-run (no duplicate policy errors)
+-- Save failures: set SUPABASE_SERVICE_ROLE_KEY on the API host.
+-- RLS delegates: docs/SUPABASE_KPI_DAILY_WORK_LOG_RLS_DELEGATES.sql
 
-create table if not exists public.kpi_daily_work_log (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users (id) on delete cascade,
-  work_date date not null,
-  items_cleaned integer null,
-  errors_found numeric null,
-  accuracy_pct numeric null,
-  videos_created integer null,
-  video_type text null,
-  ai_tasks_used integer null,
-  process_improved integer null,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  constraint kpi_daily_work_log_user_date unique (user_id, work_date)
+CREATE TABLE IF NOT EXISTS public.kpi_daily_work_log (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES auth.users (id) ON DELETE CASCADE,
+  work_date date NOT NULL,
+  items_cleaned integer NULL,
+  errors_found numeric NULL,
+  accuracy_pct numeric NULL,
+  videos_created integer NULL,
+  video_type text NULL,
+  bulk_upload_tickets integer NULL,
+  ai_tasks_used integer NULL,
+  process_improved integer NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT kpi_daily_work_log_user_date UNIQUE (user_id, work_date)
 );
 
-create index if not exists kpi_daily_work_log_user_month_idx
-  on public.kpi_daily_work_log (user_id, work_date);
+-- Add bulk column if table existed before bulk upload feature
+ALTER TABLE public.kpi_daily_work_log
+  ADD COLUMN IF NOT EXISTS bulk_upload_tickets integer NULL;
 
-comment on table public.kpi_daily_work_log is 'Manual KPI daily entries for Akash-style dashboard (items/video/AI).';
+CREATE INDEX IF NOT EXISTS kpi_daily_work_log_user_month_idx
+  ON public.kpi_daily_work_log (user_id, work_date);
 
-alter table public.kpi_daily_work_log enable row level security;
+COMMENT ON TABLE public.kpi_daily_work_log IS
+  'Manual KPI daily entries for Akash dashboard (items, video, bulk upload, AI).';
 
--- Users can read/write only their own rows (JWT uid = auth.uid())
-create policy "kpi_daily_work_log_select_own"
-  on public.kpi_daily_work_log for select
-  using (auth.uid() = user_id);
+COMMENT ON COLUMN public.kpi_daily_work_log.bulk_upload_tickets IS
+  'Bulk upload tickets logged for this day (Akash KPI daily work log).';
 
-create policy "kpi_daily_work_log_insert_own"
-  on public.kpi_daily_work_log for insert
-  with check (auth.uid() = user_id);
+ALTER TABLE public.kpi_daily_work_log ENABLE ROW LEVEL SECURITY;
 
-create policy "kpi_daily_work_log_update_own"
-  on public.kpi_daily_work_log for update
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
+-- Policies: create only if missing (fixes error 42710 "already exists")
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'kpi_daily_work_log'
+      AND policyname = 'kpi_daily_work_log_select_own'
+  ) THEN
+    CREATE POLICY "kpi_daily_work_log_select_own"
+      ON public.kpi_daily_work_log FOR SELECT
+      USING (auth.uid() = user_id);
+  END IF;
 
-create policy "kpi_daily_work_log_delete_own"
-  on public.kpi_daily_work_log for delete
-  using (auth.uid() = user_id);
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'kpi_daily_work_log'
+      AND policyname = 'kpi_daily_work_log_insert_own'
+  ) THEN
+    CREATE POLICY "kpi_daily_work_log_insert_own"
+      ON public.kpi_daily_work_log FOR INSERT
+      WITH CHECK (auth.uid() = user_id);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'kpi_daily_work_log'
+      AND policyname = 'kpi_daily_work_log_update_own'
+  ) THEN
+    CREATE POLICY "kpi_daily_work_log_update_own"
+      ON public.kpi_daily_work_log FOR UPDATE
+      USING (auth.uid() = user_id)
+      WITH CHECK (auth.uid() = user_id);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'kpi_daily_work_log'
+      AND policyname = 'kpi_daily_work_log_delete_own'
+  ) THEN
+    CREATE POLICY "kpi_daily_work_log_delete_own"
+      ON public.kpi_daily_work_log FOR DELETE
+      USING (auth.uid() = user_id);
+  END IF;
+END $$;
+
+NOTIFY pgrst, 'reload schema';

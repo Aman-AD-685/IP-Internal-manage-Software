@@ -42,8 +42,12 @@ from app.auth_middleware import get_current_user, get_current_user_optional
 from app import payment_ageing as _pa
 from app.dashboard_kpi_sections import DASHBOARD_KPI_PERMISSION_SECTIONS, merge_section_keys
 from app.performance_na import (
+    POSTGREST_IN_MAX,
+    apply_performance_list_query_filters,
     enrich_performance_rows_na,
     filter_performance_rows,
+    invalidate_performance_na_company_ids_cache,
+    performance_marked_na_company_ids,
     performance_marked_na_supported,
     reset_performance_marked_na_cache,
 )
@@ -1248,6 +1252,7 @@ class KpiDailyLogUpsertBody(BaseModel):
     accuracy_pct: float | None = None
     videos_created: float | None = None
     video_type: str | None = None
+    bulk_upload_tickets: float | None = None
     ai_tasks_used: float | None = None
     process_improved: float | None = None
 
@@ -3319,6 +3324,22 @@ def _kpi_daily_work_log_owner_user_id() -> str | None:
     return _dashboard_kpi_resolve_user_id("Akash")
 
 
+# Akash KPI weekly targets (fixed counts — not tied to support ticket volume)
+_AKASH_KPI_TARGET_BULK_UPLOAD = 5
+_AKASH_KPI_TARGET_VIDEO = 1
+_AKASH_KPI_TARGET_ITEM_CLEANING_DAYS = 1
+_AKASH_KPI_TARGET_AI_DAYS = 1
+
+
+def _akash_kpi_weekly_count_score(count: int, target: int) -> int:
+    """Map weekly count to 0–100; at or above target → 100%."""
+    t = max(1, int(target))
+    c = max(0, int(count or 0))
+    if c <= 0:
+        return 0
+    return max(0, min(100, round(100.0 * c / float(t))))
+
+
 def _count_weekdays_in_kpi_range(a: date, b: date) -> int:
     n = 0
     d = a
@@ -3339,15 +3360,16 @@ def _aggregate_kpi_daily_log_for_week(rows: list, range_start: date, range_end: 
         "accuracy_values": [],
         "videos_created": 0,
         "video_types": [],
+        "bulk_upload_tickets": 0,
         "ai_tasks_used": 0,
         "process_improved": 0,
         "cleaning_score": 0,
         "video_score": 0,
+        "bulk_upload_score": 0,
         "ai_score": 0,
     }
     if not rows:
         return empty
-    wd = _count_weekdays_in_kpi_range(range_start, range_end)
     in_week: list = []
     for r in rows:
         wd_raw = r.get("work_date")
@@ -3364,16 +3386,21 @@ def _aggregate_kpi_daily_log_for_week(rows: list, range_start: date, range_end: 
     out = {**empty, "has_rows": True}
     acc_vals: list[float] = []
     vtypes: list[str] = []
+    item_cleaning_days = 0
+    ai_learning_days = 0
     for r in in_week:
+        row_item = False
         if r.get("items_cleaned") is not None:
             out["items_cleaned"] += int(r.get("items_cleaned") or 0)
             out["has_item_cleaning"] = True
+            row_item = True
         if r.get("errors_found") is not None and str(r.get("errors_found")).strip() != "":
             try:
                 out["errors_found"] += float(r.get("errors_found"))
             except (TypeError, ValueError):
                 pass
             out["has_item_cleaning"] = True
+            row_item = True
         ap = r.get("accuracy_pct")
         if ap is not None and str(ap).strip() != "":
             try:
@@ -3381,31 +3408,50 @@ def _aggregate_kpi_daily_log_for_week(rows: list, range_start: date, range_end: 
             except (TypeError, ValueError):
                 pass
             out["has_item_cleaning"] = True
+            row_item = True
+        if row_item:
+            item_cleaning_days += 1
         if r.get("videos_created") is not None:
             out["videos_created"] += int(r.get("videos_created") or 0)
+        if r.get("bulk_upload_tickets") is not None:
+            out["bulk_upload_tickets"] += int(r.get("bulk_upload_tickets") or 0)
         vt = (r.get("video_type") or "").strip()
         if vt:
             vtypes.append(vt)
+        row_ai = False
         if r.get("ai_tasks_used") is not None:
             out["ai_tasks_used"] += int(r.get("ai_tasks_used") or 0)
+            if int(r.get("ai_tasks_used") or 0) > 0:
+                row_ai = True
         if r.get("process_improved") is not None:
             out["process_improved"] += int(r.get("process_improved") or 0)
+            if int(r.get("process_improved") or 0) > 0:
+                row_ai = True
+        if row_ai:
+            ai_learning_days += 1
     out["accuracy_values"] = acc_vals
     out["video_types"] = vtypes
+    out["item_cleaning_days"] = item_cleaning_days
+    out["ai_learning_days"] = ai_learning_days
     if out["has_item_cleaning"]:
-        if acc_vals:
-            out["cleaning_score"] = max(0, min(100, round(sum(acc_vals) / len(acc_vals))))
-        elif out["items_cleaned"] > 0:
-            er = out["errors_found"]
-            pct = 100.0 * max(0.0, 1.0 - min(1.0, er / float(out["items_cleaned"])))
-            out["cleaning_score"] = max(0, min(100, round(pct)))
-        else:
-            out["cleaning_score"] = 0
-    if out["videos_created"] > 0 or vtypes:
-        out["video_score"] = max(0, min(100, round(100.0 * out["videos_created"] / float(wd))))
-    ai_units = out["ai_tasks_used"] + out["process_improved"]
-    if ai_units > 0:
-        out["ai_score"] = max(0, min(100, round(100.0 * ai_units / float(wd))))
+        out["cleaning_score"] = _akash_kpi_weekly_count_score(
+            item_cleaning_days, _AKASH_KPI_TARGET_ITEM_CLEANING_DAYS
+        )
+    video_count = int(out["videos_created"] or 0)
+    if video_count <= 0 and vtypes:
+        video_count = 1
+    if video_count > 0:
+        out["video_score"] = _akash_kpi_weekly_count_score(
+            video_count, _AKASH_KPI_TARGET_VIDEO
+        )
+    if out["bulk_upload_tickets"] > 0:
+        out["bulk_upload_score"] = _akash_kpi_weekly_count_score(
+            out["bulk_upload_tickets"], _AKASH_KPI_TARGET_BULK_UPLOAD
+        )
+    if ai_learning_days > 0:
+        out["ai_score"] = _akash_kpi_weekly_count_score(
+            ai_learning_days, _AKASH_KPI_TARGET_AI_DAYS
+        )
     return out
 
 
@@ -3416,14 +3462,16 @@ def _build_akash_kpi_payload(
     customer_support_bundle: dict,
     daily_week: dict | None,
 ) -> dict:
-    """Akash Dashboard — four KPI pillars (weights 35+25+15+10=85); UI shows % renormalized to 100."""
-    raw_weights = {"item_cleaning": 35, "customer_support": 25, "video_content": 15, "ai_learning": 10}
+    """Akash Dashboard — five KPI pillars at 20% each (100% total)."""
+    raw_weights = {
+        "item_cleaning": 20,
+        "customer_support": 20,
+        "bulk_upload": 20,
+        "video_content": 20,
+        "ai_learning": 20,
+    }
     wsum = sum(raw_weights.values()) or 1
     norm = {k: round(100 * v / wsum) for k, v in raw_weights.items()}
-    keys = list(norm.keys())
-    drift = 100 - sum(norm.values())
-    if drift != 0 and keys:
-        norm[keys[0]] = norm[keys[0]] + drift
     cs = customer_support_bundle or {}
     cs_score = int(cs.get("score_percent") or 0)
     cs_score_filter_week = int(cs.get("score_percent_filter_week", cs_score))
@@ -3437,13 +3485,18 @@ def _build_akash_kpi_payload(
     has_item = bool(dw.get("has_item_cleaning"))
     item_score_daily = int(dw.get("cleaning_score") or 0)
     video_pct = int(dw.get("video_score") or 0)
+    bulk_sum = int(dw.get("bulk_upload_tickets") or 0)
+    bulk_pct = int(dw.get("bulk_upload_score") or 0)
+    if bulk_sum > 0 and bulk_pct <= 0:
+        bulk_pct = _akash_kpi_weekly_count_score(bulk_sum, _AKASH_KPI_TARGET_BULK_UPLOAD)
+    bulk_target = _AKASH_KPI_TARGET_BULK_UPLOAD
     ai_pct = int(dw.get("ai_score") or 0)
     item_for_overall = item_score_daily if has_item else checklist_weekly_pct
-    # Headline overall: filter-week checklist OR daily log item score + support + daily video/AI
     overall = round(
         (
             item_for_overall * raw_weights["item_cleaning"]
             + cs_score_filter_week * raw_weights["customer_support"]
+            + bulk_pct * raw_weights["bulk_upload"]
             + video_pct * raw_weights["video_content"]
             + ai_pct * raw_weights["ai_learning"]
         )
@@ -3463,6 +3516,7 @@ def _build_akash_kpi_payload(
             {"label": "Items Cleaned (daily log)", "value": str(int(dw.get("items_cleaned") or 0))},
             {"label": "Errors Found (daily log)", "value": str(dw.get("errors_found") or 0)},
             {"label": "Accuracy % ≥ 98%", "value": accuracy_line},
+            {"label": "Weekly target (days logged)", "value": str(_AKASH_KPI_TARGET_ITEM_CLEANING_DAYS)},
         ]
         item_score_show = item_score_daily
     else:
@@ -3478,10 +3532,16 @@ def _build_akash_kpi_payload(
     video_metrics = [
         {"label": "Videos Created", "value": str(int(dw.get("videos_created") or 0))},
         {"label": "Video Type", "value": vt_display},
+        {"label": "Weekly target", "value": str(_AKASH_KPI_TARGET_VIDEO)},
+    ]
+    bulk_metrics = [
+        {"label": "Bulk upload tickets", "value": str(bulk_sum)},
+        {"label": "Weekly target", "value": str(bulk_target)},
     ]
     ai_metrics = [
         {"label": "AI Tasks Used", "value": str(int(dw.get("ai_tasks_used") or 0))},
         {"label": "Process Improved", "value": str(int(dw.get("process_improved") or 0))},
+        {"label": "Weekly target (days logged)", "value": str(_AKASH_KPI_TARGET_AI_DAYS)},
     ]
     pillars = [
         {
@@ -3499,12 +3559,19 @@ def _build_akash_kpi_payload(
             "weight_percent_display": norm["customer_support"],
             "score_percent": cs_score,
             "metrics": [
-                {"label": "Total tickets (data week)", "value": str(total_issues)},
                 {"label": "Response delays", "value": str(rd_ct)},
                 {"label": "Completion delays", "value": str(cd_ct)},
                 {"label": "Pending", "value": str(pend_ct)},
                 {"label": "Avg response (min)", "value": resp_line},
             ],
+        },
+        {
+            "key": "bulk_upload",
+            "title": "BULK UPLOAD",
+            "weight": raw_weights["bulk_upload"],
+            "weight_percent_display": norm["bulk_upload"],
+            "score_percent": bulk_pct,
+            "metrics": bulk_metrics,
         },
         {
             "key": "video_content",
@@ -3530,6 +3597,11 @@ def _build_akash_kpi_payload(
         "overall_score_percent": overall,
         "pillars": pillars,
         "dailyLogWeekApplied": has_daily,
+        "bulkUpload": {
+            "ticketsLogged": bulk_sum,
+            "weeklyTarget": bulk_target,
+            "scorePercent": bulk_pct,
+        },
     }
     if cs:
         out["customerSupport"] = {
@@ -4022,42 +4094,30 @@ def _dashboard_kpi_data(
             sel_w = max(1, min(_parse_kpi_week_num(week, default=2), max_week_index))
             filt = get_kpi_calendar_week_range(y, month_num, sel_w)
             filter_rs, filter_re = filt if filt else (range_start, range_end)
-            prev_rs, prev_re = prior_kpi_calendar_week_range(filter_rs)
-
-            prior_month_label = (
-                _MONTH_NAMES[prev_rs.month - 1]
-                if prev_rs.month == prev_re.month and prev_rs.year == prev_re.year
-                else f"{_MONTH_NAMES[prev_rs.month - 1]}-{_MONTH_NAMES[prev_re.month - 1]}"
+            filter_range_lbl = f"{filter_rs.strftime('%d %b %Y')} – {filter_re.strftime('%d %b %Y')}"
+            data_month_label = (
+                _MONTH_NAMES[filter_rs.month - 1]
+                if filter_rs.month == filter_re.month and filter_rs.year == filter_re.year
+                else f"{_MONTH_NAMES[filter_rs.month - 1]}-{_MONTH_NAMES[filter_re.month - 1]}"
             )
-            week_slice = _tickets_arrival_within_range(ak_tickets, prev_rs, prev_re)
-            week_slice_filter = _tickets_arrival_within_range(ak_tickets, filter_rs, filter_re)
-            _enrich_kpi_ticket_slices(week_slice, week_slice_filter)
-            total_cs = len(week_slice)
-            pending_cs = sum(
+            week_slice = _tickets_arrival_within_range(ak_tickets, filter_rs, filter_re)
+            _enrich_kpi_ticket_slices(week_slice, week_slice)
+            total_w = len(week_slice)
+            pending_w = sum(
                 1
                 for t in week_slice
                 if _is_pending(t.get("status") or "") and not _is_resolved(t.get("status"), t.get("status_4"))
             )
-            cs_score = round(((total_cs - pending_cs) / total_cs) * 100) if total_cs else 0
-            total_cf = len(week_slice_filter)
-            pending_cf = sum(
-                1
-                for t in week_slice_filter
-                if _is_pending(t.get("status") or "") and not _is_resolved(t.get("status"), t.get("status_4"))
-            )
-            cs_score_filter_week = round(((total_cf - pending_cf) / total_cf) * 100) if total_cf else 0
+            cs_score_w = round(((total_w - pending_w) / total_w) * 100) if total_w else 0
             avg_m = _akash_avg_response_minutes(week_slice)
             if avg_m is None:
                 resp_disp = "—"
             else:
                 resp_disp = str(round(avg_m))
-            range_lbl = f"{prev_rs.strftime('%d %b %Y')} – {prev_re.strftime('%d %b %Y')}"
-            filter_range_lbl = f"{filter_rs.strftime('%d %b %Y')} – {filter_re.strftime('%d %b %Y')}"
             help_note = (
-                f"Mon–Sun calendar weeks. KPI cards use arrivals in prior week ({range_lbl}). "
-                f"Overall blend uses arrivals in selected week ({filter_range_lbl}), matching checklist/delegation."
+                f"Customer support % uses chores/bugs with query arrival in the selected week ({filter_range_lbl}). "
+                f"Bulk upload target is 5 per week (fixed), not tied to ticket count."
             )
-            data_month_label = prior_month_label
             details_resp: list = []
             details_comp: list = []
             details_pend: list = []
@@ -4082,19 +4142,19 @@ def _dashboard_kpi_data(
                         _akash_support_detail_row(t, data_month_label, _stage2_delay_text_for_ticket(t))
                     )
             customer_support_bundle = {
-                "score_percent": cs_score,
-                "score_percent_filter_week": cs_score_filter_week,
-                "total_issues": total_cs,
+                "score_percent": cs_score_w,
+                "score_percent_filter_week": cs_score_w,
+                "total_issues": total_w,
                 "response_delay_count": len(details_resp),
                 "completion_delay_count": len(details_comp),
                 "pending_count": len(details_pend),
                 "response_time_display": resp_disp,
                 "meta": {
                     "selectedWeekNum": sel_w,
-                    "dataWeekNum": None,
+                    "dataWeekNum": sel_w,
                     "dataMonth": data_month_label,
-                    "dataYear": str(prev_rs.year),
-                    "dataRangeLabel": range_lbl,
+                    "dataYear": str(filter_rs.year),
+                    "dataRangeLabel": filter_range_lbl,
                     "selectedWeekRangeLabel": filter_range_lbl,
                     "helpNote": help_note,
                 },
@@ -4761,7 +4821,7 @@ def get_kpi_daily_log(
         r = (
             supabase.table("kpi_daily_work_log")
             .select(
-                "work_date, items_cleaned, errors_found, accuracy_pct, videos_created, video_type, ai_tasks_used, process_improved"
+                "work_date, items_cleaned, errors_found, accuracy_pct, videos_created, video_type, bulk_upload_tickets, ai_tasks_used, process_improved"
             )
             .eq("user_id", owner_id)
             .gte("work_date", start_s)
@@ -4801,6 +4861,7 @@ def upsert_kpi_daily_log(
         "accuracy_pct": _kpi_daily_optional_float("accuracy_pct", body.accuracy_pct),
         "videos_created": _kpi_daily_optional_int("videos_created", body.videos_created),
         "video_type": (body.video_type or "").strip() or None,
+        "bulk_upload_tickets": _kpi_daily_optional_int("bulk_upload_tickets", body.bulk_upload_tickets),
         "ai_tasks_used": _kpi_daily_optional_int("ai_tasks_used", body.ai_tasks_used),
         "process_improved": _kpi_daily_optional_int("process_improved", body.process_improved),
         "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -10798,6 +10859,8 @@ def create_poc_details(payload: POCCreateRequest, auth: dict = Depends(get_curre
             data["company_name"] = (c.data or {}).get("name", "")
         except Exception:
             data["company_name"] = ""
+        _invalidate_success_performance_caches()
+        invalidate_dashboard_read_caches()
         return data
     except Exception as e:
         err = str(e).lower()
@@ -10926,6 +10989,8 @@ def patch_performance_marked_na(
             updated["company_name"] = (c.data or {}).get("name", "")
         except Exception:
             updated["company_name"] = ""
+        _invalidate_success_performance_caches(ticket_id)
+        invalidate_dashboard_read_caches()
         return updated
     except HTTPException:
         raise
@@ -10982,6 +11047,8 @@ def restore_performance_company_from_na(
             company_name = (c.data or {}).get("name", "")
         except Exception:
             pass
+        _invalidate_success_performance_caches()
+        invalidate_dashboard_read_caches()
         return {
             "company_id": company_id,
             "company_name": company_name,
@@ -11001,7 +11068,143 @@ def restore_performance_company_from_na(
         raise HTTPException(400, str(e)[:200])
 
 
+@api_router.get("/success/performance/na-company-ids")
+@cached(ttl=300, key_prefix="success:perf:na-ids:")
+def list_performance_na_company_ids(auth: dict = Depends(get_current_user)):
+    """Lightweight NA company list for POC form filters (avoids two full list scans)."""
+    if not performance_marked_na_supported():
+        return {"company_ids": [], "marked_na_supported": False}
+    return {"company_ids": sorted(performance_marked_na_company_ids()), "marked_na_supported": True}
+
+
+def _chunked_ids(ids: list, size: int = 200) -> list[list]:
+    if not ids:
+        return []
+    return [ids[i : i + size] for i in range(0, len(ids), size)]
+
+
+def _supabase_select_in_chunks(table: str, columns: str, in_column: str, ids: list, *, chunk_size: int = 200) -> list:
+    if not ids:
+        return []
+    out: list = []
+    for chunk in _chunked_ids(ids, chunk_size):
+        try:
+            r = supabase.table(table).select(columns).in_(in_column, chunk).execute()
+            out.extend(r.data or [])
+        except Exception:
+            continue
+    return out
+
+
+def _fetch_performance_list_enrichment(ticket_ids: list, company_ids: list) -> tuple[list, list, dict, dict, dict, dict]:
+    """Parallel fetch training/ticket_features and company names for list enrichment."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    training_map: dict = {}
+    training_schedule_map: dict = {}
+    feature_count_map: dict = {}
+    training_rows: list = []
+    tf_rows: list = []
+    companies_map: dict = {}
+
+    def _load_training_bundle() -> None:
+        nonlocal training_rows, tf_rows
+        if not ticket_ids:
+            return
+        try:
+            training_rows = _supabase_select_in_chunks(
+                "performance_training",
+                "id, performance_id, total_percentage, training_schedule_date",
+                "performance_id",
+                ticket_ids,
+            )
+            for t in training_rows:
+                pid = t.get("performance_id")
+                if pid:
+                    training_map[pid] = t.get("total_percentage")
+                    if t.get("training_schedule_date"):
+                        training_schedule_map[pid] = t.get("training_schedule_date")
+            training_ids = [t["id"] for t in training_rows if t.get("id")]
+            if training_ids:
+                tf_rows = _supabase_select_in_chunks(
+                    "ticket_features",
+                    "id, feature_id, training_id",
+                    "training_id",
+                    training_ids,
+                )
+                training_id_to_perf = {
+                    t["id"]: t["performance_id"] for t in training_rows if t.get("id") and t.get("performance_id")
+                }
+                for f in tf_rows:
+                    trnid = f.get("training_id")
+                    pid = training_id_to_perf.get(trnid) if trnid else None
+                    if pid is not None:
+                        feature_count_map[pid] = feature_count_map.get(pid, 0) + 1
+        except Exception:
+            pass
+
+    def _load_companies() -> None:
+        nonlocal companies_map
+        if not company_ids:
+            return
+        try:
+            rows = _supabase_select_in_chunks("companies", "id, name", "id", company_ids)
+            companies_map = {c["id"]: c["name"] for c in rows if c.get("id")}
+        except Exception:
+            pass
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        f_train = pool.submit(_load_training_bundle)
+        f_co = pool.submit(_load_companies)
+        f_train.result()
+        f_co.result()
+
+    return training_rows, tf_rows, training_map, training_schedule_map, feature_count_map, companies_map
+
+
+def _list_performance_poc_payload(
+    completion_status: str | None,
+    na_filter: str,
+) -> dict:
+    cols = "id, company_id, message_owner, response, contact, reference_no, completion_status, created_at"
+    if performance_marked_na_supported():
+        cols += ",marked_na"
+    q = supabase.table("performance_monitoring").select(cols)
+    if completion_status == "in_progress":
+        q = q.or_("completion_status.eq.in_progress,completion_status.is.null")
+    elif completion_status == "completed":
+        q = q.eq("completion_status", "completed")
+    na_filter_norm = (na_filter or "exclude_na").strip().lower()
+    na_ids = performance_marked_na_company_ids() if performance_marked_na_supported() else set()
+    q = apply_performance_list_query_filters(q, na_filter_norm, na_ids)
+    r = q.order("created_at", desc=True).limit(10000).execute()
+    rows = r.data or []
+    if na_filter_norm != "all":
+        rows = filter_performance_rows(rows, na_filter=na_filter_norm, na_company_ids=na_ids)
+    enrich_performance_rows_na(rows, na_company_ids=na_ids)
+    na_supported = performance_marked_na_supported()
+    ticket_ids = [row.get("id") for row in rows if row.get("id")]
+    company_ids = list({row.get("company_id") for row in rows if row.get("company_id")})
+    training_rows, tf_rows, training_map, training_schedule_map, feature_count_map, companies_map = (
+        _fetch_performance_list_enrichment(ticket_ids, company_ids)
+    )
+    _batch_current_stages_for_performance_rows(rows, training_rows, tf_rows)
+    for row in rows:
+        row["company_name"] = companies_map.get(row.get("company_id"), "")
+        row["total_percentage"] = training_map.get(row.get("id"))
+        row["has_training"] = row.get("id") in training_map
+        row["feature_count"] = feature_count_map.get(row.get("id"), 0)
+        row["training_schedule_date"] = training_schedule_map.get(row.get("id"))
+    _sort_performance_list_rows(rows)
+    return {
+        "items": rows,
+        "marked_na_supported": na_supported,
+        "na_filter": na_filter_norm,
+    }
+
+
 @api_router.get("/success/performance/list")
+@cached(ttl=300, key_prefix="success:perf:list:")
 def list_performance_poc(
     completion_status: str | None = None,
     na_filter: str = Query("exclude_na", description="exclude_na (default) | only_na | all"),
@@ -11009,72 +11212,7 @@ def list_performance_poc(
 ):
     """List performance monitoring tickets. Filter by completion_status=in_progress|completed. Includes total_percentage, has_training, feature_count."""
     try:
-        cols = "id, company_id, message_owner, response, contact, reference_no, completion_status, created_at"
-        if performance_marked_na_supported():
-            cols += ",marked_na"
-        q = supabase.table("performance_monitoring").select(cols)
-        if completion_status == "in_progress":
-            # Include NULL so older/manual rows without status still show as "active"
-            q = q.or_("completion_status.eq.in_progress,completion_status.is.null")
-        elif completion_status == "completed":
-            q = q.eq("completion_status", "completed")
-        # PostgREST default max rows is often 1000; raise cap so full Success list always returns
-        r = q.order("created_at", desc=True).limit(10000).execute()
-        rows = filter_performance_rows(r.data or [], na_filter=na_filter)
-        enrich_performance_rows_na(rows)
-        na_supported = performance_marked_na_supported()
-        ticket_ids = [row.get("id") for row in rows if row.get("id")]
-        # Enrich with training total_percentage and feature count (batched; no per-row _compute_current_stage)
-        training_map = {}
-        training_schedule_map: dict = {}
-        feature_count_map = {}
-        training_rows: list = []
-        tf_rows: list = []
-        if ticket_ids:
-            try:
-                tr = supabase.table("performance_training").select(
-                    "id, performance_id, total_percentage, training_schedule_date"
-                ).in_("performance_id", ticket_ids).execute()
-                training_rows = tr.data or []
-                for t in training_rows:
-                    if t.get("performance_id"):
-                        training_map[t["performance_id"]] = t.get("total_percentage")
-                        if t.get("training_schedule_date"):
-                            training_schedule_map[t["performance_id"]] = t.get("training_schedule_date")
-                training_ids = [t["id"] for t in training_rows if t.get("id")]
-                if training_ids:
-                    tf = supabase.table("ticket_features").select("id, feature_id, training_id").in_("training_id", training_ids).execute()
-                    tf_rows = tf.data or []
-                    training_id_to_perf = {t["id"]: t["performance_id"] for t in training_rows if t.get("id") and t.get("performance_id")}
-                    for f in tf_rows:
-                        trnid = f.get("training_id")
-                        pid = training_id_to_perf.get(trnid) if trnid else None
-                        if pid is not None:
-                            feature_count_map[pid] = feature_count_map.get(pid, 0) + 1
-            except Exception:
-                pass
-        # Resolve company names
-        company_ids = list({row.get("company_id") for row in rows if row.get("company_id")})
-        companies_map = {}
-        if company_ids:
-            try:
-                cr = supabase.table("companies").select("id, name").in_("id", company_ids).execute()
-                companies_map = {c["id"]: c["name"] for c in (cr.data or [])}
-            except Exception:
-                pass
-        _batch_current_stages_for_performance_rows(rows, training_rows, tf_rows)
-        for row in rows:
-            row["company_name"] = companies_map.get(row.get("company_id"), "")
-            row["total_percentage"] = training_map.get(row.get("id"))
-            row["has_training"] = row.get("id") in training_map
-            row["feature_count"] = feature_count_map.get(row.get("id"), 0)
-            row["training_schedule_date"] = training_schedule_map.get(row.get("id"))
-        _sort_performance_list_rows(rows)
-        return {
-            "items": rows,
-            "marked_na_supported": na_supported,
-            "na_filter": (na_filter or "exclude_na").strip().lower(),
-        }
+        return _list_performance_poc_payload(completion_status, na_filter or "exclude_na")
     except Exception as e:
         err = str(e).lower()
         if "marked_na" in err and ("does not exist" in err or "42703" in err or "pgrst204" in err):
@@ -11091,26 +11229,50 @@ def list_performance_poc(
         raise HTTPException(status_code=400, detail=str(e)[:200])
 
 
-def _compute_current_stage(ticket_id: str, completion_status: str) -> tuple[str, list[str]]:
-    """Return (current_stage_desc, pending_feature_names)."""
+def _completed_ticket_feature_ids(tf_ids: list) -> set:
+    """Single query: which ticket_features have at least one completed followup."""
+    if not tf_ids:
+        return set()
+    try:
+        fu = (
+            supabase.table("feature_followups")
+            .select("ticket_feature_id")
+            .in_("ticket_feature_id", tf_ids)
+            .eq("status", "completed")
+            .execute()
+        )
+        return {x.get("ticket_feature_id") for x in (fu.data or []) if x.get("ticket_feature_id")}
+    except Exception:
+        return set()
+
+
+def _compute_current_stage_from_training(
+    training: dict | None,
+    tfs: list,
+    completion_status: str,
+) -> tuple[str, list[str]]:
+    """Return (current_stage_desc, pending_feature_names) without per-feature Supabase calls."""
     if completion_status == "completed":
         return "Completed", []
-    training, tfs = _get_training_for_ticket(ticket_id)
     if not training:
         return "POC Added - Pending: Training", []
     if not tfs:
         return "Training Done - Pending: Add Feature Committed for Use", []
-    completed = []
-    pending = []
-    fl_ids = list({f["feature_id"] for f in tfs})
-    feature_names = {}
+    fl_ids = list({f["feature_id"] for f in tfs if f.get("feature_id")})
+    feature_names: dict = {}
     if fl_ids:
-        fl = supabase.table("feature_list").select("id, name").in_("id", fl_ids).execute()
-        feature_names = {x["id"]: x["name"] for x in (fl.data or [])}
+        try:
+            fl = supabase.table("feature_list").select("id, name").in_("id", fl_ids).execute()
+            feature_names = {x["id"]: x["name"] for x in (fl.data or [])}
+        except Exception:
+            pass
+    tf_ids = [f["id"] for f in tfs if f.get("id")]
+    completed_tf_ids = _completed_ticket_feature_ids(tf_ids)
+    completed: list[str] = []
+    pending: list[str] = []
     for tf in tfs:
-        r = supabase.table("feature_followups").select("id").eq("ticket_feature_id", tf["id"]).eq("status", "completed").limit(1).execute()
-        name = feature_names.get(tf["feature_id"], "")
-        if r.data and len(r.data) > 0:
+        name = feature_names.get(tf.get("feature_id"), "")
+        if tf.get("id") in completed_tf_ids:
             completed.append(name)
         else:
             pending.append(name)
@@ -11121,19 +11283,39 @@ def _compute_current_stage(ticket_id: str, completion_status: str) -> tuple[str,
     return f"Followup: {done}/{total} completed", []
 
 
+def _compute_current_stage(ticket_id: str, completion_status: str) -> tuple[str, list[str]]:
+    """Return (current_stage_desc, pending_feature_names)."""
+    training, tfs = _get_training_for_ticket(ticket_id)
+    return _compute_current_stage_from_training(training, tfs, completion_status)
+
+
+def _invalidate_success_performance_caches(ticket_id: str | None = None) -> None:
+    invalidate_performance_na_company_ids_cache()
+    _invalidate_ttl_cache_key_prefix("success:perf:list:")
+    _invalidate_ttl_cache_key_prefix("success:perf:detail:")
+    _invalidate_ttl_cache_key_prefix("success:perf:na-ids:")
+
+
 @api_router.get("/success/performance/details")
+@cached(ttl=300, key_prefix="success:perf:detail:")
 def get_performance_details(
     ticket_id: str,
     auth: dict = Depends(get_current_user),
 ):
     """Full ticket details with current_stage and pending_features. Use for View Details."""
     try:
-        pm = supabase.table("performance_monitoring").select("*").eq("id", ticket_id).limit(1).execute()
+        pm_cols = (
+            "id, company_id, message_owner, response, contact, reference_no, completion_status, created_at, created_by"
+        )
+        if performance_marked_na_supported():
+            pm_cols += ",marked_na"
+        pm = supabase.table("performance_monitoring").select(pm_cols).eq("id", ticket_id).limit(1).execute()
         rows = pm.data or []
         if not rows:
             raise HTTPException(status_code=404, detail="Ticket not found")
         row = rows[0]
-        enrich_performance_rows_na([row])
+        na_ids = performance_marked_na_company_ids() if performance_marked_na_supported() else set()
+        enrich_performance_rows_na([row], na_company_ids=na_ids)
         company_id = row.get("company_id")
         company_name = ""
         if company_id:
@@ -11141,17 +11323,28 @@ def get_performance_details(
             company_name = (c.data or {}).get("name", "")
         row["company_name"] = company_name
         row["marked_na_supported"] = performance_marked_na_supported()
-        current_stage, pending_features = _compute_current_stage(ticket_id, row.get("completion_status", "in_progress"))
+        training, tfs = _get_training_for_ticket(ticket_id)
+        current_stage, pending_features = _compute_current_stage_from_training(
+            training, tfs, row.get("completion_status", "in_progress")
+        )
         row["current_stage"] = current_stage
         row["pending_features"] = pending_features
-        training, tfs = _get_training_for_ticket(ticket_id)
         row["training"] = training
         row["feature_ids"] = [f["feature_id"] for f in tfs] if tfs else []
         row["features_locked"] = _features_locked(training) if training else False
         tf_ids = [f["id"] for f in tfs] if tfs else []
         followups = []
         if tf_ids:
-            fu = supabase.table("feature_followups").select("*").in_("ticket_feature_id", tf_ids).order("created_at", desc=False).execute()
+            fu = (
+                supabase.table("feature_followups")
+                .select(
+                    "id, ticket_feature_id, status, remarks, created_at, initial_percentage, "
+                    "added_percentage, total_percentage, previous_percentage, feature_name"
+                )
+                .in_("ticket_feature_id", tf_ids)
+                .order("created_at", desc=False)
+                .execute()
+            )
             followups = fu.data or []
         fl_ids = list({f["feature_id"] for f in tfs}) if tfs else []
         feature_names = {}
@@ -11197,6 +11390,7 @@ class FollowupSubmitRequest(BaseModel):
 
 
 @api_router.get("/success/performance/features")
+@cached(ttl=300, key_prefix="success:perf:features:")
 def list_performance_features(auth: dict = Depends(get_current_user)):
     """List feature_list for Training form multi-select."""
     try:
@@ -11295,6 +11489,8 @@ def submit_performance_training(payload: TrainingSubmitRequest, auth: dict = Dep
             if not (training and training.get("features_committed_at")):
                 supabase.table("performance_training").update({"features_committed_at": now_iso}).eq("id", training_id).execute()
         training, _ = _get_training_for_ticket(payload.ticket_id)
+        _invalidate_success_performance_caches(payload.ticket_id)
+        invalidate_dashboard_read_caches()
         return {"training": training, "feature_ids": feature_ids, "features_locked": _features_locked(training)}
     except HTTPException:
         raise
@@ -11408,6 +11604,8 @@ def log_success_followup_click(payload: FollowupClickRequest, auth: dict = Depen
                 "created_by": auth.get("id"),
             }
         ).execute()
+        _invalidate_success_performance_caches(payload.ticket_id)
+        invalidate_dashboard_read_caches()
         return {"ok": True}
     except Exception as e:
         err = str(e).lower()
@@ -11508,6 +11706,8 @@ def submit_performance_followup(payload: FollowupSubmitRequest, auth: dict = Dep
         if _all_features_completed_for_ticket(payload.ticket_id):
             supabase.table("performance_monitoring").update({"completion_status": "completed", "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", payload.ticket_id).execute()
         created = (ins.data or [{}])[0] if ins.data else {}
+        _invalidate_success_performance_caches(payload.ticket_id)
+        invalidate_dashboard_read_caches()
         return {"followup": created, "total_percentage": total}
     except HTTPException:
         raise
@@ -12057,6 +12257,20 @@ def _checklist_row_marked_na(task: dict) -> bool:
         return True
     # Legacy: na_from_date or per-day NA rows implied whole-task stop
     return _parse_checklist_na_from_date(task.get("na_from_date")) is not None
+
+
+def _checklist_occurrence_excluded_for_reminder(
+    task: dict,
+    occurrence: date,
+    na_pairs: set[tuple[str, str]],
+) -> bool:
+    """True when this occurrence must not trigger checklist emails (whole-task or per-date NA)."""
+    if _checklist_row_marked_na(task):
+        return True
+    tid = str(task.get("id") or "")
+    if tid and (tid, occurrence.isoformat()) in na_pairs:
+        return True
+    return False
 
 
 def _fetch_checklist_na_pairs(task_ids: list, range_start: date, range_end: date) -> set[tuple[str, str]]:
@@ -13148,10 +13362,23 @@ async def _run_checklist_reminders_impl(*, force_resend: bool = False) -> dict:
     """Run checklist daily reminders; returns summary for cron HTTP response."""
     try:
         from app.checklist_utils import get_occurrence_dates
+        from app.email_working_day import cron_email_skip_response, should_skip_cron_emails
+
+        skip, skip_reason = should_skip_cron_emails(force=force_resend)
+        if skip:
+            _log(f"Checklist reminder skipped: {skip_reason}")
+            return cron_email_skip_response(skip_reason, module="checklist_daily")
         today = date.today()
-        q = supabase.table("checklist_tasks").select("*")
-        r = q.execute()
-        tasks = r.data or []
+        try:
+            q = supabase.table("checklist_tasks").select("*")
+            if _checklist_na_supported():
+                q = q.or_("marked_na.is.null,marked_na.eq.false")
+            r = q.execute()
+            tasks = [t for t in (r.data or []) if not _checklist_row_marked_na(t)]
+        except Exception as e:
+            _log(f"checklist reminder: task query filter: {e}")
+            r = supabase.table("checklist_tasks").select("*").execute()
+            tasks = [t for t in (r.data or []) if not _checklist_row_marked_na(t)]
         doer_ids = list({str(t.get("doer_id", "")) for t in tasks if t.get("doer_id")})
         user_map = {}
         if doer_ids:
@@ -13200,6 +13427,8 @@ async def _run_checklist_reminders_impl(*, force_resend: bool = False) -> dict:
             pass
         by_user: dict[str, list[str]] = {}
         holidays = _get_holidays_for_year(today.year)
+        task_ids_rem = [str(t.get("id")) for t in tasks if t.get("id")]
+        na_pairs_today = _fetch_checklist_na_pairs(task_ids_rem, today, today)
 
         def is_holiday(d: date) -> bool:
             return d in holidays
@@ -13207,6 +13436,8 @@ async def _run_checklist_reminders_impl(*, force_resend: bool = False) -> dict:
         for task in tasks:
             t_id = task.get("id")
             if not t_id:
+                continue
+            if _checklist_occurrence_excluded_for_reminder(task, today, na_pairs_today):
                 continue
             start = _parse_iso_date(task.get("start_date"))
             if not start:
@@ -13429,6 +13660,12 @@ async def _send_delegation_reminder_email(to_email: str, task_titles: list[str],
 async def _run_delegation_reminders_impl(*, force_resend: bool = False) -> dict:
     """Run delegation daily reminders; returns summary for cron HTTP response."""
     try:
+        from app.email_working_day import cron_email_skip_response, should_skip_cron_emails
+
+        skip, skip_reason = should_skip_cron_emails(force=force_resend)
+        if skip:
+            _log(f"Delegation reminder skipped: {skip_reason}")
+            return cron_email_skip_response(skip_reason, module="delegation_daily")
         today = date.today()
         del_r = supabase.table("delegation_tasks").select("id, title, assignee_id, due_date").in_("status", ["pending", "in_progress"]).lte("due_date", today.isoformat()).execute()
         tasks = del_r.data or []
@@ -13656,7 +13893,13 @@ async def _run_pending_digest_impl(*, force_resend: bool = False) -> dict:
     """Run pending digest (checklist, delegation, chores/bug, feature); returns cron-friendly summary."""
     try:
         from app.checklist_utils import get_occurrence_dates
+        from app.email_working_day import cron_email_skip_response, should_skip_cron_emails
         from app.reminder_utils import get_chores_bugs_stage, get_staging_feature_stage, is_chores_bug_pending, is_feature_pending
+
+        skip, skip_reason = should_skip_cron_emails(force=force_resend)
+        if skip:
+            _log(f"Pending digest skipped: {skip_reason}")
+            return cron_email_skip_response(skip_reason, module="pending_digest")
         today = date.today()
         level12_ids = _get_level1_level2_user_ids()
         if not level12_ids:
@@ -13693,6 +13936,9 @@ async def _run_pending_digest_impl(*, force_resend: bool = False) -> dict:
         checklist_lines = []
         try:
             tasks_r = supabase.table("checklist_tasks").select("*").execute()
+            tasks_list = tasks_r.data or []
+            task_ids_digest = [str(t.get("id")) for t in tasks_list if t.get("id")]
+            na_pairs_today = _fetch_checklist_na_pairs(task_ids_digest, today, today)
             comp_r = supabase.table("checklist_completions").select("task_id, occurrence_date").execute()
             comp = {}
             for row in comp_r.data or []:
@@ -13700,7 +13946,9 @@ async def _run_pending_digest_impl(*, force_resend: bool = False) -> dict:
                 if isinstance(od, str) and "T" in od:
                     od = od[:10]
                 comp[(str(row["task_id"]), od or "")] = True
-            for task in tasks_r.data or []:
+            for task in tasks_list:
+                if _checklist_occurrence_excluded_for_reminder(task, today, na_pairs_today):
+                    continue
                 start = task.get("start_date")
                 if isinstance(start, str):
                     start = date.fromisoformat(start)

@@ -732,6 +732,8 @@ async def run_escalation_batch(
     triggered_by: str | None = None,
     trigger_source: str = "cron",
 ) -> dict[str, Any]:
+    from app.email_working_day import cron_email_skip_response, should_skip_cron_emails
+
     if configuration_type not in CONFIG_TYPES:
         return {"ok": False, "error": "invalid configuration_type"}
 
@@ -740,6 +742,15 @@ async def run_escalation_batch(
         return {"skipped": True, "reason": "config_missing"}
     if not force and not cfg.get("is_enabled"):
         return {"skipped": True, "reason": "disabled"}
+
+    tz_name = str((cfg or {}).get("timezone") or DEFAULT_TZ)
+    skip, skip_reason = should_skip_cron_emails(force=force, tz_name=tz_name)
+    if skip:
+        _log.info("Escalation %s skipped: %s", configuration_type, skip_reason)
+        out = cron_email_skip_response(skip_reason, module=f"escalation_{configuration_type}")
+        out["skipped"] = True
+        out["configuration_type"] = configuration_type
+        return out
 
     dedup_key = _daily_dedup_key(configuration_type)
     if not force:

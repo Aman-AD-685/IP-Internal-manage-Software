@@ -59,6 +59,10 @@ export function ChecklistDelegationEmailSettings() {
             <li>Checklist: emails go to each <Text strong>doer</Text> with incomplete checklist items due today.</li>
             <li>Delegation: emails go to each <Text strong>assignee</Text> with pending/overdue delegation tasks.</li>
             <li>At most one reminder per user per day (dedup in Supabase).</li>
+            <li>
+              No emails on <Text strong>Sundays</Text> or dates in{' '}
+              <Text strong>Checklist → Upload Holiday List</Text> (same 7 holidays as checklist).
+            </li>
           </ul>
         }
       />

@@ -112,6 +112,7 @@ const ADRIJA_KPI_TASK_LABEL: Record<'post' | 'reel' | 'linkedin', string> = {
 const AKASH_KPI_PILLAR_CARD_CLASS: Record<string, string> = {
   item_cleaning: 'kpi-success-card--poc',
   customer_support: 'kpi-success-card--training',
+  bulk_upload: 'kpi-success-card--bulk',
   video_content: 'kpi-success-card--followup',
   ai_learning: 'kpi-success-card--increase',
 }
@@ -284,6 +285,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
           accuracy_pct: ex?.accuracy_pct ?? null,
           videos_created: ex?.videos_created ?? null,
           video_type: ex?.video_type ?? null,
+          bulk_upload_tickets: ex?.bulk_upload_tickets ?? null,
           ai_tasks_used: ex?.ai_tasks_used ?? null,
           process_improved: ex?.process_improved ?? null,
         })
@@ -346,6 +348,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
           accuracy_pct: r.accuracy_pct ?? null,
           videos_created: r.videos_created ?? null,
           video_type: r.video_type?.trim() || null,
+          bulk_upload_tickets: r.bulk_upload_tickets ?? null,
           ai_tasks_used: r.ai_tasks_used ?? null,
           process_improved: r.process_improved ?? null,
         })
@@ -1112,50 +1115,47 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                     </Space>
                   }
                 >
-                  <Row gutter={[16, 16]}>
+                  <Row gutter={[10, 10]} wrap={false} className="kpi-akash-pillars-row">
                     {akashKpi.pillars.map((pillar) => {
                       const cs = akashKpi.customerSupport
                       const isCs = pillar.key === 'customer_support'
-                      const rd = cs?.responseDelayCount ?? 0
-                      const cd = cs?.completionDelayCount ?? 0
-                      const pd = cs?.pendingCount ?? 0
-                      const total = cs?.totalIssues ?? 0
+                      const pillarPct = pillar.score_percent ?? 0
+                      const metricLine = (label: string, value: string | number) => (
+                        <div key={label} className="kpi-akash-pillar-metric">
+                          <span className="kpi-akash-pillar-metric__label">{label}: </span>
+                          <span className="kpi-akash-pillar-metric__value">{value}</span>
+                        </div>
+                      )
                       return (
-                        <Col xs={24} md={6} key={pillar.key}>
+                        <Col flex="1 1 0" className="kpi-akash-pillar-col" key={pillar.key}>
                           <Card
                             size="small"
-                            className={`kpi-success-card ${AKASH_KPI_PILLAR_CARD_CLASS[pillar.key] ?? 'kpi-success-card--poc'}${isCs ? ' kpi-akash-cs-card' : ''}`}
+                            className={`kpi-success-card kpi-akash-pillar-card ${AKASH_KPI_PILLAR_CARD_CLASS[pillar.key] ?? 'kpi-success-card--poc'}${isCs ? ' kpi-akash-cs-card' : ''}`}
                             bordered={false}
                             title={pillar.title}
-                            styles={
-                              isCs
-                                ? {
-                                    header: { minHeight: 44, paddingTop: 10, paddingBottom: 10 },
-                                    body: { paddingTop: 10 },
-                                  }
-                                : undefined
-                            }
                             hoverable
                             style={{ cursor: isCs ? 'pointer' : 'default' }}
                             onClick={isCs ? () => setAkashCsModal(cs ?? null) : undefined}
                             extra={
-                              isCs ? (
-                                <UnorderedListOutlined title="View response / completion / pending lists" />
-                              ) : null
+                              <Space size={4} align="center">
+                                {isCs ? (
+                                  <UnorderedListOutlined
+                                    className="kpi-akash-pillar-list-icon"
+                                    title="View response / completion / pending lists"
+                                  />
+                                ) : null}
+                                <Tag color="blue" className="kpi-akash-pillar-score-tag">
+                                  {pillarPct}%
+                                </Tag>
+                              </Space>
                             }
                           >
-                            {pillar.metrics.map((m) => (
-                              <div key={m.label} style={{ fontSize: isCs ? 11 : 12, marginTop: 3, lineHeight: 1.35 }}>
-                                <Text type="secondary">{m.label}: </Text>
-                                <Text>{m.value}</Text>
-                              </div>
-                            ))}
-                            {isCs && (
-                              <Text type="secondary" style={{ fontSize: 10, display: 'block', marginTop: 8, lineHeight: 1.35 }}>
-                                Click for lists · {total} in data week · resp delay {rd}, completion delay {cd},
-                                pending {pd}
-                              </Text>
-                            )}
+                            <div className="kpi-akash-pillar-body">
+                              {pillar.metrics.map((m) => metricLine(m.label, m.value))}
+                              {isCs ? (
+                                <p className="kpi-akash-pillar-hint">Click card for ticket lists</p>
+                              ) : null}
+                            </div>
                           </Card>
                         </Col>
                       )
@@ -1790,7 +1790,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                   size="small"
                   rowKey="work_date"
                   dataSource={kpiDailyLogTableVisible ? kpiDailyLogRows : []}
-                  scroll={{ x: 1180 }}
+                  scroll={{ x: 1300 }}
                   pagination={
                     kpiDailyLogTableVisible && kpiDailyLogRows.length > 0
                       ? { pageSize: 31, showSizeChanger: false, hideOnSinglePage: true }
@@ -1860,6 +1860,20 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                           placeholder="e.g. Short"
                           value={row.video_type ?? ''}
                           onChange={(e) => patchKpiDailyLogRow(row.work_date, { video_type: e.target.value || null })}
+                        />
+                      ),
+                    },
+                    {
+                      title: 'Bulk upload',
+                      key: 'bulk_upload_tickets',
+                      width: 118,
+                      render: (_: unknown, row) => (
+                        <InputNumber
+                          min={0}
+                          controls={false}
+                          style={{ width: '100%' }}
+                          value={row.bulk_upload_tickets ?? undefined}
+                          onChange={(v) => patchKpiDailyLogRow(row.work_date, { bulk_upload_tickets: v ?? null })}
                         />
                       ),
                     },
