@@ -22,6 +22,8 @@ import { useRole } from '../../hooks/useRole'
 import { supportApi, type Company, type Division, type Page } from '../../api/support'
 import dayjs from 'dayjs'
 import { formatPriorityLabel, getPriorityTagColor } from '../../utils/ticketPriority'
+import { invalidateAfterStage2Remark } from '../../utils/sessionApiCache'
+import { notifyStage2RemarkAdded } from '../../utils/stage2RemarkEvents'
 
 const { TextArea } = Input
 const { Text } = Typography
@@ -163,6 +165,8 @@ export const ChoresBugsDetailDrawer = ({ ticketId, open, onClose, onUpdate, read
       setNewRemarkText('')
       loadRemarks()
       onUpdate?.()
+      invalidateAfterStage2Remark()
+      notifyStage2RemarkAdded()
       message.success('Remark added')
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } }

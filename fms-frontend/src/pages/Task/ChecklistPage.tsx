@@ -33,6 +33,7 @@ import { useDeepLinkAction } from '../../hooks/useDeepLinkAction'
 import { useLocation } from 'react-router-dom'
 import { ROUTES } from '../../utils/constants'
 import { genericLogicalKey, sessionApiCacheGet } from '../../utils/sessionApiCache'
+import { ChecklistNaModal } from '../../components/tasks/ChecklistNaModal'
 
 const { Title, Text } = Typography
 
@@ -61,6 +62,7 @@ export const ChecklistPage = () => {
   const [addTaskModalOpen, setAddTaskModalOpen] = useState(false)
   const [departments, setDepartments] = useState<string[]>([])
   const [holidayModalOpen, setHolidayModalOpen] = useState(false)
+  const [naModalOpen, setNaModalOpen] = useState(false)
   const [holidayUploadLoading, setHolidayUploadLoading] = useState(false)
   const today = new Date()
   const canUploadHolidays = today.getMonth() === 11 && today.getDate() >= 15
@@ -271,11 +273,16 @@ export const ChecklistPage = () => {
 
       {/* Add Task button only - form opens in modal */}
       <div style={{ marginBottom: 24 }}>
-        <ContextMenuTarget openHref={checklistCreateHref} openLabel="Add Task">
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddTaskModalOpen(true)}>
-            Add Task
+        <Space wrap>
+          <ContextMenuTarget openHref={checklistCreateHref} openLabel="Add Task">
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddTaskModalOpen(true)}>
+              Add Task
+            </Button>
+          </ContextMenuTarget>
+          <Button size="small" onClick={() => setNaModalOpen(true)} disabled={!effectiveUserId}>
+            NA_Checklist
           </Button>
-        </ContextMenuTarget>
+        </Space>
       </div>
 
       {/* Upload Holiday List - from Dec 15 for next year (Admin only) */}
@@ -443,6 +450,14 @@ export const ChecklistPage = () => {
           </Form.Item>
         </Form>
       </Modal>
+
+      <ChecklistNaModal
+        open={naModalOpen}
+        onClose={() => setNaModalOpen(false)}
+        userId={effectiveUserId}
+        doerLabel={users.find((u) => u.id === effectiveUserId)?.full_name || user?.full_name}
+        onMarked={loadChecklistData}
+      />
 
       <Modal
         title="Upload Holiday List"

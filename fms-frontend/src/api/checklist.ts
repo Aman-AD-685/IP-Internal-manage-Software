@@ -49,6 +49,20 @@ export interface ChecklistOccurrence {
   completed_at: string | null
 }
 
+/** One row per checklist task in NA_Checklist (universal Mark NA). */
+export interface ChecklistNaTask {
+  task_id: string
+  task_name: string
+  reference_no?: string
+  department: string
+  doer_id: string
+  doer_name?: string
+  pending_count: number
+  has_today?: boolean
+  has_overdue?: boolean
+  has_upcoming?: boolean
+}
+
 export const checklistApi = {
   getDepartments: async () => {
     const key = 'checklist:departments'
@@ -113,4 +127,29 @@ export const checklistApi = {
 
   uploadHolidays: (year: number, holidays: { holiday_date: string; holiday_name: string }[]) =>
     apiClient.post('/checklist/holidays/upload', { year, holidays }).then((r) => r.data),
+
+  getNaActive: (userId?: string) => {
+    const params = new URLSearchParams()
+    if (userId) params.set('user_id', userId)
+    const q = params.toString()
+    return apiClient
+      .get<{ tasks: ChecklistNaTask[]; count: number; doer_name: string; user_id: string }>(
+        `/checklist/na-active${q ? `?${q}` : ''}`,
+      )
+      .then((r) => r.data)
+  },
+
+  /** Mark entire checklist task NA (all dates — today, overdue, upcoming). */
+  markTaskNa: async (taskId: string) => {
+    const r = await apiClient.post<{
+      success: boolean
+      reference_no?: string
+      task_name?: string
+      marked_na?: boolean
+      already_marked_na?: boolean
+    }>(`/checklist/tasks/${taskId}/mark-na`, {})
+    sessionApiCacheClearLogicalPrefix('checklist:tasks:')
+    sessionApiCacheClearLogicalPrefix('checklist:occurrences:')
+    return r.data
+  },
 }

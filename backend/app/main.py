@@ -2384,24 +2384,89 @@ def delete_ticket(ticket_id: str, auth: dict = Depends(get_current_user)):
     return {"message": "Deleted"}
 
 
-# ---------- Activity count (for header badge) ----------
+# ---------- Activity / Stage 2 remark notifications (header bell) ----------
+STAGE2_REMARK_NOTIFY_HOURS = 24
+
+
+def _stage2_remark_notifications_payload() -> dict:
+    """Chores & Bugs Stage 2 remarks added in the last 24 hours (bell icon; auto-expire)."""
+    from datetime import timedelta
+
+    since = (datetime.utcnow() - timedelta(hours=STAGE2_REMARK_NOTIFY_HOURS)).isoformat()
+    rows: list = []
+    try:
+        r = (
+            supabase.table("ticket_stage2_remarks")
+            .select("id, ticket_id, remark_text, added_at, added_by")
+            .gte("added_at", since)
+            .order("added_at", desc=True)
+            .limit(100)
+            .execute()
+        )
+        rows = r.data or []
+    except Exception:
+        rows = []
+
+    ticket_ids = list({str(row.get("ticket_id")) for row in rows if row.get("ticket_id")})
+    ticket_map: dict = {}
+    if ticket_ids:
+        try:
+            for i in range(0, len(ticket_ids), 80):
+                chunk = ticket_ids[i : i + 80]
+                tr = (
+                    supabase.table("tickets")
+                    .select("id, reference_no, type")
+                    .in_("id", chunk)
+                    .in_("type", ["chore", "bug"])
+                    .execute()
+                )
+                for t in tr.data or []:
+                    ticket_map[str(t["id"])] = t
+        except Exception:
+            pass
+
+    user_ids = {row.get("added_by") for row in rows if row.get("added_by")}
+    names_map: dict = {}
+    if user_ids:
+        try:
+            up_r = supabase.table("user_profiles").select("id, full_name").in_("id", list(user_ids)).execute()
+            names_map = {u["id"]: u.get("full_name", "") for u in (up_r.data or [])}
+        except Exception:
+            pass
+
+    items = []
+    for row in rows:
+        tid = str(row.get("ticket_id") or "")
+        ticket = ticket_map.get(tid)
+        if not ticket:
+            continue
+        text = (row.get("remark_text") or "").strip()
+        if len(text) > 120:
+            text = text[:117] + "..."
+        items.append({
+            "id": row.get("id"),
+            "ticket_id": tid,
+            "reference_no": ticket.get("reference_no") or "",
+            "ticket_type": ticket.get("type") or "chore",
+            "remark_text": text,
+            "added_at": row.get("added_at"),
+            "added_by_name": names_map.get(row.get("added_by"), ""),
+        })
+
+    return {"count": len(items), "items": items, "expires_hours": STAGE2_REMARK_NOTIFY_HOURS}
+
+
+@api_router.get("/activity/stage2-remark-notifications")
+def stage2_remark_notifications(auth: dict = Depends(get_current_user)):
+    """Header bell: Stage 2 remarks on Support (Chores & Bugs) tickets from the last 24 hours."""
+    return _stage2_remark_notifications_payload()
+
+
 @api_router.get("/activity/count")
 def activity_count(auth: dict = Depends(get_current_user)):
-    """Return count of recent activity: ticket_history + ticket_comments in the last 30 days."""
-    from datetime import timedelta
-    since = (datetime.utcnow() - timedelta(days=30)).isoformat()
-    total = 0
-    try:
-        r = supabase.table("ticket_history").select("id", count="exact").gte("created_at", since).execute()
-        total += r.count or 0
-    except Exception:
-        pass
-    try:
-        r = supabase.table("ticket_comments").select("id", count="exact").gte("created_at", since).execute()
-        total += r.count or 0
-    except Exception:
-        pass
-    return {"count": total}
+    """Bell badge count — Stage 2 remarks in the last 24 hours (same window as notifications list)."""
+    payload = _stage2_remark_notifications_payload()
+    return {"count": payload.get("count", 0)}
 
 
 # ---------- Dashboard Metrics (in-process cache per user email) ----------
@@ -3598,13 +3663,14 @@ def _dashboard_kpi_data(
         try:
             from app.checklist_utils import get_occurrence_dates_in_range
             q = supabase.table("checklist_tasks").select(
-                "id,start_date,frequency,task_name,doer_id"
+                "id,start_date,frequency,task_name,doer_id,na_from_date,marked_na"
             ).eq("doer_id", user_id)
             r = q.execute()
             tasks = r.data or []
             task_ids = [t["id"] for t in tasks]
             comp_week = {}
             comp_month = {}
+            na_month: set[tuple[str, str]] = set()
             if task_ids:
                 cr2 = supabase.table("checklist_completions").select("task_id, occurrence_date, completed_at")
                 cr2 = cr2.gte("occurrence_date", month_start.isoformat()).lte("occurrence_date", month_end.isoformat())
@@ -3614,9 +3680,12 @@ def _dashboard_kpi_data(
                 for (tid, od), val in comp_month.items():
                     if range_start.isoformat() <= od <= range_end.isoformat():
                         comp_week[(tid, od)] = val
+                na_month = _fetch_checklist_na_pairs(task_ids, month_start, month_end)
             occ_week = []
             occ_month = []
             for task in tasks:
+                if _checklist_row_marked_na(task):
+                    continue
                 t_id = task["id"]
                 start = task.get("start_date")
                 if isinstance(start, str):
@@ -3625,9 +3694,11 @@ def _dashboard_kpi_data(
                 dates_week = get_occurrence_dates_in_range(start, freq, range_start, range_end, is_holiday)
                 dates_month = get_occurrence_dates_in_range(start, freq, month_start, month_end, is_holiday)
                 for d in dates_week:
-                    occ_week.append((t_id, d, task.get("task_name"), task.get("frequency", "")))
+                    if (str(t_id), d.isoformat()) not in na_month:
+                        occ_week.append((t_id, d, task.get("task_name"), task.get("frequency", "")))
                 for d in dates_month:
-                    occ_month.append((t_id, d))
+                    if (str(t_id), d.isoformat()) not in na_month:
+                        occ_month.append((t_id, d))
             done_week = sum(1 for (tid, d, _, _) in occ_week if comp_week.get((tid, d.isoformat())))
             total_week = len(occ_week)
             checklist_weekly_pct = round((done_week / total_week) * 100) if total_week else 0
@@ -11832,6 +11903,173 @@ def _get_checklist_departments() -> list[str]:
         return DEPARTMENTS_FALLBACK
 
 
+_CHECKLIST_NA_SUPPORTED: bool | None = None
+
+
+def _checklist_na_table_missing(err: str) -> bool:
+    e = (err or "").lower()
+    return (
+        "checklist_occurrence_na" in e
+        and (
+            "does not exist" in e
+            or "42p01" in e
+            or "pgrst204" in e
+            or "pgrst205" in e
+            or "could not find" in e
+            or "schema cache" in e
+            or "not found" in e
+        )
+    )
+
+
+def _checklist_na_supported() -> bool:
+    """True when database/CHECKLIST_OCCURRENCE_NA.sql is applied. Only caches success (not transient failures)."""
+    global _CHECKLIST_NA_SUPPORTED
+    if _CHECKLIST_NA_SUPPORTED is True:
+        return True
+    try:
+        supabase.table("checklist_occurrence_na").select("id").limit(1).execute()
+        _CHECKLIST_NA_SUPPORTED = True
+        return True
+    except Exception as e:
+        err = str(e)
+        if _checklist_na_table_missing(err):
+            _CHECKLIST_NA_SUPPORTED = False
+            return False
+        _log(f"checklist_occurrence_na probe (will retry): {err[:200]}")
+        return False
+
+
+def reset_checklist_na_supported_cache() -> None:
+    global _CHECKLIST_NA_SUPPORTED
+    _CHECKLIST_NA_SUPPORTED = None
+
+
+def _parse_checklist_na_from_date(raw: object) -> date | None:
+    if raw is None or raw == "":
+        return None
+    try:
+        if isinstance(raw, date):
+            return raw
+        return date.fromisoformat(str(raw)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def _checklist_row_marked_na(task: dict) -> bool:
+    """True when whole checklist task is NA (one universal Mark NA per task)."""
+    v = task.get("marked_na")
+    if v is True:
+        return True
+    if v in (1, 1.0):
+        return True
+    if isinstance(v, str) and v.strip().lower() in ("true", "t", "1", "yes"):
+        return True
+    # Legacy: na_from_date or per-day NA rows implied whole-task stop
+    return _parse_checklist_na_from_date(task.get("na_from_date")) is not None
+
+
+def _fetch_checklist_na_pairs(task_ids: list, range_start: date, range_end: date) -> set[tuple[str, str]]:
+    """(task_id, occurrence_date) marked NA in range."""
+    if not task_ids or not _checklist_na_supported():
+        return set()
+    try:
+        r = (
+            supabase.table("checklist_occurrence_na")
+            .select("task_id, occurrence_date")
+            .in_("task_id", task_ids)
+            .gte("occurrence_date", range_start.isoformat())
+            .lte("occurrence_date", range_end.isoformat())
+            .execute()
+        )
+        out: set[tuple[str, str]] = set()
+        for row in r.data or []:
+            tid = row.get("task_id")
+            od = row.get("occurrence_date")
+            if tid and od:
+                out.add((str(tid), str(od)[:10]))
+        return out
+    except Exception:
+        return set()
+
+
+def _checklist_occurrences_for_user(
+    user_id: str,
+    range_start: date,
+    range_end: date,
+    *,
+    reference_no: str | None = None,
+    only_uncompleted: bool = False,
+) -> list[dict]:
+    """Build checklist occurrence rows for a user in a date range (shared by list + NA modal)."""
+    from app.checklist_utils import get_occurrence_dates_in_range
+
+    cols = "id, task_name, doer_id, department, frequency, start_date, reference_no, na_from_date, marked_na"
+    q = supabase.table("checklist_tasks").select(cols).eq("doer_id", user_id)
+    if reference_no:
+        q = q.eq("reference_no", reference_no)
+    try:
+        tasks = (q.execute().data or [])
+    except Exception:
+        cols_fallback = "id, task_name, doer_id, department, frequency, start_date, reference_no, na_from_date"
+        q2 = supabase.table("checklist_tasks").select(cols_fallback).eq("doer_id", user_id)
+        if reference_no:
+            q2 = q2.eq("reference_no", reference_no)
+        tasks = (q2.execute().data or [])
+    task_ids = [t["id"] for t in tasks]
+    comp: dict[tuple[str, str], str | None] = {}
+    if task_ids:
+        try:
+            cr = supabase.table("checklist_completions").select("task_id, occurrence_date, completed_at")
+            cr = cr.gte("occurrence_date", range_start.isoformat()).lte("occurrence_date", range_end.isoformat())
+            cr = cr.in_("task_id", task_ids)
+            for row in (cr.execute().data or []):
+                comp[(str(row["task_id"]), str(row["occurrence_date"])[:10])] = row.get("completed_at")
+        except Exception:
+            pass
+    na_pairs = _fetch_checklist_na_pairs(task_ids, range_start, range_end)
+    holidays_set: set[date] = set()
+    for yr in (range_start.year, range_end.year):
+        holidays_set.update(_get_holidays_for_year(yr))
+    is_holiday = lambda d, h=holidays_set: d in h
+    doer_map: dict = {}
+    try:
+        pr = supabase.table("user_profiles").select("id, full_name").eq("id", user_id).limit(1).execute()
+        if pr.data:
+            doer_map[user_id] = pr.data[0].get("full_name", "")
+    except Exception:
+        pass
+    occurrences: list[dict] = []
+    for task in tasks:
+        if _checklist_row_marked_na(task):
+            continue
+        t_id = str(task["id"])
+        start = task.get("start_date")
+        if isinstance(start, str):
+            start = date.fromisoformat(start)
+        freq = task.get("frequency", "D")
+        dates = get_occurrence_dates_in_range(start, freq, range_start, range_end, is_holiday)
+        for d in dates:
+            od = d.isoformat()
+            if (t_id, od) in na_pairs:
+                continue
+            completed_at = comp.get((t_id, od))
+            if only_uncompleted and completed_at:
+                continue
+            occurrences.append({
+                "task_id": t_id,
+                "task_name": task.get("task_name", ""),
+                "reference_no": task.get("reference_no"),
+                "doer_id": task.get("doer_id"),
+                "doer_name": doer_map.get(task.get("doer_id"), ""),
+                "department": task.get("department", ""),
+                "occurrence_date": od,
+                "completed_at": completed_at,
+            })
+    occurrences.sort(key=lambda x: (x["occurrence_date"], x["task_name"]))
+    return occurrences
+
+
 @api_router.get("/checklist/departments")
 def list_checklist_departments(auth: dict = Depends(get_current_user)):
     """List departments for checklist dropdown (from checklist_departments table)."""
@@ -11974,33 +12212,15 @@ def list_checklist_occurrences(
     """
     Get checklist occurrences. filter: today|completed|overdue|upcoming.
     Default: logged-in user's tasks. Admin can pass user_id to see that user.
+    Occurrences marked NA are excluded.
     """
     try:
-        from app.checklist_utils import get_occurrence_dates_in_range
         role = current.get("role", "user")
         if role not in ("admin", "master_admin"):
             user_id = auth["id"]
         elif user_id is None:
-            user_id = auth["id"]  # default to own tasks for admins too
-        cols = "id, task_name, doer_id, department, frequency, start_date, reference_no"
-        q = supabase.table("checklist_tasks").select(cols)
-        if user_id:
-            q = q.eq("doer_id", user_id)
-        if reference_no:
-            q = q.eq("reference_no", reference_no)
-        r = q.execute()
-        tasks = r.data or []
-        doer_ids = list({t.get("doer_id") for t in tasks if t.get("doer_id")})
-        doer_map = {}
-        if doer_ids:
-            try:
-                prof = supabase.table("user_profiles").select("id, full_name").in_("id", doer_ids).execute()
-                doer_map = {p["id"]: p.get("full_name", "") for p in (prof.data or [])}
-            except Exception:
-                pass
+            user_id = auth["id"]
         today = date.today()
-        today_str = today.isoformat()
-        # Only generate occurrence dates in the range needed for this filter (fast load)
         if filter_type == "today":
             range_start, range_end = today, today
         elif filter_type == "completed":
@@ -12009,57 +12229,163 @@ def list_checklist_occurrences(
         elif filter_type == "overdue":
             range_start = today - timedelta(days=365)
             range_end = today - timedelta(days=1)
-        else:  # upcoming
+        else:
             range_start = today + timedelta(days=1)
             range_end = today + timedelta(days=90)
-        comp = {}
-        try:
-            task_ids = [t["id"] for t in tasks]
-            if task_ids:
-                cr = supabase.table("checklist_completions").select("task_id, occurrence_date, completed_at")
-                cr = cr.gte("occurrence_date", range_start.isoformat()).lte("occurrence_date", range_end.isoformat())
-                cr = cr.in_("task_id", task_ids)
-                for row in (cr.execute().data or []):
-                    comp[(row["task_id"], row["occurrence_date"])] = row.get("completed_at")
-        except Exception:
-            pass
-        holidays_set = set()
-        for yr in (range_start.year, range_end.year):
-            holidays_set.update(_get_holidays_for_year(yr))
-        is_holiday = lambda d, h=holidays_set: d in h
-        occurrences = []
-        for task in tasks:
-            t_id = task["id"]
-            start = task.get("start_date")
-            if isinstance(start, str):
-                start = date.fromisoformat(start)
-            freq = task.get("frequency", "D")
-            dates = get_occurrence_dates_in_range(start, freq, range_start, range_end, is_holiday)
-            for d in dates:
-                occurrences.append({
-                    "task_id": t_id,
-                    "task_name": task.get("task_name", ""),
-                    "reference_no": task.get("reference_no"),
-                    "doer_id": task.get("doer_id"),
-                    "doer_name": doer_map.get(task.get("doer_id"), ""),
-                    "department": task.get("department", ""),
-                    "occurrence_date": d.isoformat(),
-                    "completed_at": comp.get((t_id, d.isoformat())),
-                })
-        occurrences.sort(key=lambda x: (x["occurrence_date"], x["task_name"]))
+        occurrences = _checklist_occurrences_for_user(
+            str(user_id),
+            range_start,
+            range_end,
+            reference_no=reference_no,
+            only_uncompleted=False,
+        )
         if filter_type == "completed":
             occurrences = [o for o in occurrences if o.get("completed_at")]
         elif filter_type == "overdue":
             occurrences = [o for o in occurrences if not o.get("completed_at")]
         elif filter_type == "upcoming":
             occurrences = [o for o in occurrences if not o.get("completed_at")]
-        # Cap response size for fast load (~1s target)
         if len(occurrences) > 1000:
             occurrences = occurrences[:1000]
         return {"occurrences": occurrences}
     except Exception as e:
         _log(f"checklist/occurrences error: {e}")
         return {"occurrences": []}
+
+
+@api_router.get("/checklist/na-active")
+def list_checklist_na_active(
+    user_id: str | None = Query(None),
+    auth: dict = Depends(get_current_user),
+    current: dict = Depends(get_current_user_with_role),
+):
+    """One row per active checklist task for NA_Checklist (universal Mark NA per task)."""
+    if not _checklist_na_supported():
+        raise HTTPException(
+            400,
+            "Checklist NA is not enabled. Run database/CHECKLIST_OCCURRENCE_NA.sql in Supabase, then retry.",
+        )
+    role = current.get("role", "user")
+    if role not in ("admin", "master_admin"):
+        user_id = auth["id"]
+    elif user_id is None:
+        user_id = auth["id"]
+    today = date.today()
+    today_rows = _checklist_occurrences_for_user(str(user_id), today, today, only_uncompleted=True)
+    overdue_rows = _checklist_occurrences_for_user(
+        str(user_id), today - timedelta(days=365), today - timedelta(days=1), only_uncompleted=True
+    )
+    upcoming_rows = _checklist_occurrences_for_user(
+        str(user_id), today + timedelta(days=1), today + timedelta(days=90), only_uncompleted=True
+    )
+    by_task: dict[str, dict] = {}
+    for row in today_rows + overdue_rows + upcoming_rows:
+        tid = str(row["task_id"])
+        if tid not in by_task:
+            by_task[tid] = {
+                "task_id": tid,
+                "task_name": row.get("task_name", ""),
+                "reference_no": row.get("reference_no"),
+                "department": row.get("department", ""),
+                "doer_id": row.get("doer_id"),
+                "doer_name": row.get("doer_name", ""),
+                "pending_count": 0,
+                "has_today": False,
+                "has_overdue": False,
+                "has_upcoming": False,
+            }
+        ent = by_task[tid]
+        ent["pending_count"] = int(ent["pending_count"]) + 1
+        od = row.get("occurrence_date", "")
+        if od == today.isoformat():
+            ent["has_today"] = True
+        elif od and od < today.isoformat():
+            ent["has_overdue"] = True
+        else:
+            ent["has_upcoming"] = True
+    tasks_out = sorted(by_task.values(), key=lambda x: (x.get("reference_no") or "", x.get("task_name") or ""))
+    doer_name = tasks_out[0].get("doer_name", "") if tasks_out else ""
+    if not doer_name:
+        try:
+            pr = supabase.table("user_profiles").select("full_name").eq("id", user_id).limit(1).execute()
+            doer_name = (pr.data or [{}])[0].get("full_name", "")
+        except Exception:
+            pass
+    return {
+        "tasks": tasks_out,
+        "count": len(tasks_out),
+        "doer_name": doer_name,
+        "user_id": str(user_id),
+        "items": [],
+    }
+
+
+class MarkChecklistNaRequest(BaseModel):
+    occurrence_date: str | None = None  # ignored — whole-task NA
+
+
+@api_router.post("/checklist/tasks/{task_id}/mark-na")
+def mark_checklist_task_na(
+    task_id: str,
+    payload: MarkChecklistNaRequest | None = None,
+    auth: dict = Depends(get_current_user),
+    current: dict = Depends(get_current_user_with_role),
+):
+    """Mark entire checklist task as NA — all dates hidden; all completion rows deleted."""
+    if not _checklist_na_supported():
+        raise HTTPException(
+            400,
+            "Checklist NA is not enabled. Run database/CHECKLIST_OCCURRENCE_NA.sql in Supabase, then retry.",
+        )
+    try:
+        task = (
+            supabase.table("checklist_tasks")
+            .select("doer_id, task_name, reference_no, marked_na, na_from_date")
+            .eq("id", task_id)
+            .single()
+            .execute()
+        )
+    except Exception:
+        raise HTTPException(404, "Task not found")
+    if not task.data:
+        raise HTTPException(404, "Task not found")
+    if _checklist_row_marked_na(task.data):
+        return {
+            "success": True,
+            "task_id": task_id,
+            "already_marked_na": True,
+            "reference_no": task.data.get("reference_no"),
+            "task_name": task.data.get("task_name"),
+        }
+    doer_id = str(task.data.get("doer_id"))
+    role = current.get("role", "user")
+    if str(auth["id"]) != doer_id and role not in ("admin", "master_admin"):
+        raise HTTPException(403, "Only the assigned doer or an admin can mark NA")
+    today_str = date.today().isoformat()
+    try:
+        supabase.table("checklist_completions").delete().eq("task_id", task_id).execute()
+    except Exception as e:
+        _log(f"checklist mark-na delete all completions: {e}")
+    update_row = {"marked_na": True, "na_from_date": today_str}
+    try:
+        supabase.table("checklist_tasks").update(update_row).eq("id", task_id).execute()
+    except Exception as e:
+        err = str(e).lower()
+        if "marked_na" in err and ("does not exist" in err or "42703" in err):
+            try:
+                supabase.table("checklist_tasks").update({"na_from_date": today_str}).eq("id", task_id).execute()
+            except Exception as e2:
+                raise HTTPException(400, str(e2)[:200])
+        else:
+            raise HTTPException(400, str(e)[:200])
+    invalidate_dashboard_read_caches()
+    return {
+        "success": True,
+        "task_id": task_id,
+        "marked_na": True,
+        "reference_no": task.data.get("reference_no"),
+        "task_name": task.data.get("task_name"),
+    }
 
 
 class CompleteChecklistRequest(BaseModel):

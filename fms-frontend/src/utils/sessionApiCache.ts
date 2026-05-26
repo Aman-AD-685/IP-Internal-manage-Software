@@ -16,6 +16,7 @@ export const API_CACHE_TTL_MS = {
   dashboardSuccessKpi: 5 * 60 * 1000,
   dashboardSuccessPerformanceList: 2 * 60 * 1000,
   dashboardActivity: 60 * 1000,
+  stage2RemarkNotifications: 30 * 1000,
   dashboardKpi: 10 * 60 * 1000,
   dashboardKpiSupportFmsDetails: 5 * 60 * 1000,
   dashboardSoumyaKpi: 10 * 60 * 1000,
@@ -161,6 +162,16 @@ export function ticketGetLogicalKey(id: string): string {
 
 export function supportDivisionsLogicalKey(companyId?: string): string {
   return `support:divisions:v5:${companyId || 'none'}`
+}
+
+export function invalidateAfterStage2Remark(): void {
+  sessionApiCacheRemove('dashboard:stage2-remark-notifications')
+  sessionApiCacheRemove('dashboard:activity-count')
+}
+
+export function invalidateAfterChecklistNa(): void {
+  sessionApiCacheClearLogicalPrefix('checklist:tasks:')
+  sessionApiCacheClearLogicalPrefix('checklist:occurrences:')
 }
 
 export function invalidateAfterTicketMutation(ticketId?: string): void {
