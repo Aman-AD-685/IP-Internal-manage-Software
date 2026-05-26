@@ -482,8 +482,16 @@ async def run_feature_approval_reminder_batch(*, force: bool = False) -> dict[st
     One grouped email per enabled recipient when pending feature tickets exist.
     Daily dedup (Asia/Kolkata) unless force=True (manual run).
     """
+    from app.email_working_day import cron_email_skip_response, should_skip_cron_emails
+
     sched = get_schedule()
     tz_name = str(sched.get("timezone") or DEFAULT_TZ)
+    skip, skip_reason = should_skip_cron_emails(force=force, tz_name=tz_name)
+    if skip:
+        _log.info("Feature approval reminder skipped: %s", skip_reason)
+        out = cron_email_skip_response(skip_reason, module="feature_approval")
+        out["skipped"] = True
+        return out
     if not force and not sched.get("enabled", True):
         return {"skipped": True, "reason": "schedule disabled"}
 

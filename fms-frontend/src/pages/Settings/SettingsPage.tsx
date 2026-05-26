@@ -262,7 +262,8 @@ export const SettingsPage = () => {
                   </Title>
                   <Paragraph type="secondary">
                     When Feature tickets are pending approval, each cron run sends <Text strong>one grouped HTML reminder</Text> to enabled
-                    recipients below. Set the send time on <Text strong>cron-job.org</Text> (see cron URL below).
+                    recipients below. Set the send time on <Text strong>cron-job.org</Text> (see cron URL below). No emails on{' '}
+                    <Text strong>Sundays</Text> or dates in Checklist → Upload Holiday List.
                   </Paragraph>
 
                   {urlConfig && !urlConfig.email_links_ok && (

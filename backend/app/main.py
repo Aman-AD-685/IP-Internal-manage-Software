@@ -1248,6 +1248,7 @@ class KpiDailyLogUpsertBody(BaseModel):
     accuracy_pct: float | None = None
     videos_created: float | None = None
     video_type: str | None = None
+    bulk_upload_tickets: float | None = None
     ai_tasks_used: float | None = None
     process_improved: float | None = None
 
@@ -3319,6 +3320,22 @@ def _kpi_daily_work_log_owner_user_id() -> str | None:
     return _dashboard_kpi_resolve_user_id("Akash")
 
 
+# Akash KPI weekly targets (fixed counts — not tied to support ticket volume)
+_AKASH_KPI_TARGET_BULK_UPLOAD = 5
+_AKASH_KPI_TARGET_VIDEO = 1
+_AKASH_KPI_TARGET_ITEM_CLEANING_DAYS = 1
+_AKASH_KPI_TARGET_AI_DAYS = 1
+
+
+def _akash_kpi_weekly_count_score(count: int, target: int) -> int:
+    """Map weekly count to 0–100; at or above target → 100%."""
+    t = max(1, int(target))
+    c = max(0, int(count or 0))
+    if c <= 0:
+        return 0
+    return max(0, min(100, round(100.0 * c / float(t))))
+
+
 def _count_weekdays_in_kpi_range(a: date, b: date) -> int:
     n = 0
     d = a
@@ -3339,15 +3356,16 @@ def _aggregate_kpi_daily_log_for_week(rows: list, range_start: date, range_end: 
         "accuracy_values": [],
         "videos_created": 0,
         "video_types": [],
+        "bulk_upload_tickets": 0,
         "ai_tasks_used": 0,
         "process_improved": 0,
         "cleaning_score": 0,
         "video_score": 0,
+        "bulk_upload_score": 0,
         "ai_score": 0,
     }
     if not rows:
         return empty
-    wd = _count_weekdays_in_kpi_range(range_start, range_end)
     in_week: list = []
     for r in rows:
         wd_raw = r.get("work_date")
@@ -3364,16 +3382,21 @@ def _aggregate_kpi_daily_log_for_week(rows: list, range_start: date, range_end: 
     out = {**empty, "has_rows": True}
     acc_vals: list[float] = []
     vtypes: list[str] = []
+    item_cleaning_days = 0
+    ai_learning_days = 0
     for r in in_week:
+        row_item = False
         if r.get("items_cleaned") is not None:
             out["items_cleaned"] += int(r.get("items_cleaned") or 0)
             out["has_item_cleaning"] = True
+            row_item = True
         if r.get("errors_found") is not None and str(r.get("errors_found")).strip() != "":
             try:
                 out["errors_found"] += float(r.get("errors_found"))
             except (TypeError, ValueError):
                 pass
             out["has_item_cleaning"] = True
+            row_item = True
         ap = r.get("accuracy_pct")
         if ap is not None and str(ap).strip() != "":
             try:
@@ -3381,31 +3404,50 @@ def _aggregate_kpi_daily_log_for_week(rows: list, range_start: date, range_end: 
             except (TypeError, ValueError):
                 pass
             out["has_item_cleaning"] = True
+            row_item = True
+        if row_item:
+            item_cleaning_days += 1
         if r.get("videos_created") is not None:
             out["videos_created"] += int(r.get("videos_created") or 0)
+        if r.get("bulk_upload_tickets") is not None:
+            out["bulk_upload_tickets"] += int(r.get("bulk_upload_tickets") or 0)
         vt = (r.get("video_type") or "").strip()
         if vt:
             vtypes.append(vt)
+        row_ai = False
         if r.get("ai_tasks_used") is not None:
             out["ai_tasks_used"] += int(r.get("ai_tasks_used") or 0)
+            if int(r.get("ai_tasks_used") or 0) > 0:
+                row_ai = True
         if r.get("process_improved") is not None:
             out["process_improved"] += int(r.get("process_improved") or 0)
+            if int(r.get("process_improved") or 0) > 0:
+                row_ai = True
+        if row_ai:
+            ai_learning_days += 1
     out["accuracy_values"] = acc_vals
     out["video_types"] = vtypes
+    out["item_cleaning_days"] = item_cleaning_days
+    out["ai_learning_days"] = ai_learning_days
     if out["has_item_cleaning"]:
-        if acc_vals:
-            out["cleaning_score"] = max(0, min(100, round(sum(acc_vals) / len(acc_vals))))
-        elif out["items_cleaned"] > 0:
-            er = out["errors_found"]
-            pct = 100.0 * max(0.0, 1.0 - min(1.0, er / float(out["items_cleaned"])))
-            out["cleaning_score"] = max(0, min(100, round(pct)))
-        else:
-            out["cleaning_score"] = 0
-    if out["videos_created"] > 0 or vtypes:
-        out["video_score"] = max(0, min(100, round(100.0 * out["videos_created"] / float(wd))))
-    ai_units = out["ai_tasks_used"] + out["process_improved"]
-    if ai_units > 0:
-        out["ai_score"] = max(0, min(100, round(100.0 * ai_units / float(wd))))
+        out["cleaning_score"] = _akash_kpi_weekly_count_score(
+            item_cleaning_days, _AKASH_KPI_TARGET_ITEM_CLEANING_DAYS
+        )
+    video_count = int(out["videos_created"] or 0)
+    if video_count <= 0 and vtypes:
+        video_count = 1
+    if video_count > 0:
+        out["video_score"] = _akash_kpi_weekly_count_score(
+            video_count, _AKASH_KPI_TARGET_VIDEO
+        )
+    if out["bulk_upload_tickets"] > 0:
+        out["bulk_upload_score"] = _akash_kpi_weekly_count_score(
+            out["bulk_upload_tickets"], _AKASH_KPI_TARGET_BULK_UPLOAD
+        )
+    if ai_learning_days > 0:
+        out["ai_score"] = _akash_kpi_weekly_count_score(
+            ai_learning_days, _AKASH_KPI_TARGET_AI_DAYS
+        )
     return out
 
 
@@ -3416,14 +3458,16 @@ def _build_akash_kpi_payload(
     customer_support_bundle: dict,
     daily_week: dict | None,
 ) -> dict:
-    """Akash Dashboard — four KPI pillars (weights 35+25+15+10=85); UI shows % renormalized to 100."""
-    raw_weights = {"item_cleaning": 35, "customer_support": 25, "video_content": 15, "ai_learning": 10}
+    """Akash Dashboard — five KPI pillars at 20% each (100% total)."""
+    raw_weights = {
+        "item_cleaning": 20,
+        "customer_support": 20,
+        "bulk_upload": 20,
+        "video_content": 20,
+        "ai_learning": 20,
+    }
     wsum = sum(raw_weights.values()) or 1
     norm = {k: round(100 * v / wsum) for k, v in raw_weights.items()}
-    keys = list(norm.keys())
-    drift = 100 - sum(norm.values())
-    if drift != 0 and keys:
-        norm[keys[0]] = norm[keys[0]] + drift
     cs = customer_support_bundle or {}
     cs_score = int(cs.get("score_percent") or 0)
     cs_score_filter_week = int(cs.get("score_percent_filter_week", cs_score))
@@ -3437,13 +3481,18 @@ def _build_akash_kpi_payload(
     has_item = bool(dw.get("has_item_cleaning"))
     item_score_daily = int(dw.get("cleaning_score") or 0)
     video_pct = int(dw.get("video_score") or 0)
+    bulk_sum = int(dw.get("bulk_upload_tickets") or 0)
+    bulk_pct = int(dw.get("bulk_upload_score") or 0)
+    if bulk_sum > 0 and bulk_pct <= 0:
+        bulk_pct = _akash_kpi_weekly_count_score(bulk_sum, _AKASH_KPI_TARGET_BULK_UPLOAD)
+    bulk_target = _AKASH_KPI_TARGET_BULK_UPLOAD
     ai_pct = int(dw.get("ai_score") or 0)
     item_for_overall = item_score_daily if has_item else checklist_weekly_pct
-    # Headline overall: filter-week checklist OR daily log item score + support + daily video/AI
     overall = round(
         (
             item_for_overall * raw_weights["item_cleaning"]
             + cs_score_filter_week * raw_weights["customer_support"]
+            + bulk_pct * raw_weights["bulk_upload"]
             + video_pct * raw_weights["video_content"]
             + ai_pct * raw_weights["ai_learning"]
         )
@@ -3463,6 +3512,7 @@ def _build_akash_kpi_payload(
             {"label": "Items Cleaned (daily log)", "value": str(int(dw.get("items_cleaned") or 0))},
             {"label": "Errors Found (daily log)", "value": str(dw.get("errors_found") or 0)},
             {"label": "Accuracy % ≥ 98%", "value": accuracy_line},
+            {"label": "Weekly target (days logged)", "value": str(_AKASH_KPI_TARGET_ITEM_CLEANING_DAYS)},
         ]
         item_score_show = item_score_daily
     else:
@@ -3478,10 +3528,16 @@ def _build_akash_kpi_payload(
     video_metrics = [
         {"label": "Videos Created", "value": str(int(dw.get("videos_created") or 0))},
         {"label": "Video Type", "value": vt_display},
+        {"label": "Weekly target", "value": str(_AKASH_KPI_TARGET_VIDEO)},
+    ]
+    bulk_metrics = [
+        {"label": "Bulk upload tickets", "value": str(bulk_sum)},
+        {"label": "Weekly target", "value": str(bulk_target)},
     ]
     ai_metrics = [
         {"label": "AI Tasks Used", "value": str(int(dw.get("ai_tasks_used") or 0))},
         {"label": "Process Improved", "value": str(int(dw.get("process_improved") or 0))},
+        {"label": "Weekly target (days logged)", "value": str(_AKASH_KPI_TARGET_AI_DAYS)},
     ]
     pillars = [
         {
@@ -3499,12 +3555,19 @@ def _build_akash_kpi_payload(
             "weight_percent_display": norm["customer_support"],
             "score_percent": cs_score,
             "metrics": [
-                {"label": "Total tickets (data week)", "value": str(total_issues)},
                 {"label": "Response delays", "value": str(rd_ct)},
                 {"label": "Completion delays", "value": str(cd_ct)},
                 {"label": "Pending", "value": str(pend_ct)},
                 {"label": "Avg response (min)", "value": resp_line},
             ],
+        },
+        {
+            "key": "bulk_upload",
+            "title": "BULK UPLOAD",
+            "weight": raw_weights["bulk_upload"],
+            "weight_percent_display": norm["bulk_upload"],
+            "score_percent": bulk_pct,
+            "metrics": bulk_metrics,
         },
         {
             "key": "video_content",
@@ -3530,6 +3593,11 @@ def _build_akash_kpi_payload(
         "overall_score_percent": overall,
         "pillars": pillars,
         "dailyLogWeekApplied": has_daily,
+        "bulkUpload": {
+            "ticketsLogged": bulk_sum,
+            "weeklyTarget": bulk_target,
+            "scorePercent": bulk_pct,
+        },
     }
     if cs:
         out["customerSupport"] = {
@@ -4022,42 +4090,30 @@ def _dashboard_kpi_data(
             sel_w = max(1, min(_parse_kpi_week_num(week, default=2), max_week_index))
             filt = get_kpi_calendar_week_range(y, month_num, sel_w)
             filter_rs, filter_re = filt if filt else (range_start, range_end)
-            prev_rs, prev_re = prior_kpi_calendar_week_range(filter_rs)
-
-            prior_month_label = (
-                _MONTH_NAMES[prev_rs.month - 1]
-                if prev_rs.month == prev_re.month and prev_rs.year == prev_re.year
-                else f"{_MONTH_NAMES[prev_rs.month - 1]}-{_MONTH_NAMES[prev_re.month - 1]}"
+            filter_range_lbl = f"{filter_rs.strftime('%d %b %Y')} – {filter_re.strftime('%d %b %Y')}"
+            data_month_label = (
+                _MONTH_NAMES[filter_rs.month - 1]
+                if filter_rs.month == filter_re.month and filter_rs.year == filter_re.year
+                else f"{_MONTH_NAMES[filter_rs.month - 1]}-{_MONTH_NAMES[filter_re.month - 1]}"
             )
-            week_slice = _tickets_arrival_within_range(ak_tickets, prev_rs, prev_re)
-            week_slice_filter = _tickets_arrival_within_range(ak_tickets, filter_rs, filter_re)
-            _enrich_kpi_ticket_slices(week_slice, week_slice_filter)
-            total_cs = len(week_slice)
-            pending_cs = sum(
+            week_slice = _tickets_arrival_within_range(ak_tickets, filter_rs, filter_re)
+            _enrich_kpi_ticket_slices(week_slice, week_slice)
+            total_w = len(week_slice)
+            pending_w = sum(
                 1
                 for t in week_slice
                 if _is_pending(t.get("status") or "") and not _is_resolved(t.get("status"), t.get("status_4"))
             )
-            cs_score = round(((total_cs - pending_cs) / total_cs) * 100) if total_cs else 0
-            total_cf = len(week_slice_filter)
-            pending_cf = sum(
-                1
-                for t in week_slice_filter
-                if _is_pending(t.get("status") or "") and not _is_resolved(t.get("status"), t.get("status_4"))
-            )
-            cs_score_filter_week = round(((total_cf - pending_cf) / total_cf) * 100) if total_cf else 0
+            cs_score_w = round(((total_w - pending_w) / total_w) * 100) if total_w else 0
             avg_m = _akash_avg_response_minutes(week_slice)
             if avg_m is None:
                 resp_disp = "—"
             else:
                 resp_disp = str(round(avg_m))
-            range_lbl = f"{prev_rs.strftime('%d %b %Y')} – {prev_re.strftime('%d %b %Y')}"
-            filter_range_lbl = f"{filter_rs.strftime('%d %b %Y')} – {filter_re.strftime('%d %b %Y')}"
             help_note = (
-                f"Mon–Sun calendar weeks. KPI cards use arrivals in prior week ({range_lbl}). "
-                f"Overall blend uses arrivals in selected week ({filter_range_lbl}), matching checklist/delegation."
+                f"Customer support % uses chores/bugs with query arrival in the selected week ({filter_range_lbl}). "
+                f"Bulk upload target is 5 per week (fixed), not tied to ticket count."
             )
-            data_month_label = prior_month_label
             details_resp: list = []
             details_comp: list = []
             details_pend: list = []
@@ -4082,19 +4138,19 @@ def _dashboard_kpi_data(
                         _akash_support_detail_row(t, data_month_label, _stage2_delay_text_for_ticket(t))
                     )
             customer_support_bundle = {
-                "score_percent": cs_score,
-                "score_percent_filter_week": cs_score_filter_week,
-                "total_issues": total_cs,
+                "score_percent": cs_score_w,
+                "score_percent_filter_week": cs_score_w,
+                "total_issues": total_w,
                 "response_delay_count": len(details_resp),
                 "completion_delay_count": len(details_comp),
                 "pending_count": len(details_pend),
                 "response_time_display": resp_disp,
                 "meta": {
                     "selectedWeekNum": sel_w,
-                    "dataWeekNum": None,
+                    "dataWeekNum": sel_w,
                     "dataMonth": data_month_label,
-                    "dataYear": str(prev_rs.year),
-                    "dataRangeLabel": range_lbl,
+                    "dataYear": str(filter_rs.year),
+                    "dataRangeLabel": filter_range_lbl,
                     "selectedWeekRangeLabel": filter_range_lbl,
                     "helpNote": help_note,
                 },
@@ -4761,7 +4817,7 @@ def get_kpi_daily_log(
         r = (
             supabase.table("kpi_daily_work_log")
             .select(
-                "work_date, items_cleaned, errors_found, accuracy_pct, videos_created, video_type, ai_tasks_used, process_improved"
+                "work_date, items_cleaned, errors_found, accuracy_pct, videos_created, video_type, bulk_upload_tickets, ai_tasks_used, process_improved"
             )
             .eq("user_id", owner_id)
             .gte("work_date", start_s)
@@ -4801,6 +4857,7 @@ def upsert_kpi_daily_log(
         "accuracy_pct": _kpi_daily_optional_float("accuracy_pct", body.accuracy_pct),
         "videos_created": _kpi_daily_optional_int("videos_created", body.videos_created),
         "video_type": (body.video_type or "").strip() or None,
+        "bulk_upload_tickets": _kpi_daily_optional_int("bulk_upload_tickets", body.bulk_upload_tickets),
         "ai_tasks_used": _kpi_daily_optional_int("ai_tasks_used", body.ai_tasks_used),
         "process_improved": _kpi_daily_optional_int("process_improved", body.process_improved),
         "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -13148,6 +13205,12 @@ async def _run_checklist_reminders_impl(*, force_resend: bool = False) -> dict:
     """Run checklist daily reminders; returns summary for cron HTTP response."""
     try:
         from app.checklist_utils import get_occurrence_dates
+        from app.email_working_day import cron_email_skip_response, should_skip_cron_emails
+
+        skip, skip_reason = should_skip_cron_emails(force=force_resend)
+        if skip:
+            _log(f"Checklist reminder skipped: {skip_reason}")
+            return cron_email_skip_response(skip_reason, module="checklist_daily")
         today = date.today()
         q = supabase.table("checklist_tasks").select("*")
         r = q.execute()
@@ -13429,6 +13492,12 @@ async def _send_delegation_reminder_email(to_email: str, task_titles: list[str],
 async def _run_delegation_reminders_impl(*, force_resend: bool = False) -> dict:
     """Run delegation daily reminders; returns summary for cron HTTP response."""
     try:
+        from app.email_working_day import cron_email_skip_response, should_skip_cron_emails
+
+        skip, skip_reason = should_skip_cron_emails(force=force_resend)
+        if skip:
+            _log(f"Delegation reminder skipped: {skip_reason}")
+            return cron_email_skip_response(skip_reason, module="delegation_daily")
         today = date.today()
         del_r = supabase.table("delegation_tasks").select("id, title, assignee_id, due_date").in_("status", ["pending", "in_progress"]).lte("due_date", today.isoformat()).execute()
         tasks = del_r.data or []
@@ -13656,7 +13725,13 @@ async def _run_pending_digest_impl(*, force_resend: bool = False) -> dict:
     """Run pending digest (checklist, delegation, chores/bug, feature); returns cron-friendly summary."""
     try:
         from app.checklist_utils import get_occurrence_dates
+        from app.email_working_day import cron_email_skip_response, should_skip_cron_emails
         from app.reminder_utils import get_chores_bugs_stage, get_staging_feature_stage, is_chores_bug_pending, is_feature_pending
+
+        skip, skip_reason = should_skip_cron_emails(force=force_resend)
+        if skip:
+            _log(f"Pending digest skipped: {skip_reason}")
+            return cron_email_skip_response(skip_reason, module="pending_digest")
         today = date.today()
         level12_ids = _get_level1_level2_user_ids()
         if not level12_ids:

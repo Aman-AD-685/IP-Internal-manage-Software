@@ -486,6 +486,15 @@
   background: linear-gradient(145deg, #fffbeb 0%, #fef3c7 100%) !important;
 }
 
+.dashboard-kpi-page--futuristic .kpi-success-card--bulk {
+  border-color: #67e8f9 !important;
+  background: linear-gradient(145deg, #f0fdfa 0%, #ecfeff 100%) !important;
+}
+
+.dashboard-kpi-page--futuristic .kpi-akash-bulk-card .ant-card-body {
+  overflow: visible !important;
+}
+
 .dashboard-kpi-page--futuristic .kpi-success-card--followup h4.ant-typography {
   color: #92400e !important;
 }
@@ -671,6 +680,125 @@
   border: 1px solid #fde68a;
 }
 
+.kpi-success-card--bulk {
+  background: linear-gradient(135deg, #ecfeff 0%, #cffafe 100%);
+  border: 1px solid #67e8f9;
+}
+
+/* Akash KPI — five equal pillars in one row */
+.kpi-akash-pillars-row {
+  flex-wrap: nowrap !important;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+
+.kpi-akash-pillar-col {
+  min-width: 0;
+  flex: 1 1 0 !important;
+  max-width: 20%;
+  display: flex !important;
+}
+
+.kpi-akash-pillar-card {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.kpi-akash-pillar-card .ant-card-head {
+  min-height: 48px;
+  padding: 8px 10px !important;
+  flex-shrink: 0;
+}
+
+.kpi-akash-pillar-card .ant-card-head-title {
+  white-space: normal;
+  line-height: 1.2;
+  font-size: 0.68rem !important;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding-right: 4px;
+}
+
+.kpi-akash-pillar-card .ant-card-body {
+  flex: 1;
+  padding: 8px 10px 10px !important;
+  overflow: visible;
+}
+
+.kpi-akash-pillar-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 118px;
+  height: 100%;
+}
+
+.kpi-akash-pillar-metric {
+  font-size: 10.5px;
+  line-height: 1.35;
+  margin-top: 2px;
+  word-break: break-word;
+}
+
+.kpi-akash-pillar-metric__label {
+  color: #64748b;
+}
+
+.kpi-akash-pillar-metric__value {
+  color: #1e293b;
+  font-weight: 600;
+}
+
+.kpi-akash-pillar-hint {
+  margin: auto 0 0;
+  padding-top: 6px;
+  font-size: 9.5px;
+  line-height: 1.3;
+  color: #94a3b8;
+}
+
+.kpi-akash-pillar-score-tag {
+  margin: 0 !important;
+  font-size: 10px !important;
+  line-height: 18px !important;
+  padding: 0 6px !important;
+}
+
+.kpi-akash-pillar-list-icon {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.dashboard-kpi-page--futuristic .kpi-akash-pillar-card .ant-card-head-title {
+  font-size: 0.68rem !important;
+}
+
+@media (max-width: 1199px) {
+  .kpi-akash-pillar-col {
+    max-width: none;
+    min-width: 152px;
+  }
+}
+
+@media (max-width: 767px) {
+  .kpi-akash-pillars-row {
+    flex-wrap: wrap !important;
+    overflow-x: visible;
+  }
+
+  .kpi-akash-pillar-col {
+    flex: 1 1 100% !important;
+    max-width: 100%;
+    min-width: 100%;
+  }
+
+  .kpi-akash-pillar-body {
+    min-height: 0;
+  }
+}
+
 .kpi-success-card--increase {
   background: linear-gradient(135deg, #fafafa 0%, #f5f3ff 100%);
   border: 1px solid #e9d5ff;
@@ -758,13 +886,9 @@
   background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 55%, #f5f3ff 100%);
 }
 
-/* Akash CUSTOMER SUPPORT inner card — keep header + metrics readable */
-.kpi-akash-cs-card .ant-card-head-title {
+/* Akash CUSTOMER SUPPORT — uses shared kpi-akash-pillar-card layout */
+.kpi-akash-cs-card.kpi-akash-pillar-card .ant-card-head-title {
   white-space: normal;
-  line-height: 1.25;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
 }
 
 /* Header nav — Dashboard - KPI dropdown */
