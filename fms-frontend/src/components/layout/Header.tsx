@@ -62,18 +62,41 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
     ? canViewSection('dashboard_kpi', user.role as UserRole, user.section_permissions)
     : false
 
-  const loadStage2Notifications = useCallback(() => {
-    dashboardApi
-      .getStage2RemarkNotifications()
+  const loadStage2Notifications = useCallback((options?: { skipCache?: boolean }) => {
+    return dashboardApi
+      .getStage2RemarkNotifications(options)
       .then((res) => {
+        const unread = res.unread_count ?? res.count ?? 0
         setStage2Notifications(res.items ?? [])
-        setStage2NotifyCount(res.count ?? 0)
+        setStage2NotifyCount(unread)
+        return res
       })
       .catch(() => {
         setStage2Notifications([])
         setStage2NotifyCount(0)
+        return null
       })
   }, [])
+
+  const handleStage2BellOpen = useCallback(
+    async (open: boolean) => {
+      if (!open) return
+      const res = await loadStage2Notifications({ skipCache: true })
+      if (!res) return
+      const unreadIds = (res.items ?? []).filter((i) => !i.seen).map((i) => i.id)
+      const idsToMark = unreadIds.length > 0 ? unreadIds : (res.items ?? []).map((i) => i.id)
+      if (idsToMark.length > 0) {
+        try {
+          await dashboardApi.markStage2RemarkNotificationsSeen(idsToMark)
+        } catch {
+          /* badge may stay until next poll if DB migration missing */
+        }
+      }
+      setStage2NotifyCount(0)
+      setStage2Notifications((res.items ?? []).map((i) => ({ ...i, seen: true })))
+    },
+    [loadStage2Notifications],
+  )
 
   useEffect(() => {
     const t = window.setTimeout(loadStage2Notifications, 2500)
@@ -273,7 +296,7 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
         <Dropdown
           trigger={['click']}
           onOpenChange={(open) => {
-            if (open) loadStage2Notifications()
+            void handleStage2BellOpen(open)
           }}
           dropdownRender={() => (
             <div
@@ -331,7 +354,7 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
             </div>
           )}
         >
-          <Badge count={stage2NotifyCount} size="small" offset={[-2, 2]} overflowCount={99}>
+          <Badge count={stage2NotifyCount || 0} size="small" offset={[-2, 2]} overflowCount={99} showZero={false}>
             <Button
               type="text"
               icon={<BellOutlined />}

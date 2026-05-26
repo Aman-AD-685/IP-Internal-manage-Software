@@ -2386,10 +2386,54 @@ def delete_ticket(ticket_id: str, auth: dict = Depends(get_current_user)):
 
 # ---------- Activity / Stage 2 remark notifications (header bell) ----------
 STAGE2_REMARK_NOTIFY_HOURS = 24
+_STAGE2_SEEN_SUPPORTED: bool | None = None
 
 
-def _stage2_remark_notifications_payload() -> dict:
-    """Chores & Bugs Stage 2 remarks added in the last 24 hours (bell icon; auto-expire)."""
+def _stage2_seen_supported() -> bool:
+    global _STAGE2_SEEN_SUPPORTED
+    if _STAGE2_SEEN_SUPPORTED is True:
+        return True
+    try:
+        supabase.table("stage2_remark_notification_seen").select("user_id").limit(1).execute()
+        _STAGE2_SEEN_SUPPORTED = True
+        return True
+    except Exception:
+        return False
+
+
+def _fetch_stage2_seen_remark_ids(user_id: str, remark_ids: list[str]) -> set[str]:
+    if not remark_ids or not _stage2_seen_supported():
+        return set()
+    try:
+        r = (
+            supabase.table("stage2_remark_notification_seen")
+            .select("remark_id")
+            .eq("user_id", user_id)
+            .in_("remark_id", remark_ids)
+            .execute()
+        )
+        return {str(row["remark_id"]) for row in (r.data or []) if row.get("remark_id")}
+    except Exception:
+        return set()
+
+
+def _mark_stage2_remarks_seen(user_id: str, remark_ids: list[str]) -> int:
+    if not remark_ids or not _stage2_seen_supported():
+        return 0
+    now = datetime.utcnow().isoformat()
+    rows = [{"user_id": user_id, "remark_id": rid, "seen_at": now} for rid in remark_ids if rid]
+    if not rows:
+        return 0
+    try:
+        supabase.table("stage2_remark_notification_seen").upsert(rows, on_conflict="user_id,remark_id").execute()
+        return len(rows)
+    except Exception as e:
+        _log(f"stage2 mark seen: {e}")
+        return 0
+
+
+def _stage2_remark_notifications_payload(user_id: str | None = None) -> dict:
+    """Chores & Bugs Stage 2 remarks in last 24h; badge count = unread for this user."""
     from datetime import timedelta
 
     since = (datetime.utcnow() - timedelta(hours=STAGE2_REMARK_NOTIFY_HOURS)).isoformat()
@@ -2406,6 +2450,11 @@ def _stage2_remark_notifications_payload() -> dict:
         rows = r.data or []
     except Exception:
         rows = []
+
+    remark_ids = [str(row.get("id")) for row in rows if row.get("id")]
+    seen_ids: set[str] = set()
+    if user_id and remark_ids:
+        seen_ids = _fetch_stage2_seen_remark_ids(str(user_id), remark_ids)
 
     ticket_ids = list({str(row.get("ticket_id")) for row in rows if row.get("ticket_id")})
     ticket_map: dict = {}
@@ -2435,38 +2484,79 @@ def _stage2_remark_notifications_payload() -> dict:
             pass
 
     items = []
+    unread_count = 0
     for row in rows:
         tid = str(row.get("ticket_id") or "")
         ticket = ticket_map.get(tid)
         if not ticket:
             continue
+        rid = str(row.get("id") or "")
+        seen = rid in seen_ids
+        if not seen:
+            unread_count += 1
         text = (row.get("remark_text") or "").strip()
         if len(text) > 120:
             text = text[:117] + "..."
         items.append({
-            "id": row.get("id"),
+            "id": rid,
             "ticket_id": tid,
             "reference_no": ticket.get("reference_no") or "",
             "ticket_type": ticket.get("type") or "chore",
             "remark_text": text,
             "added_at": row.get("added_at"),
             "added_by_name": names_map.get(row.get("added_by"), ""),
+            "seen": seen,
         })
 
-    return {"count": len(items), "items": items, "expires_hours": STAGE2_REMARK_NOTIFY_HOURS}
+    return {
+        "count": unread_count,
+        "unread_count": unread_count,
+        "items": items,
+        "expires_hours": STAGE2_REMARK_NOTIFY_HOURS,
+    }
+
+
+class MarkStage2RemarksSeenRequest(BaseModel):
+    remark_ids: list[str] = []
 
 
 @api_router.get("/activity/stage2-remark-notifications")
 def stage2_remark_notifications(auth: dict = Depends(get_current_user)):
-    """Header bell: Stage 2 remarks on Support (Chores & Bugs) tickets from the last 24 hours."""
-    return _stage2_remark_notifications_payload()
+    """Header bell: Stage 2 remarks (24h). Badge count = unread for logged-in user."""
+    return _stage2_remark_notifications_payload(auth.get("id"))
+
+
+@api_router.post("/activity/stage2-remark-notifications/mark-seen")
+def mark_stage2_remark_notifications_seen(
+    payload: MarkStage2RemarksSeenRequest,
+    auth: dict = Depends(get_current_user),
+):
+    """Mark remarks as seen when user opens the bell dropdown — clears badge count for that user."""
+    user_id = str(auth["id"])
+    remark_ids = [str(r) for r in (payload.remark_ids or []) if r]
+    if not remark_ids:
+        data = _stage2_remark_notifications_payload(user_id)
+        remark_ids = [str(i["id"]) for i in (data.get("items") or []) if i.get("id") and not i.get("seen")]
+    marked = _mark_stage2_remarks_seen(user_id, remark_ids)
+    if marked == 0 and remark_ids and not _stage2_seen_supported():
+        raise HTTPException(
+            400,
+            "Notification seen-tracking is not enabled. Run database/STAGE2_REMARK_NOTIFICATION_SEEN.sql in Supabase.",
+        )
+    refreshed = _stage2_remark_notifications_payload(user_id)
+    return {
+        "success": True,
+        "marked": marked,
+        "unread_count": refreshed.get("unread_count", 0),
+        "count": refreshed.get("unread_count", 0),
+    }
 
 
 @api_router.get("/activity/count")
 def activity_count(auth: dict = Depends(get_current_user)):
-    """Bell badge count — Stage 2 remarks in the last 24 hours (same window as notifications list)."""
-    payload = _stage2_remark_notifications_payload()
-    return {"count": payload.get("count", 0)}
+    """Bell badge count — unread Stage 2 remarks (24h) for logged-in user."""
+    payload = _stage2_remark_notifications_payload(auth.get("id"))
+    return {"count": payload.get("unread_count", 0)}
 
 
 # ---------- Dashboard Metrics (in-process cache per user email) ----------
