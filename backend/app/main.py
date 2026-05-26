@@ -1767,6 +1767,10 @@ def list_tickets(
     search_all_sections: bool = False,   # When True + search present: ignore section/type, search all tickets
     mine_only: bool = False,  # When True: only tickets created_by current user (export / operator scope)
     export_date_range: bool = False,  # Export: all chore/bug rows in date range (ignore queue/status sub-filters)
+    register_status_filter: str | None = Query(
+        None,
+        description="register-of-tickets: completed | rejected | all (default all with quality_solution)",
+    ),
     auth: dict = Depends(get_current_user),
 ):
     page = max(1, int(page or 1))
@@ -1813,6 +1817,12 @@ def list_tickets(
         if types_list:
             q = q.in_("type", types_list)
         q = q.not_.is_("quality_solution", "null")
+        rsf = (register_status_filter or "all").strip().lower()
+        if rsf == "completed":
+            q = q.eq("status_1", "yes")
+            q = q.or_("status_4.eq.completed,status_4.eq.Completed")
+        elif rsf == "rejected":
+            q = q.or_("status_2.eq.rejected,status.eq.rejected")
     elif apply_section_filter and section == "chores-bugs":
         if export_date_range:
             # Date-range export: every chore/bug with created_at in range (not only open-queue subset)

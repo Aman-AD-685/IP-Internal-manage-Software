@@ -194,12 +194,16 @@ export const ticketsApi = {
     mine_only?: boolean
     /** Date-range CSV/print: include all rows in section for the range (chores-bugs: not only open queue). */
     export_date_range?: boolean
+    register_status_filter?: 'completed' | 'rejected' | 'all'
   }): Promise<ApiResponse<PaginatedResponse<Ticket>>> => {
     const listKey = ticketsListLogicalKey(params as object | undefined)
     const skipCache = !!(params as { skipCache?: boolean } | undefined)?.skipCache
     const requestParams = params ? { ...params } : undefined
     if (requestParams && 'skipCache' in requestParams) {
       delete (requestParams as { skipCache?: boolean }).skipCache
+    }
+    if (skipCache && requestParams) {
+      ;(requestParams as Record<string, unknown>)._ = Date.now()
     }
     const cached = skipCache ? null : sessionApiCacheGet<ApiResponse<PaginatedResponse<Ticket>>>(listKey)
     if (cached) return cached
