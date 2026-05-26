@@ -4,6 +4,7 @@ Success KPI for the Rimpa dashboard: pulls from ALL Success / performance_monito
 """
 from __future__ import annotations
 
+from calendar import monthrange
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -153,8 +154,8 @@ def compute_success_kpi_for_dashboard(
         except Exception:
             pm_rows = []
 
-        pm_rows = filter_performance_rows(pm_rows, na_filter="exclude_na")
         na_company_ids = performance_marked_na_company_ids()
+        pm_rows = filter_performance_rows(pm_rows, na_filter="exclude_na", na_company_ids=na_company_ids)
 
         pm_by_id = {row.get("id"): row for row in pm_rows if row.get("id")}
         company_ids = {row.get("company_id") for row in pm_rows if row.get("company_id")}
@@ -170,7 +171,15 @@ def compute_success_kpi_for_dashboard(
         trainings: list[dict] = []
         if pm_ids:
             try:
-                tr = supabase.table("performance_training").select("*").in_("performance_id", pm_ids).execute()
+                tr = (
+                    supabase.table("performance_training")
+                    .select(
+                        "id, performance_id, call_poc, message_poc, message_owner, training_schedule_date, "
+                        "training_status, remarks, created_at, total_percentage, initial_percentage"
+                    )
+                    .in_("performance_id", pm_ids)
+                    .execute()
+                )
                 trainings = tr.data or []
             except Exception:
                 trainings = []
@@ -206,7 +215,15 @@ def compute_success_kpi_for_dashboard(
         followups: list[dict] = []
         if tf_ids:
             try:
-                fu = supabase.table("feature_followups").select("*").in_("ticket_feature_id", tf_ids).execute()
+                fu = (
+                    supabase.table("feature_followups")
+                    .select(
+                        "id, ticket_feature_id, status, remarks, created_at, total_percentage, "
+                        "previous_percentage, feature_name"
+                    )
+                    .in_("ticket_feature_id", tf_ids)
+                    .execute()
+                )
                 followups = fu.data or []
             except Exception:
                 followups = []
@@ -266,7 +283,16 @@ def compute_success_kpi_for_dashboard(
 
         all_click_rows: list[dict] = []
         try:
-            ce = supabase.table("success_followup_click_events").select("id, clicked_at, ticket_feature_id").limit(10000).execute()
+            month_start = date(y, month_num, 1)
+            month_end = date(y, month_num, monthrange(y, month_num)[1])
+            ce = (
+                supabase.table("success_followup_click_events")
+                .select("id, clicked_at, ticket_feature_id")
+                .gte("clicked_at", f"{month_start.isoformat()}T00:00:00")
+                .lte("clicked_at", f"{month_end.isoformat()}T23:59:59.999999")
+                .limit(5000)
+                .execute()
+            )
             all_click_rows = ce.data or []
         except Exception:
             all_click_rows = []

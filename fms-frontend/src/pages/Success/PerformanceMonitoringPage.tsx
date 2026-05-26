@@ -20,8 +20,12 @@ import {
 import dayjs from 'dayjs'
 import { PlusOutlined, LineChartOutlined, EditOutlined, FormOutlined, UndoOutlined } from '@ant-design/icons'
 import { API_BASE_URL } from '../../api/axios'
+import { dashboardApi } from '../../api/dashboard'
 import { storage } from '../../utils/storage'
-import { invalidateAfterPerformanceNaChange } from '../../utils/sessionApiCache'
+import {
+  invalidateAfterPerformanceNaChange,
+  sessionApiCacheGet,
+} from '../../utils/sessionApiCache'
 import { sortPerformanceRefOptions } from '../../utils/performanceRefs'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
 import { DEFAULT_INFINITE_CHUNK, useInfiniteScrollChunk } from '../../hooks/useInfiniteScrollChunk'
@@ -251,11 +255,8 @@ export const PerformanceMonitoringPage = () => {
 
   const loadFeatures = async () => {
     try {
-      const res = await fetchWithTimeout(`${API_BASE_URL}/success/performance/features`, { headers: getAuthHeaders() })
-      if (res.ok) {
-        const data = await res.json()
-        setFeatures(data.items || [])
-      }
+      const data = await dashboardApi.getSuccessPerformanceFeatures()
+      setFeatures(data.items || [])
     } catch {
       message.error('Failed to load features')
     }
@@ -263,68 +264,50 @@ export const PerformanceMonitoringPage = () => {
 
   const loadNaCompanyIds = async () => {
     try {
-      const [resOpen, resDone] = await Promise.all(
-        (['in_progress', 'completed'] as const).map((status) =>
-          fetchWithTimeout(
-            `${API_BASE_URL}/success/performance/list?completion_status=${status}&na_filter=only_na`,
-            { headers: getAuthHeaders() },
-          ),
-        ),
-      )
-      const ids = new Set<string>()
-      for (const res of [resOpen, resDone]) {
-        if (res.ok) {
-          const data = (await res.json()) as { items?: POCItem[] }
-          for (const i of data.items || []) {
-            if (i.company_id) ids.add(i.company_id)
-          }
-        }
-      }
-      setNaCompanyIds(ids)
+      const data = await dashboardApi.getSuccessPerformanceNaCompanyIds()
+      setNaCompanyIds(new Set(data.company_ids || []))
     } catch {
       /* ignore */
     }
   }
 
-  const loadItems = async (naOverride?: PerformanceNaFilter) => {
-    setLoading(true)
+  const loadItems = async (naOverride?: PerformanceNaFilter, options?: { skipCache?: boolean }) => {
     setSetupError(null)
     const status = 'in_progress'
     const naParam = naOverride ?? filterNa ?? 'exclude_na'
+    const cacheKey = `dashboard:success-performance-list:${status}:${naParam}`
+    const cached =
+      !options?.skipCache
+        ? sessionApiCacheGet<{ items?: POCItem[]; marked_na_supported?: boolean }>(cacheKey)
+        : null
+    if (cached?.items?.length) {
+      setItems(cached.items as POCItem[])
+      if (cached.marked_na_supported === true) setMarkedNaSupported(true)
+      else if (cached.marked_na_supported === false) setMarkedNaSupported(false)
+      setLoading(false)
+    } else {
+      setLoading(true)
+    }
     try {
-      const res = await fetchWithTimeout(
-        `${API_BASE_URL}/success/performance/list?completion_status=${status}&na_filter=${encodeURIComponent(naParam)}`,
-        { headers: getAuthHeaders() }
-      )
-      if (res.ok) {
-        const data = (await res.json()) as {
-          items?: POCItem[]
-          marked_na_supported?: boolean
-        }
-        if (data.marked_na_supported === true) {
-          setMarkedNaSupported(true)
-        } else if (data.marked_na_supported === false) {
-          setMarkedNaSupported(false)
-        }
-        setItems(data.items || [])
-      } else if (res.status === 503) {
-        const err = await res.json().catch(() => ({}))
-        setSetupError(err?.detail || 'Database tables not set up.')
-        setItems([])
-      } else if (res.status === 401) {
-        setSetupError('Please log in again to load the list.')
-        setItems([])
-      } else {
-        const err = await res.json().catch(() => ({}))
-        setSetupError(err?.detail || 'Failed to load list.')
-        setItems([])
+      const data = await dashboardApi.getSuccessPerformanceList(status, {
+        naFilter: naParam,
+        skipCache: options?.skipCache,
+      })
+      if (data.marked_na_supported === true) {
+        setMarkedNaSupported(true)
+      } else if (data.marked_na_supported === false) {
+        setMarkedNaSupported(false)
       }
+      setItems((data.items || []) as POCItem[])
     } catch (e) {
       setItems([])
-      if ((e as Error)?.name === 'AbortError') {
-        setSetupError('Request timed out. Check backend and Supabase.')
+      const ax = e as { response?: { status?: number; data?: { detail?: string } } }
+      if (ax.response?.status === 503) {
+        setSetupError(ax.response?.data?.detail || 'Database tables not set up.')
+      } else if (ax.response?.status === 401) {
+        setSetupError('Please log in again to load the list.')
       } else {
-        setSetupError('Failed to load. Run database/SUCCESS_PERFORMANCE_MONITORING.sql in Supabase.')
+        setSetupError(ax.response?.data?.detail || 'Failed to load. Run database/SUCCESS_PERFORMANCE_MONITORING.sql in Supabase.')
       }
     } finally {
       setLoading(false)
@@ -416,7 +399,8 @@ export const PerformanceMonitoringPage = () => {
         message.success(`POC created: ${data.reference_no}`)
         form.resetFields()
         setFormModalOpen(false)
-        loadItems()
+        invalidateAfterPerformanceNaChange()
+        loadItems(undefined, { skipCache: true })
       } else {
         message.error(data?.detail || 'Failed to create POC')
       }
@@ -458,7 +442,8 @@ export const PerformanceMonitoringPage = () => {
         if (data.features_locked != null) setFeaturesLocked(data.features_locked)
         message.success('Training saved.')
         setTrainingModalOpen(false)
-        loadItems()
+        invalidateAfterPerformanceNaChange()
+        loadItems(undefined, { skipCache: true })
       } else {
         message.error((data as { detail?: string })?.detail || 'Failed to save training')
       }
@@ -500,7 +485,8 @@ export const PerformanceMonitoringPage = () => {
           const j = await r.json()
           setFollowupData({ features: j.features || [], total_percentage: j.total_percentage })
         }
-        loadItems()
+        invalidateAfterPerformanceNaChange()
+        loadItems(undefined, { skipCache: true })
       } else {
         message.error(data?.detail || 'Failed to save followup')
       }
@@ -560,9 +546,9 @@ export const PerformanceMonitoringPage = () => {
         invalidateAfterPerformanceNaChange()
         if (!marked) {
           setFilterNa('exclude_na')
-          await loadItems('exclude_na')
+          await loadItems('exclude_na', { skipCache: true })
         } else {
-          await loadItems()
+          await loadItems(undefined, { skipCache: true })
         }
         await loadNaCompanyIds()
       } else {
@@ -599,7 +585,7 @@ export const PerformanceMonitoringPage = () => {
         setDetailModalOpen(false)
         setFilterNa('exclude_na')
         await loadNaCompanyIds()
-        await loadItems('exclude_na')
+        await loadItems('exclude_na', { skipCache: true })
       } else {
         message.error(data?.detail || 'Failed to restore company')
       }
@@ -613,19 +599,15 @@ export const PerformanceMonitoringPage = () => {
   const openViewDetails = async (record: POCItem) => {
     setSelectedItem(record)
     setDetailModalOpen(true)
-    setDetailsData(null)
-    setDetailsLoading(true)
+    const cacheKey = `success:performance-details:${record.id}`
+    const cached = sessionApiCacheGet<Record<string, unknown>>(cacheKey)
+    setDetailsData(cached ?? null)
+    setDetailsLoading(!cached)
     try {
-      const res = await fetchWithTimeout(
-        `${API_BASE_URL}/success/performance/details?ticket_id=${record.id}`,
-        { headers: getAuthHeaders() }
-      )
-      if (res.ok) {
-        const data = await res.json()
-        setDetailsData(data)
-      }
+      const data = await dashboardApi.getSuccessPerformanceDetails(record.id)
+      setDetailsData(data)
     } catch {
-      message.error('Failed to load details')
+      if (!cached) message.error('Failed to load details')
     } finally {
       setDetailsLoading(false)
     }
@@ -689,28 +671,68 @@ export const PerformanceMonitoringPage = () => {
     return null
   }
 
+  const renderRowActions = (record: POCItem) => {
+    const isActiveRow = filterNa !== 'only_na' && !record.marked_na && !record.company_excluded_by_na
+    return (
+      <Space size={[4, 4]} wrap align="center" onClick={(e) => e.stopPropagation()}>
+        {isActiveRow && (
+          <>
+            <Button
+              size="small"
+              icon={<FormOutlined />}
+              onClick={() => void openTrainingModal(record)}
+            >
+              {record.has_training ? 'Edit Training' : 'Training'}
+            </Button>
+            {(record.feature_count ?? 0) > 0 && (
+              <Button size="small" onClick={() => void openFollowupModal(record)}>
+                Followup
+              </Button>
+            )}
+          </>
+        )}
+        {renderActionNaControls(record)}
+      </Space>
+    )
+  }
+
   const tableColumns = [
-    { title: 'Reference Number', dataIndex: 'reference_no', key: 'reference_no', width: 120 },
+    { title: 'Reference Number', dataIndex: 'reference_no', key: 'reference_no', width: 108, ellipsis: true },
     {
       title: 'Company Name',
       dataIndex: 'company_name',
       key: 'company_name',
-      width: 160,
+      width: 168,
+      ellipsis: true,
     },
-    { title: 'Response', dataIndex: 'response', key: 'response', ellipsis: true, render: (v: string) => (v ? String(v).slice(0, 40) + (String(v).length > 40 ? '...' : '') : '-') },
-    { title: 'Contact', dataIndex: 'contact', key: 'contact', width: 120 },
+    {
+      title: 'Response',
+      dataIndex: 'response',
+      key: 'response',
+      width: 132,
+      ellipsis: true,
+      render: (v: string) => (v ? String(v).slice(0, 36) + (String(v).length > 36 ? '…' : '') : '-'),
+    },
+    {
+      title: 'Contact',
+      dataIndex: 'contact',
+      key: 'contact',
+      width: 108,
+      ellipsis: true,
+      render: (v: string) => v || '-',
+    },
     {
       title: 'Total Completion %',
       dataIndex: 'total_percentage',
       key: 'total_percentage',
-      width: 120,
+      width: 108,
       render: (v: number | null | undefined) => (v != null ? `${Number(v)}%` : '-'),
     },
     {
       title: 'Current Stage',
       dataIndex: 'current_stage',
       key: 'current_stage',
-      width: 220,
+      ellipsis: true,
       render: (v: string) => {
         const text = (v || '').trim() || '-'
         const words = text.split(/\s+/).filter(Boolean)
@@ -734,6 +756,13 @@ export const PerformanceMonitoringPage = () => {
           </Popover>
         )
       },
+    },
+    {
+      title: 'Action',
+      key: 'action',
+      width: 220,
+      fixed: 'right' as const,
+      render: (_: unknown, record: POCItem) => renderRowActions(record),
     },
   ]
 
@@ -819,14 +848,18 @@ export const PerformanceMonitoringPage = () => {
           />
         </div>
         <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12, fontSize: 12 }}>
-          Click a ticket row → <strong>NA</strong> appears to the right of <strong>Training</strong>. <strong>Active</strong> / <strong>NA</strong> filter above; Restore moves ticket back to Active.
+          Use <strong>Action</strong> for Training, Followup, and NA. Click a row elsewhere for full details.{' '}
+          <strong>Active</strong> / <strong>NA</strong> filter above; Restore moves a company back to Active.
         </Typography.Text>
         <div ref={tableContainerRef}>
-          <TableWithSkeletonLoading loading={loading} columns={8} rows={12}>
+          <TableWithSkeletonLoading loading={loading} columns={7} rows={12}>
             <Table
+              className="performance-monitoring-table"
               dataSource={visibleDisplayItems}
               rowKey="id"
               loading={false}
+              tableLayout="fixed"
+              scroll={{ x: 980 }}
               onRow={(record) => ({
                 onClick: () => openViewDetails(record),
                 style: { cursor: 'pointer' },

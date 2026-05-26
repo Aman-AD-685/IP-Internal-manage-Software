@@ -2,7 +2,9 @@ import { useState, useEffect, useMemo } from 'react'
 import { Card, Typography, Select, Table, message, Modal, Alert, Descriptions } from 'antd'
 import { LineChartOutlined } from '@ant-design/icons'
 import { API_BASE_URL } from '../../api/axios'
+import { dashboardApi } from '../../api/dashboard'
 import { storage } from '../../utils/storage'
+import { sessionApiCacheGet } from '../../utils/sessionApiCache'
 import { sortPerformanceRefOptions } from '../../utils/performanceRefs'
 import { PerformanceTablePaginationBar } from '../../components/success/PerformanceTablePaginationBar'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
@@ -76,28 +78,26 @@ export const CompPerformPage = () => {
     Authorization: `Bearer ${storage.getToken() ?? ''}`,
   })
 
-  const loadItems = async () => {
-    setLoading(true)
+  const loadItems = async (options?: { skipCache?: boolean }) => {
     setSetupError(null)
+    const cacheKey = 'dashboard:success-performance-list:completed:exclude_na'
+    const cached = !options?.skipCache
+      ? sessionApiCacheGet<{ items?: POCItem[] }>(cacheKey)
+      : null
+    if (cached?.items?.length) {
+      setItems(cached.items as POCItem[])
+      setLoading(false)
+    } else {
+      setLoading(true)
+    }
     try {
-      const res = await fetchWithTimeout(
-        `${API_BASE_URL}/success/performance/list?completion_status=completed`,
-        { headers: getAuthHeaders() }
-      )
-      if (res.ok) {
-        const data = await res.json()
-        setItems(data.items || [])
-      } else if (res.status === 503) {
-        const err = await res.json().catch(() => ({}))
-        setSetupError(err?.detail || 'Database tables not set up.')
-        setItems([])
-      } else {
-        setItems([])
-      }
+      const data = await dashboardApi.getSuccessPerformanceList('completed', options)
+      setItems((data.items || []) as POCItem[])
     } catch (e) {
       setItems([])
-      if ((e as Error)?.name === 'AbortError') {
-        setSetupError('Request timed out. Check backend and Supabase.')
+      const ax = e as { response?: { status?: number; data?: { detail?: string } } }
+      if (ax.response?.status === 503) {
+        setSetupError(ax.response?.data?.detail || 'Database tables not set up.')
       } else {
         setSetupError('Failed to load. Run database/SUCCESS_PERFORMANCE_MONITORING.sql in Supabase.')
       }
@@ -109,19 +109,15 @@ export const CompPerformPage = () => {
   const openViewDetails = async (record: POCItem) => {
     setSelectedItem(record)
     setDetailModalOpen(true)
-    setDetailsData(null)
-    setDetailsLoading(true)
+    const cacheKey = `success:performance-details:${record.id}`
+    const cached = sessionApiCacheGet<TicketDetails>(cacheKey)
+    setDetailsData(cached ?? null)
+    setDetailsLoading(!cached)
     try {
-      const res = await fetchWithTimeout(
-        `${API_BASE_URL}/success/performance/details?ticket_id=${record.id}`,
-        { headers: getAuthHeaders() }
-      )
-      if (res.ok) {
-        const data = await res.json()
-        setDetailsData(data)
-      }
+      const data = (await dashboardApi.getSuccessPerformanceDetails(record.id)) as TicketDetails
+      setDetailsData(data)
     } catch {
-      message.error('Failed to load details')
+      if (!cached) message.error('Failed to load details')
     } finally {
       setDetailsLoading(false)
     }

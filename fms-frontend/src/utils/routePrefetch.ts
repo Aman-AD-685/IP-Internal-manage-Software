@@ -213,6 +213,8 @@ export function prefetchRouteData(routeKey: string): void {
     fire(`prefetch:${path}`, async () => {
       await Promise.all([
         dashboardApi.getSuccessKpiTillDate(),
+        dashboardApi.getSuccessPerformanceNaCompanyIds(),
+        dashboardApi.getSuccessPerformanceFeatures(),
         dashboardApi.getSuccessPerformanceList('in_progress'),
         dashboardApi.getSuccessPerformanceList('completed'),
       ])
@@ -237,6 +239,7 @@ function runImmediateWarmup(routeKeys: string[]) {
   const priority = [
     ROUTES.DASHBOARD,
     ROUTES.SUPPORT_DASHBOARD,
+    ROUTES.SUCCESS_PERFORMANCE,
     ROUTES.TICKETS,
     ROUTES.STAGING,
     ROUTES.CLIENT_PAYMENT,
