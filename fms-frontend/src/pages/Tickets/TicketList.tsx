@@ -78,9 +78,12 @@ function getRegisterStatusLabel(ticket: Ticket): 'Completed' | 'Rejected' | 'Oth
     const f = getFeatureCurrentStage(ticket).stageLabel.toLowerCase()
     return f.includes('completed') ? 'Completed' : 'Other'
   }
+  const s4 = String((ticket as { status_4?: string }).status_4 || '').toLowerCase()
+  if (s4 === 'completed' || s4 === 'complete') return 'Completed'
   const s = String(getChoresBugsCurrentStage(ticket).status || '').toLowerCase()
-  if (s === 'completed') return 'Completed'
+  if (s === 'completed' || s === 'complete') return 'Completed'
   if (s === 'rejected') return 'Rejected'
+  if ((ticket.type === 'chore' || ticket.type === 'bug') && ticket.quality_solution) return 'Completed'
   return 'Other'
 }
 
@@ -369,6 +372,9 @@ export const TicketList = () => {
       ...(sectionFromUrl === 'completed-feature' && { section: 'completed-feature' }),
       ...(sectionFromUrl === 'solutions' && { section: 'solutions' }),
       ...(isRegisterSection && registerTypeFilters.length > 0 && { types_in: registerTypeFilters.join(',') }),
+      ...(isRegisterSection &&
+        registerStatusFilter &&
+        registerStatusFilter !== 'all' && { register_status_filter: registerStatusFilter }),
       ...(isApprovalSection && { section: 'approval-status', approval_filter: approvalFilter }),
       ...(filters.company_ids?.length ? { company_ids: filters.company_ids } : {}),
       ...(filters.priority && { priority: filters.priority }),
@@ -462,19 +468,22 @@ export const TicketList = () => {
     listExhaustedRef.current = false
     serverListPageRef.current = 0
 
-    const listParams = getTicketsListParams(1, TICKETS_CHUNK)
+    const initialPageSize = isRegisterSection ? 100 : TICKETS_CHUNK
+    const listParams = getTicketsListParams(1, initialPageSize)
     const listKey = ticketsListLogicalKey(listParams as object)
-    const cached = sessionApiCacheGet<ApiResponse<PaginatedResponse<Ticket>>>(listKey)
+    const cached = isRegisterSection
+      ? null
+      : sessionApiCacheGet<ApiResponse<PaginatedResponse<Ticket>>>(listKey)
     const cachedPayload = cached
     if (cachedPayload) {
-      const { rows, total: apiTotal } = unwrapTicketListPayload(cachedPayload, TICKETS_CHUNK)
+      const { rows, total: apiTotal } = unwrapTicketListPayload(cachedPayload, initialPageSize)
       let list = rows
       if (isChoresBugs) list = keepOnlyChoresAndBugs(list)
       setTickets(list)
       setTotal(apiTotal)
       serverListPageRef.current = 1
       listExhaustedRef.current =
-        (apiTotal > 0 && list.length >= apiTotal) || list.length < TICKETS_CHUNK
+        (apiTotal > 0 && list.length >= apiTotal) || list.length < initialPageSize
       setLoading(false)
     } else {
       setLoading(true)
@@ -482,9 +491,11 @@ export const TicketList = () => {
     }
 
     try {
-      const response = await ticketsApi.list(getTicketsListParams(1, TICKETS_CHUNK))
+      const response = await ticketsApi.list(
+        getTicketsListParams(1, initialPageSize, { skipCache: isRegisterSection }),
+      )
       if (gen !== listFetchGeneration.current) return
-      const { rows, total: apiTotal } = unwrapTicketListPayload(response, TICKETS_CHUNK)
+      const { rows, total: apiTotal } = unwrapTicketListPayload(response, initialPageSize)
       let list = rows
       if (isChoresBugs) {
         list = keepOnlyChoresAndBugs(list)
@@ -493,7 +504,7 @@ export const TicketList = () => {
       setTotal(apiTotal)
       serverListPageRef.current = 1
       listExhaustedRef.current =
-        (apiTotal > 0 && list.length >= apiTotal) || list.length < TICKETS_CHUNK
+        (apiTotal > 0 && list.length >= apiTotal) || list.length < initialPageSize
     } catch (error: unknown) {
       console.error('Failed to fetch tickets:', error)
       if (gen !== listFetchGeneration.current) return
@@ -504,16 +515,18 @@ export const TicketList = () => {
         await new Promise((r) => setTimeout(r, wait * 1000))
         if (gen !== listFetchGeneration.current) return
         try {
-          const retryRes = await ticketsApi.list(getTicketsListParams(1, TICKETS_CHUNK, { skipCache: true }))
+          const retryRes = await ticketsApi.list(
+            getTicketsListParams(1, initialPageSize, { skipCache: true }),
+          )
           if (gen !== listFetchGeneration.current) return
-          const { rows, total: apiTotal } = unwrapTicketListPayload(retryRes, TICKETS_CHUNK)
+          const { rows, total: apiTotal } = unwrapTicketListPayload(retryRes, initialPageSize)
           let list = rows
           if (isChoresBugs) list = keepOnlyChoresAndBugs(list)
           setTickets(list)
           setTotal(apiTotal)
           serverListPageRef.current = 1
           listExhaustedRef.current =
-            (apiTotal > 0 && list.length >= apiTotal) || list.length < TICKETS_CHUNK
+            (apiTotal > 0 && list.length >= apiTotal) || list.length < initialPageSize
           return
         } catch {
           /* fall through to error below */
@@ -528,7 +541,7 @@ export const TicketList = () => {
     } finally {
       if (gen === listFetchGeneration.current) setLoading(false)
     }
-  }, [getTicketsListParams, isChoresBugs])
+  }, [getTicketsListParams, isChoresBugs, isRegisterSection])
 
   const fetchTicketsAppend = useCallback(async () => {
     const gen = listFetchGeneration.current
@@ -540,9 +553,12 @@ export const TicketList = () => {
     setLoadingMore(true)
     try {
       const nextPage = serverListPageRef.current + 1
-      const response = await ticketsApi.list(getTicketsListParams(nextPage, TICKETS_CHUNK, { skipCache: true }))
+      const pageSize = isRegisterSection ? 100 : TICKETS_CHUNK
+      const response = await ticketsApi.list(
+        getTicketsListParams(nextPage, pageSize, { skipCache: isRegisterSection || true }),
+      )
       if (gen !== listFetchGeneration.current) return
-      const { rows, total: apiTotal } = unwrapTicketListPayload(response, TICKETS_CHUNK)
+      const { rows, total: apiTotal } = unwrapTicketListPayload(response, pageSize)
       let newRows = rows
       if (isChoresBugs) {
         newRows = keepOnlyChoresAndBugs(newRows)
@@ -558,7 +574,7 @@ export const TicketList = () => {
         const merged = [...prev, ...newRows]
         if (typeof apiTotal === 'number' && merged.length >= apiTotal) {
           listExhaustedRef.current = true
-        } else if (newRows.length < TICKETS_CHUNK) {
+        } else if (newRows.length < pageSize) {
           listExhaustedRef.current = true
         }
         return merged
@@ -570,7 +586,7 @@ export const TicketList = () => {
       loadingMoreRef.current = false
       setLoadingMore(false)
     }
-  }, [getTicketsListParams, isChoresBugs])
+  }, [getTicketsListParams, isChoresBugs, isRegisterSection])
 
   const allTicketsForStageFilterRef = useRef<Ticket[]>([])
   useEffect(() => {
@@ -714,6 +730,7 @@ export const TicketList = () => {
     status2Filter,
     typeOfRequestFilter,
     registerTypeFilters,
+    registerStatusFilter,
     showStageFilter,
     showStageFilterForFeature,
     location.pathname,
@@ -786,13 +803,9 @@ export const TicketList = () => {
         ? tickets.filter((t) => getFeatureCurrentStage(t).stageLabel === stageFilter)
         : tickets
   const baseList = isRegisterSection
-    ? baseListUnfiltered.filter((t) => {
-        const kindOk = registerTypeFilters.length === 0 || registerTypeFilters.includes(String(t.type || ''))
-        if (!kindOk) return false
-        if (registerStatusFilter === 'all') return true
-        const s = getRegisterStatusLabel(t)
-        return registerStatusFilter === 'completed' ? s === 'Completed' : s === 'Rejected'
-      })
+    ? baseListUnfiltered.filter((t) =>
+        registerTypeFilters.length === 0 || registerTypeFilters.includes(String(t.type || '')),
+      )
     : baseListUnfiltered
 
   /** Chores & Bugs + Feature: highest reference_no first (CH-0471 … CH-0456), then created_at. */
