@@ -3,6 +3,7 @@ import type { SuccessKpiResponse } from './dashboardKpi'
 import {
   API_CACHE_TTL_MS,
   sessionApiCacheGet,
+  sessionApiCacheRemove,
   sessionApiCacheSet,
   invalidateAfterDashboardPaymentSubmit,
 } from '../utils/sessionApiCache'
@@ -67,10 +68,12 @@ export interface Stage2RemarkNotificationItem {
   remark_text: string
   added_at: string
   added_by_name: string
+  seen?: boolean
 }
 
 export interface Stage2RemarkNotificationResponse {
   count: number
+  unread_count?: number
   items: Stage2RemarkNotificationItem[]
   expires_hours: number
 }
@@ -142,18 +145,38 @@ export const dashboardApi = {
   },
   getActivityCount: async (): Promise<number> => {
     const data = await dashboardApi.getStage2RemarkNotifications()
-    return data.count
+    return data.unread_count ?? data.count
   },
 
-  getStage2RemarkNotifications: async (): Promise<Stage2RemarkNotificationResponse> => {
+  getStage2RemarkNotifications: async (options?: {
+    skipCache?: boolean
+  }): Promise<Stage2RemarkNotificationResponse> => {
     const key = 'dashboard:stage2-remark-notifications'
-    const cached = sessionApiCacheGet<Stage2RemarkNotificationResponse>(key)
-    if (cached) return cached
+    if (!options?.skipCache) {
+      const cached = sessionApiCacheGet<Stage2RemarkNotificationResponse>(key)
+      if (cached) return cached
+    }
     const r = await apiClient.get<Stage2RemarkNotificationResponse>('/activity/stage2-remark-notifications')
-    const data = r.data ?? { count: 0, items: [], expires_hours: 24 }
-    sessionApiCacheSet(key, data, API_CACHE_TTL_MS.stage2RemarkNotifications)
-    sessionApiCacheSet('dashboard:activity-count', data.count, API_CACHE_TTL_MS.stage2RemarkNotifications)
-    return data
+    const data = r.data ?? { count: 0, unread_count: 0, items: [], expires_hours: 24 }
+    const unread = data.unread_count ?? data.count
+    const normalized = { ...data, count: unread, unread_count: unread }
+    sessionApiCacheSet(key, normalized, API_CACHE_TTL_MS.stage2RemarkNotifications)
+    sessionApiCacheSet('dashboard:activity-count', unread, API_CACHE_TTL_MS.stage2RemarkNotifications)
+    return normalized
+  },
+
+  markStage2RemarkNotificationsSeen: async (remarkIds?: string[]) => {
+    const r = await apiClient.post<{
+      success: boolean
+      marked: number
+      unread_count: number
+      count: number
+    }>('/activity/stage2-remark-notifications/mark-seen', {
+      remark_ids: remarkIds ?? [],
+    })
+    sessionApiCacheRemove('dashboard:stage2-remark-notifications')
+    sessionApiCacheRemove('dashboard:activity-count')
+    return r.data
   },
   getPaymentActions: async (): Promise<{
     items: Array<{
