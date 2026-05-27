@@ -28,6 +28,7 @@ import {
   getChoresBugsCurrentStage,
   getFeatureCurrentStage,
   getTicketTimeDelayDisplay,
+  sortTicketsByCreatedDescThenReference,
   sortTicketsByReferenceDesc,
   TICKET_EXPORT_COLUMNS,
   buildTicketExportRow,
@@ -280,7 +281,8 @@ export const TicketList = () => {
         next.type = ''
         next.types_in = 'chore,bug'
         next.status = '' // Chores & Bugs uses status_2_filter (Pending/Completed/Staging/Hold), not old status
-        next.sort_by = 'reference_no'
+        // created_at: mixed CH-* / BU-* refs; reference_no sort pushes all bugs off page 1
+        next.sort_by = 'created_at'
         next.sort_order = 'desc'
         next.date_from = urlDateFrom || ''
         next.date_to = urlDateTo || ''
@@ -468,10 +470,11 @@ export const TicketList = () => {
     listExhaustedRef.current = false
     serverListPageRef.current = 0
 
-    const initialPageSize = isRegisterSection ? 100 : TICKETS_CHUNK
+    const initialPageSize = isRegisterSection ? 100 : isChoresBugsSection ? 50 : TICKETS_CHUNK
     const listParams = getTicketsListParams(1, initialPageSize)
     const listKey = ticketsListLogicalKey(listParams as object)
-    const cached = isRegisterSection
+    const skipListCache = isRegisterSection || isChoresBugsSection
+    const cached = skipListCache
       ? null
       : sessionApiCacheGet<ApiResponse<PaginatedResponse<Ticket>>>(listKey)
     const cachedPayload = cached
@@ -492,7 +495,7 @@ export const TicketList = () => {
 
     try {
       const response = await ticketsApi.list(
-        getTicketsListParams(1, initialPageSize, { skipCache: isRegisterSection }),
+        getTicketsListParams(1, initialPageSize, { skipCache: skipListCache }),
       )
       if (gen !== listFetchGeneration.current) return
       const { rows, total: apiTotal } = unwrapTicketListPayload(response, initialPageSize)
@@ -541,7 +544,7 @@ export const TicketList = () => {
     } finally {
       if (gen === listFetchGeneration.current) setLoading(false)
     }
-  }, [getTicketsListParams, isChoresBugs, isRegisterSection])
+  }, [getTicketsListParams, isChoresBugs, isRegisterSection, isChoresBugsSection])
 
   const fetchTicketsAppend = useCallback(async () => {
     const gen = listFetchGeneration.current
@@ -553,9 +556,9 @@ export const TicketList = () => {
     setLoadingMore(true)
     try {
       const nextPage = serverListPageRef.current + 1
-      const pageSize = isRegisterSection ? 100 : TICKETS_CHUNK
+      const pageSize = isRegisterSection ? 100 : isChoresBugsSection ? 50 : TICKETS_CHUNK
       const response = await ticketsApi.list(
-        getTicketsListParams(nextPage, pageSize, { skipCache: isRegisterSection || true }),
+        getTicketsListParams(nextPage, pageSize, { skipCache: true }),
       )
       if (gen !== listFetchGeneration.current) return
       const { rows, total: apiTotal } = unwrapTicketListPayload(response, pageSize)
@@ -586,7 +589,7 @@ export const TicketList = () => {
       loadingMoreRef.current = false
       setLoadingMore(false)
     }
-  }, [getTicketsListParams, isChoresBugs, isRegisterSection])
+  }, [getTicketsListParams, isChoresBugs, isRegisterSection, isChoresBugsSection])
 
   const allTicketsForStageFilterRef = useRef<Ticket[]>([])
   useEffect(() => {
@@ -772,6 +775,7 @@ export const TicketList = () => {
   refetchListRef.current = refetchList
   useEffect(() => {
     const onTicketCreated = () => {
+      sessionApiCacheClearLogicalPrefix('tickets:list:')
       void refetchListRef.current()
     }
     window.addEventListener('support-ticket-created', onTicketCreated)
@@ -808,13 +812,16 @@ export const TicketList = () => {
       )
     : baseListUnfiltered
 
-  /** Chores & Bugs + Feature: highest reference_no first (CH-0471 … CH-0456), then created_at. */
+  /** Chores & Bugs: mixed types by created_at so bugs (BU-*) are not buried below all CH-* rows. */
   const ticketsForDisplay = useMemo(() => {
+    if (isChoresBugsSection && !typeOfRequestFilter) {
+      return sortTicketsByCreatedDescThenReference(baseList)
+    }
     if (isChoresBugsSection || typeFromUrl === 'feature' || sectionFromUrl === 'completed-feature') {
       return sortTicketsByReferenceDesc(baseList)
     }
     return baseList
-  }, [baseList, isChoresBugsSection, typeFromUrl, sectionFromUrl])
+  }, [baseList, isChoresBugsSection, typeOfRequestFilter, typeFromUrl, sectionFromUrl])
 
   const getStageForExport = isChoresBugs
     ? (t: Record<string, unknown>) => getChoresBugsCurrentStage(t as Parameters<typeof getChoresBugsCurrentStage>[0])

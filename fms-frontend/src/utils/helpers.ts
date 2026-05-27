@@ -41,6 +41,18 @@ export function sortTicketsByReferenceDesc<T extends { reference_no?: string | n
   })
 }
 
+/** Chores & Bugs combined list: newest first so CH-* and BU-* both appear (reference-only sort hides bugs). */
+export function sortTicketsByCreatedDescThenReference<
+  T extends { reference_no?: string | null; created_at?: string | null },
+>(list: T[]): T[] {
+  return [...list].sort((a, b) => {
+    const tA = a.created_at ? new Date(a.created_at).getTime() : 0
+    const tB = b.created_at ? new Date(b.created_at).getTime() : 0
+    if (tB !== tA) return tB - tA
+    return compareTicketReferenceDesc(a.reference_no, b.reference_no)
+  })
+}
+
 export const formatDate = (date: string | Date | null | undefined): string => {
   if (date == null) return '—'
   if (typeof date === 'string' && date.trim() === '') return '—'
