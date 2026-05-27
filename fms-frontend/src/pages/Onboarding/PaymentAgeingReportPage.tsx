@@ -75,6 +75,12 @@ type ReportPayload = {
 const fmt = (n: number) => n.toLocaleString('en-IN')
 const fmtPct = (n: number) => (Number.isFinite(n) ? n.toFixed(2) : '0.00')
 
+/** Blank cells stay empty in the grid (no em-dash placeholder). */
+function formatDaysCell(v: number | null | undefined): string {
+  if (v === null || v === undefined) return ''
+  return String(v)
+}
+
 function buildFilters(values: (string | number | null | undefined)[]) {
   const uniq = [...new Set(values.map((v) => (v === null || v === undefined ? '' : String(v))).filter(Boolean))]
   uniq.sort()
@@ -126,7 +132,7 @@ export function PaymentAgeingReportPage() {
     if (!data?.quarter_labels?.length) {
       return [
         { title: 'Company Name', dataIndex: 'company_name', key: 'company_name', width: 240 },
-        { title: 'Loadingâ€¦', key: 'loading', render: () => 'â€”' },
+        { title: 'Loading...', key: 'loading', render: () => '' },
       ]
     }
 
@@ -168,11 +174,9 @@ export function PaymentAgeingReportPage() {
         key: `q${idx}`,
         width: 96,
         align: 'center',
-        render: (_: unknown, record: AgeingRow) =>
-          record.quarter_days[idx] == null ? 'â€”' : String(record.quarter_days[idx]),
-        filters: buildFilters((data?.rows || []).map((r) => (r.quarter_days[idx] == null ? 'â€”' : String(r.quarter_days[idx])))),
-        onFilter: (value, record) =>
-          (record.quarter_days[idx] == null ? 'â€”' : String(record.quarter_days[idx])) === value,
+        render: (_: unknown, record: AgeingRow) => formatDaysCell(record.quarter_days[idx]),
+        filters: buildFilters((data?.rows || []).map((r) => formatDaysCell(r.quarter_days[idx]))),
+        onFilter: (value, record) => formatDaysCell(record.quarter_days[idx]) === value,
       })
     })
 
@@ -182,9 +186,9 @@ export function PaymentAgeingReportPage() {
       key: 'median_value',
       width: 40,
       align: 'center',
-      render: (v: number | null | undefined) => (v === null || v === undefined ? 'â€”' : String(v)),
-      filters: buildFilters((data?.rows || []).map((r) => (r.median_value == null ? 'â€”' : String(r.median_value)))),
-      onFilter: (value, record) => (record.median_value == null ? 'â€”' : String(record.median_value)) === value,
+      render: (v: number | null | undefined) => formatDaysCell(v),
+      filters: buildFilters((data?.rows || []).map((r) => formatDaysCell(r.median_value))),
+      onFilter: (value, record) => formatDaysCell(record.median_value) === value,
     })
 
     return base
