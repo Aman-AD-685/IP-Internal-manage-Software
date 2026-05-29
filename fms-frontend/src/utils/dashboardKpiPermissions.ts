@@ -8,6 +8,7 @@ export const DASHBOARD_KPI_PERSON_SECTION_KEY: Record<DashboardKpiPerson, string
   Akash: 'dashboard_kpi_person_akash',
   Adrija: 'dashboard_kpi_person_adrija',
   Soumya: 'dashboard_kpi_person_soumya',
+  Souvik: 'dashboard_kpi_person_souvik',
 }
 
 const KPI_PERSON_KEY_PREFIX = 'dashboard_kpi_person_'
@@ -31,6 +32,9 @@ export function canViewDashboardKpiSubsection(
   sectionPermissions?: SectionPermission[],
 ): boolean {
   if (!canViewSection('dashboard_kpi', userRole, sectionPermissions)) return false
+  // Elevated roles always see every KPI person dashboard (incl. newly added ones),
+  // so a brand-new dashboard needs no per-person grant or re-login.
+  if (userRole === 'master_admin' || userRole === 'admin') return true
   if (!hasExplicitKpiPersonGrants(sectionPermissions)) return true
   return canViewSection(subsectionKey, userRole, sectionPermissions)
 }

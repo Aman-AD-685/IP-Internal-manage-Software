@@ -1,5 +1,10 @@
 import { apiClient } from './axios'
-import { API_CACHE_TTL_MS, sessionApiCacheGet, sessionApiCacheSet } from '../utils/sessionApiCache'
+import {
+  API_CACHE_TTL_MS,
+  sessionApiCacheGet,
+  sessionApiCacheRemove,
+  sessionApiCacheSet,
+} from '../utils/sessionApiCache'
 
 export function dashboardKpiCacheKey(filters: { name: string; month: string; year: string; week: string }) {
   return `dashboardKpi:${filters.name}:${filters.year}:${filters.month}:${filters.week}`
@@ -36,10 +41,14 @@ export function prefetchDashboardKpiPerson(
       .catch(() => {})
     return
   }
+  if (name === 'Souvik') {
+    void dashboardKpiApi.getSouvikKpi().catch(() => {})
+    // Souvik also shows the standard Checklist/Delegation + percentages.
+  }
   void dashboardKpiApi.getData({ name, ...filters }).catch(() => {})
 }
 
-export const DASHBOARD_KPI_NAMES = ['Shreyasi', 'Rimpa', 'Akash', 'Adrija', 'Soumya'] as const
+export const DASHBOARD_KPI_NAMES = ['Shreyasi', 'Rimpa', 'Akash', 'Adrija', 'Soumya', 'Souvik'] as const
 export type DashboardKpiPerson = (typeof DASHBOARD_KPI_NAMES)[number]
 
 export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const
@@ -456,6 +465,82 @@ export interface SoumyaDashboardResponse {
   }
 }
 
+export interface SouvikKpiRow {
+  key: string
+  label: string
+  formula: string
+  weight_percent: number
+  /** 6 weekday slots Mon–Sat; null = blank cell. */
+  daily: Array<number | null>
+  weekly_score: number
+}
+
+export interface SouvikKpiArea {
+  key: string
+  title: string
+  weight_percent: number
+  kpis: SouvikKpiRow[]
+  day_subtotals: number[]
+  weekly_subtotal: number
+}
+
+export interface SouvikKpiWeekResponse {
+  success: boolean
+  week_start: string
+  week_end: string
+  week_label: string
+  day_names: string[]
+  day_dates: string[]
+  areas: SouvikKpiArea[]
+  composite_score: number
+  grade: string
+  status: 'green' | 'amber' | 'red'
+  area_scores: Record<string, number>
+  can_edit: boolean
+}
+
+export interface SouvikWeeklyLogRow {
+  week_from: string
+  week_to: string
+  week_from_label: string
+  week_to_label: string
+  payment_score: number
+  accounts_score: number
+  ea_score: number
+  composite_score: number | null
+  grade: string
+  auto_comment: string
+  is_current_week: boolean
+  has_data: boolean
+}
+
+export interface SouvikWeeklyLogResponse {
+  success: boolean
+  first_monday: string
+  weeks: number
+  rows: SouvikWeeklyLogRow[]
+}
+
+export interface SouvikReferenceKpi {
+  key: string
+  label: string
+  formula: string
+  frequency: string
+  data_source: string
+  weight_percent: number
+}
+
+export interface SouvikReferenceResponse {
+  success: boolean
+  areas: Array<{
+    key: string
+    title: string
+    weight_percent: number
+    kpis: SouvikReferenceKpi[]
+  }>
+  scoring_guide: Array<{ range: string; label: string }>
+}
+
 /** Load team KPIs in small parallel batches to avoid saturating the API after login. */
 export async function fetchDashboardKpiBatch(
   names: readonly string[],
@@ -558,4 +643,46 @@ export const dashboardKpiApi = {
     apiClient
       .put<{ ok: boolean; saved: number }>('/dashboard/adrija-social-kpi-daily', { rows })
       .then((r) => r.data),
+
+  getSouvikKpi: (weekStart?: string) => {
+    const key = `dashboardKpi:souvik:week:${weekStart ?? 'current'}`
+    const cached = sessionApiCacheGet<SouvikKpiWeekResponse>(key)
+    if (cached) return Promise.resolve(cached)
+    return apiClient
+      .get<SouvikKpiWeekResponse>('/dashboard/souvik-kpi', {
+        params: weekStart ? { week_start: weekStart } : undefined,
+      })
+      .then((r) => {
+        sessionApiCacheSet(key, r.data, API_CACHE_TTL_MS.dashboardKpi)
+        return r.data
+      })
+  },
+
+  getSouvikWeeklyLog: (start?: string, weeks = 52) =>
+    apiClient
+      .get<SouvikWeeklyLogResponse>('/dashboard/souvik-kpi/weekly-log', {
+        params: { ...(start ? { start } : {}), weeks },
+      })
+      .then((r) => r.data),
+
+  getSouvikReference: () => {
+    const key = 'dashboardKpi:souvik:reference'
+    const cached = sessionApiCacheGet<SouvikReferenceResponse>(key)
+    if (cached) return Promise.resolve(cached)
+    return apiClient
+      .get<SouvikReferenceResponse>('/dashboard/souvik-kpi/reference')
+      .then((r) => {
+        sessionApiCacheSet(key, r.data, API_CACHE_TTL_MS.dashboardKpi)
+        return r.data
+      })
+  },
+
+  putSouvikDaily: (rows: Array<{ work_date: string; kpi_key: string; score: number | null }>) =>
+    apiClient
+      .put<{ ok: boolean; saved: number }>('/dashboard/souvik-kpi/daily', { rows })
+      .then((r) => r.data),
+
+  clearSouvikCache: (weekStart?: string) => {
+    sessionApiCacheRemove(`dashboardKpi:souvik:week:${weekStart ?? 'current'}`)
+  },
 }

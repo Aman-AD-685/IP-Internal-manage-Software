@@ -57,6 +57,7 @@ import { ROUTES } from '../../utils/constants'
 import { canViewDashboardKpiPerson } from '../../utils/dashboardKpiPermissions'
 import { ChartAreaSkeleton, DashboardBlockSkeleton, SkeletonOverlay } from '../../components/common/skeletons'
 import { SoumyaDashboardView } from './SoumyaDashboardView'
+import { SouvikDashboardView } from './SouvikDashboardView'
 import {
   getDefaultPreviousWeekFilter,
   getKpiCalendarWeekBounds,
@@ -95,6 +96,7 @@ const DASHBOARD_OPTIONS: { key: DashboardKpiPerson; label: string }[] = [
   { key: 'Akash', label: 'Akash Dashboard' },
   { key: 'Adrija', label: 'Adrija Dashboard' },
   { key: 'Soumya', label: 'Soumya Dashboard' },
+  { key: 'Souvik', label: 'Souvik Dashboard' },
 ]
 
 /** Success KPI (Performance Monitoring aggregates) — Rimpa only. */
@@ -251,6 +253,8 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
 
   const [adrijaPillarDetail, setAdrijaPillarDetail] = useState<'post' | 'reel' | 'linkedin' | null>(null)
   const [adrijaMonthlySummaryOpen, setAdrijaMonthlySummaryOpen] = useState(false)
+  /** Souvik EA KPI monthly % = average weekly composite (×10) for the selected month. */
+  const [souvikMonthlyPercent, setSouvikMonthlyPercent] = useState<number | null>(null)
 
   const [kpiDailyLogOpen, setKpiDailyLogOpen] = useState(false)
   const [kpiDailyLogMonth, setKpiDailyLogMonth] = useState<Dayjs | null>(null)
@@ -404,6 +408,46 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
       })
       .finally(() => setLoading(false))
   }, [selectedPerson, month, year, week])
+
+  useEffect(() => {
+    if (selectedPerson !== 'Souvik') {
+      setSouvikMonthlyPercent(null)
+      return
+    }
+    const monthIdx = MONTHS.findIndex((m) => m === month)
+    const yearNum = Number(year)
+    if (monthIdx < 0 || !Number.isFinite(yearNum)) return
+    const first = dayjs().year(yearNum).month(monthIdx).date(1)
+    const dow = first.day()
+    const startMonday = first.add(dow === 0 ? -6 : 1 - dow, 'day').format('YYYY-MM-DD')
+    let cancelled = false
+    void dashboardKpiApi
+      .getSouvikWeeklyLog(startMonday, 6)
+      .then((res) => {
+        if (cancelled) return
+        const composites = (res.rows ?? [])
+          .filter(
+            (r) =>
+              r.has_data &&
+              r.composite_score != null &&
+              dayjs(r.week_from).month() === monthIdx &&
+              dayjs(r.week_from).year() === yearNum,
+          )
+          .map((r) => r.composite_score as number)
+        if (composites.length === 0) {
+          setSouvikMonthlyPercent(0)
+          return
+        }
+        const avg = composites.reduce((a, b) => a + b, 0) / composites.length
+        setSouvikMonthlyPercent(Math.round(Math.min(100, Math.max(0, avg * 10))))
+      })
+      .catch(() => {
+        if (!cancelled) setSouvikMonthlyPercent(0)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedPerson, month, year])
 
   const openSupportFmsDetail = useCallback(
     async (pillar: SupportFmsDetailPillar, title: string) => {
@@ -867,6 +911,34 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                     </Space>
                   </Card>
                 </Col>
+                {selectedPerson === 'Souvik' && (
+                  <Col xs={24} sm={24} md={8}>
+                    <Card
+                      size="small"
+                      title="KPI (Monthly %)"
+                      className="kpi-summary-card kpi-summary-card--akash-overall"
+                      style={{ borderTop: '3px solid #7c3aed' }}
+                    >
+                      <Space direction="vertical" align="center">
+                        <Progress
+                          type="circle"
+                          percent={souvikMonthlyPercent ?? 0}
+                          size={80}
+                          strokeColor="#7c3aed"
+                        />
+                        <div
+                          className="kpi-performance-pill"
+                          style={getPerformanceLevel(souvikMonthlyPercent ?? 0)}
+                        >
+                          {getPerformanceLevel(souvikMonthlyPercent ?? 0).label} Performance
+                        </div>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          EA composite average for {month} {year}
+                        </Text>
+                      </Space>
+                    </Card>
+                  </Col>
+                )}
                 {selectedPerson === 'Adrija' && adrijaSocial != null && (
                   <Col xs={24} sm={24} md={8}>
                     <Card
@@ -1099,6 +1171,20 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                   ) : (
                     <Text type="secondary">No delegation tasks for this week. Try another week or month.</Text>
                   )}
+                </Card>
+              )}
+
+              {selectedPerson === 'Souvik' && (
+                <Card
+                  className="kpi-section-card"
+                  title={
+                    <Space>
+                      <PieChartOutlined />
+                      EA Performance KPI
+                    </Space>
+                  }
+                >
+                  <SouvikDashboardView />
                 </Card>
               )}
 

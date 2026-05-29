@@ -55,14 +55,22 @@ def has_explicit_kpi_person_grants(perms: list[dict]) -> bool:
 def can_view_dashboard_kpi_person(user_id: str, person_name: str) -> bool:
     """
     Mirrors fms-frontend/src/utils/dashboardKpiPermissions.ts.
-    Legacy: dashboard_kpi granted with no person rows → all person dashboards allowed.
+    - Elevated roles (admin / master_admin) always see every person dashboard.
+    - Legacy: dashboard_kpi granted with no person rows → all person dashboards allowed.
     """
+    from app.main import _get_role_from_profile
+
     perms = get_merged_section_permissions(user_id)
     if not can_view_section_from_list(perms, "dashboard_kpi"):
         return False
     person_key = PERSON_KEY_BY_DASHBOARD_NAME.get((person_name or "").strip())
     if not person_key:
         return False
+    try:
+        if _get_role_from_profile(user_id) in ("admin", "master_admin"):
+            return True
+    except Exception:
+        pass
     if not has_explicit_kpi_person_grants(perms):
         return True
     return can_view_section_from_list(perms, person_key)

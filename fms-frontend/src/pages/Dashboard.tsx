@@ -75,6 +75,7 @@ const KPI_DASHBOARD_LINK_LABELS: Record<DashboardKpiPerson, string> = {
   Akash: 'Akash Dashboard',
   Adrija: 'Adrija Dashboard',
   Soumya: 'Soumya Dashboard',
+  Souvik: 'Souvik Dashboard',
 }
 
 function formatDateTime(v?: string | null): string {
