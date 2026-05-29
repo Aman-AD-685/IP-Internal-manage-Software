@@ -1299,6 +1299,16 @@ class AdrijaSocialKpiDayBatchBody(BaseModel):
     rows: list[AdrijaSocialKpiDayRowIn]
 
 
+class SouvikKpiDailyRowIn(BaseModel):
+    work_date: str
+    kpi_key: str
+    score: float | None = None
+
+
+class SouvikKpiDailyBatchBody(BaseModel):
+    rows: list[SouvikKpiDailyRowIn]
+
+
 _DRAFT_EXPIRY_HOURS = 24
 
 
@@ -3692,6 +3702,88 @@ async def cron_soumya_sla_scan(
     if not is_cron and not is_admin:
         raise HTTPException(status_code=401, detail="Use X-Cron-Secret or Admin login.")
     return run_soumya_sla_hourly_scan()
+
+
+def _souvik_kpi_can_edit(user_id: str, email: str | None) -> bool:
+    """Edit gate for Souvik daily entry: master_admin/admin or explicit can_edit grant."""
+    try:
+        if _get_role_from_profile(user_id) in ("admin", "master_admin"):
+            return True
+    except Exception:
+        pass
+    from app.section_permissions_util import can_view_section
+
+    try:
+        return can_view_section(user_id, "dashboard_kpi_person_souvik", need_edit=True)
+    except Exception:
+        return False
+
+
+@api_router.get("/dashboard/souvik-kpi")
+def dashboard_souvik_kpi(
+    week_start: str | None = Query(None, description="Monday of the week (YYYY-MM-DD)."),
+    auth: dict = Depends(get_current_user),
+):
+    """Souvik EA KPI — Daily Entry for one week (Mon–Sat) + composite score."""
+    from app.section_permissions_util import require_dashboard_kpi_person
+    from app.souvik_dashboard_kpi import compute_souvik_week, parse_week_start
+
+    require_dashboard_kpi_person(auth["id"], "Souvik")
+    ws = parse_week_start(week_start)
+    data = compute_souvik_week(ws)
+    data["can_edit"] = _souvik_kpi_can_edit(auth["id"], auth.get("email"))
+    return data
+
+
+@api_router.get("/dashboard/souvik-kpi/weekly-log")
+def dashboard_souvik_kpi_weekly_log(
+    start: str | None = Query(None, description="First Monday (YYYY-MM-DD)."),
+    weeks: int = Query(52, ge=1, le=104),
+    auth: dict = Depends(get_current_user),
+):
+    """Souvik EA KPI — Weekly Log (composite history)."""
+    from app.section_permissions_util import require_dashboard_kpi_person
+    from app.souvik_dashboard_kpi import get_souvik_weekly_log, parse_week_start
+
+    require_dashboard_kpi_person(auth["id"], "Souvik")
+    first_monday = parse_week_start(start)
+    return get_souvik_weekly_log(first_monday, weeks)
+
+
+@api_router.get("/dashboard/souvik-kpi/reference")
+def dashboard_souvik_kpi_reference(auth: dict = Depends(get_current_user)):
+    """Souvik EA KPI — KPI Reference (scoring criteria & data sources)."""
+    from app.section_permissions_util import require_dashboard_kpi_person
+    from app.souvik_dashboard_kpi import get_souvik_reference
+
+    require_dashboard_kpi_person(auth["id"], "Souvik")
+    return get_souvik_reference()
+
+
+@api_router.put("/dashboard/souvik-kpi/daily")
+def put_dashboard_souvik_kpi_daily(
+    body: SouvikKpiDailyBatchBody,
+    auth: dict = Depends(get_current_user),
+):
+    """Upsert Souvik daily KPI scores. Requires can_edit on the Souvik dashboard."""
+    from app.section_permissions_util import require_dashboard_kpi_person
+    from app.souvik_dashboard_kpi import upsert_souvik_daily
+
+    require_dashboard_kpi_person(auth["id"], "Souvik")
+    if not _souvik_kpi_can_edit(auth["id"], auth.get("email")):
+        raise HTTPException(status_code=403, detail="Not allowed to edit Souvik KPI")
+    if len(body.rows) > 100:
+        raise HTTPException(status_code=400, detail="Too many rows in one batch")
+    try:
+        saved = upsert_souvik_daily(
+            [r.model_dump() for r in body.rows], created_by=auth["id"]
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        _log(f"put_dashboard_souvik_kpi_daily: {e}")
+        raise HTTPException(status_code=502, detail=str(e)[:400])
+    return {"ok": True, "saved": saved}
 
 
 @api_router.get("/dashboard/kpi")
