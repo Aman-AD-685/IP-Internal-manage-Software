@@ -4,6 +4,7 @@ import { CheckOutlined, CloseOutlined, PauseCircleOutlined, UndoOutlined } from 
 import { ticketsApi } from '../../api/tickets'
 import { formatDateTable, formatDuration, featureStage1DelaySeconds, featureStage2DelaySeconds, formatDelay } from '../../utils/helpers'
 import type { Ticket } from '../../api/tickets'
+import { useAuth } from '../../hooks/useAuth'
 import { useRole } from '../../hooks/useRole'
 import { formatPriorityLabel, getPriorityTagColor } from '../../utils/ticketPriority'
 
@@ -75,6 +76,7 @@ interface TicketDetailDrawerProps {
 
 const getTypeColor = (type: string) => (type === 'chore' ? 'green' : type === 'bug' ? 'red' : 'blue')
 export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly = false, approvalMode = false }: TicketDetailDrawerProps) => {
+  const { user } = useAuth()
   const { isUser, isMasterAdmin } = useRole()
   const [ticket, setTicket] = useState<Ticket | null>(null)
   const [loading, setLoading] = useState(false)
@@ -84,6 +86,9 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
   const [holdModalOpen, setHoldModalOpen] = useState(false)
   const [holdRemarks, setHoldRemarks] = useState('')
   const [approvalActionLoading, setApprovalActionLoading] = useState(false)
+  const [solutionModalOpen, setSolutionModalOpen] = useState(false)
+  const [solutionText, setSolutionText] = useState('')
+  const [submittingSolution, setSubmittingSolution] = useState(false)
 
   const handleFeatureStageUpdate = async (updates: Partial<Ticket>) => {
     if (!ticketId || readOnly || approvalMode) return
@@ -225,7 +230,38 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
     }
   }
 
+  const handleSubmitSolution = async () => {
+    if (!ticketId || !solutionText.trim()) {
+      message.error('Quality of Solution is required')
+      return
+    }
+    setSubmittingSolution(true)
+    try {
+      await ticketsApi.submitQualitySolution(ticketId, solutionText.trim())
+      const fresh = await ticketsApi.get(ticketId)
+      setTicket(fresh && typeof fresh === 'object' ? (fresh as Ticket) : null)
+      setSolutionModalOpen(false)
+      setSolutionText('')
+      onUpdate?.()
+      message.success('Solution submitted')
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } }
+      message.error(err?.response?.data?.detail || 'Failed to submit solution')
+    } finally {
+      setSubmittingSolution(false)
+    }
+  }
+
   if (!ticket && !loading) return null
+
+  /** Feature final stage complete: normal flow ends at Stage 2 (live_status); if it went through staging, ends at Stage 3 (live_review_status). */
+  const featureFinalCompleted =
+    ticket?.type === 'feature' &&
+    (ticket?.staging_planned
+      ? ticket?.live_review_status === 'completed'
+      : ticket?.live_status === 'completed')
+  const hasQualitySolution = !!ticket?.quality_solution
+  const canSubmitFeatureSolution = featureFinalCompleted && !hasQualitySolution
 
   return (
     <Drawer
@@ -440,6 +476,32 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
             </>
           )}
 
+          {/* QUALITY SOLUTION (Feature) — mandatory after the final stage completes */}
+          {ticket.type === 'feature' && !approvalMode && (
+            hasQualitySolution ? (
+              <div style={{ marginTop: 16, marginBottom: 24, padding: 12, background: '#f0f5ff', borderRadius: 8 }}>
+                <Text strong>Quality of Solution</Text>
+                <div style={{ marginTop: 8, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                  {ticket.quality_solution}
+                </div>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  Submitted by {ticket.quality_solution_submitted_by} on{' '}
+                  {formatDateTable(ticket.quality_solution_submitted_at)}
+                </Text>
+              </div>
+            ) : canSubmitFeatureSolution ? (
+              <div style={{ marginTop: 16, marginBottom: 24 }}>
+                <Button type="primary" onClick={() => setSolutionModalOpen(true)}>
+                  Submit Solution Form
+                </Button>
+              </div>
+            ) : !featureFinalCompleted ? (
+              <div style={{ marginTop: 16, marginBottom: 24 }}>
+                <Text type="secondary">Complete the final stage to submit the Solution Form</Text>
+              </div>
+            ) : null
+          )}
+
           {ticket.type === 'feature' && !approvalMode && (
             <>
               <Text strong>Remarks</Text>
@@ -495,6 +557,35 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
           placeholder="Enter hold remarks (required)"
           style={{ marginTop: 8, width: '100%' }}
         />
+      </Modal>
+      <Modal
+        title="Submit Quality of Solution"
+        open={solutionModalOpen}
+        onCancel={() => setSolutionModalOpen(false)}
+        onOk={handleSubmitSolution}
+        confirmLoading={submittingSolution}
+        okText="Submit"
+        okButtonProps={{ disabled: !solutionText.trim() }}
+        destroyOnClose
+      >
+        <div style={{ marginBottom: 8 }}>
+          <Text strong>Reference No: </Text>
+          {ticket?.reference_no}
+        </div>
+        <div style={{ marginBottom: 8 }}>
+          <Text strong>Submitted By: </Text>
+          {user?.full_name || user?.email || 'Unknown'}
+        </div>
+        <div>
+          <Text strong>Quality of Solution (Remark) *</Text>
+          <TextArea
+            rows={4}
+            value={solutionText}
+            onChange={(e) => setSolutionText(e.target.value)}
+            placeholder="Enter quality of solution remark (mandatory)"
+            style={{ marginTop: 8 }}
+          />
+        </div>
       </Modal>
     </Drawer>
   )
