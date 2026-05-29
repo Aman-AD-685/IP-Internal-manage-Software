@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Card,
   Typography,
@@ -28,8 +28,6 @@ import {
 } from '../../utils/sessionApiCache'
 import { sortPerformanceRefOptions } from '../../utils/performanceRefs'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
-import { DEFAULT_INFINITE_CHUNK, useInfiniteScrollChunk } from '../../hooks/useInfiniteScrollChunk'
-
 const { Title, Text } = Typography
 
 /* List endpoint batches Supabase calls; allow headroom for cold DB / network. */
@@ -122,6 +120,8 @@ export const PerformanceMonitoringPage = () => {
   const [detailModalOpen, setDetailModalOpen] = useState(false)
   const [trainingModalOpen, setTrainingModalOpen] = useState(false)
   const [followupModalOpen, setFollowupModalOpen] = useState(false)
+  /** Set when a follow-up is added inside the open modal; the heavy list reload is deferred to modal close so scroll position is kept. */
+  const followupListDirtyRef = useRef(false)
   const [selectedItem, setSelectedItem] = useState<POCItem | null>(null)
   const [setupError, setSetupError] = useState<string | null>(null)
   const activeTab = 'active'
@@ -271,11 +271,23 @@ export const PerformanceMonitoringPage = () => {
     }
   }
 
-  const loadItems = async (naOverride?: PerformanceNaFilter, options?: { skipCache?: boolean }) => {
+  const loadItems = async (
+    naOverride?: PerformanceNaFilter,
+    options?: { skipCache?: boolean; backgroundRefresh?: boolean },
+  ) => {
     setSetupError(null)
     const status = 'in_progress'
     const naParam = naOverride ?? filterNa ?? 'exclude_na'
     const cacheKey = `dashboard:success-performance-list:${status}:${naParam}`
+    // Background refresh (e.g. after Add Follow Up in an open modal): keep the
+    // current list mounted and preserve scroll instead of showing the skeleton.
+    const backgroundRefresh = !!options?.backgroundRefresh
+    const scrollY = backgroundRefresh && typeof window !== 'undefined' ? window.scrollY : 0
+    const restoreScroll = () => {
+      if (!backgroundRefresh || typeof window === 'undefined') return
+      window.scrollTo({ top: scrollY })
+      requestAnimationFrame(() => window.scrollTo({ top: scrollY }))
+    }
     const cached =
       !options?.skipCache
         ? sessionApiCacheGet<{ items?: POCItem[]; marked_na_supported?: boolean }>(cacheKey)
@@ -285,13 +297,14 @@ export const PerformanceMonitoringPage = () => {
       if (cached.marked_na_supported === true) setMarkedNaSupported(true)
       else if (cached.marked_na_supported === false) setMarkedNaSupported(false)
       setLoading(false)
-    } else {
+    } else if (!backgroundRefresh) {
       setLoading(true)
     }
     try {
       const data = await dashboardApi.getSuccessPerformanceList(status, {
         naFilter: naParam,
         skipCache: options?.skipCache,
+        backgroundRefresh,
       })
       if (data.marked_na_supported === true) {
         setMarkedNaSupported(true)
@@ -299,6 +312,7 @@ export const PerformanceMonitoringPage = () => {
         setMarkedNaSupported(false)
       }
       setItems((data.items || []) as POCItem[])
+      restoreScroll()
     } catch (e) {
       setItems([])
       const ax = e as { response?: { status?: number; data?: { detail?: string } } }
@@ -486,7 +500,9 @@ export const PerformanceMonitoringPage = () => {
           setFollowupData({ features: j.features || [], total_percentage: j.total_percentage })
         }
         invalidateAfterPerformanceNaChange()
-        loadItems(undefined, { skipCache: true })
+        // Defer the heavy background list reload until the modal closes so the
+        // modal's scroll position is not reset on each Add Follow Up.
+        followupListDirtyRef.current = true
       } else {
         message.error(data?.detail || 'Failed to save followup')
       }
@@ -785,6 +801,8 @@ export const PerformanceMonitoringPage = () => {
     },
   ]
 
+  // Render the full filtered list directly (no scroll-triggered auto-loading).
+  // Auto-loading on scroll caused the list to reset/jump to the top.
   const displayItems = useMemo(
     () =>
       items.filter((i) => {
@@ -794,18 +812,8 @@ export const PerformanceMonitoringPage = () => {
       }),
     [items, filterRef, filterCompany],
   )
-  const {
-    visibleItems: visibleDisplayItems,
-    containerRef: tableContainerRef,
-    sentinelRef: tableSentinelRef,
-    total: totalDisplayItems,
-    visibleCount: visibleDisplayCount,
-    hasMore: hasMoreDisplayItems,
-  } = useInfiniteScrollChunk({
-    items: displayItems,
-    chunkSize: DEFAULT_INFINITE_CHUNK,
-    loading,
-  })
+  const visibleDisplayItems = displayItems
+  const totalDisplayItems = displayItems.length
 
   return (
     <div>
@@ -870,7 +878,7 @@ export const PerformanceMonitoringPage = () => {
           Use <strong>Action</strong> for Training, Followup, and NA. Click a row elsewhere for full details.{' '}
           <strong>Active</strong> / <strong>NA</strong> filter above; Restore moves a company back to Active.
         </Typography.Text>
-        <div ref={tableContainerRef}>
+        <div>
           <TableWithSkeletonLoading loading={loading} columns={7} rows={12}>
             <Table
               className="performance-monitoring-table"
@@ -896,15 +904,7 @@ export const PerformanceMonitoringPage = () => {
           </TableWithSkeletonLoading>
           {totalDisplayItems > 0 && (
             <div style={{ marginTop: 12, color: '#8c8c8c', fontSize: 13 }}>
-              Showing {visibleDisplayCount} of {totalDisplayItems}
-            </div>
-          )}
-          {hasMoreDisplayItems && (
-            <div
-              ref={tableSentinelRef}
-              style={{ padding: '10px 0', textAlign: 'center', color: '#8c8c8c', fontSize: 13 }}
-            >
-              Loading next {DEFAULT_INFINITE_CHUNK}...
+              {totalDisplayItems} {totalDisplayItems === 1 ? 'record' : 'records'}
             </div>
           )}
         </div>
@@ -1000,7 +1000,14 @@ export const PerformanceMonitoringPage = () => {
       <Modal
         title={`Followup - ${selectedItem?.reference_no}`}
         open={followupModalOpen}
-        onCancel={() => { setFollowupModalOpen(false); setSelectedItem(null) }}
+        onCancel={() => {
+          setFollowupModalOpen(false)
+          setSelectedItem(null)
+          if (followupListDirtyRef.current) {
+            followupListDirtyRef.current = false
+            loadItems(undefined, { skipCache: true, backgroundRefresh: true })
+          }
+        }}
         footer={null}
         width={640}
       >
