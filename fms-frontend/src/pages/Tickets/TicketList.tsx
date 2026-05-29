@@ -310,6 +310,9 @@ export const TicketList = () => {
         next.status = ''
         next.date_from = ''
         next.date_to = ''
+        // Sequence-wise: newest reference number always on top (bulk rows share created_at)
+        next.sort_by = 'reference_no'
+        next.sort_order = 'desc'
         setRegisterTypeFilters((prev) => (prev.length ? prev : ['chore']))
         setRegisterStatusFilter('completed')
       } else if (s === 'solutions') {
