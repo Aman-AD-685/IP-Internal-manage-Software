@@ -88,13 +88,12 @@ export const DelegationPage = () => {
       setLoading(true)
     }
     const tasksPromise = delegationApi.getTasks(params)
-    const usersPromise = canManage
-      ? delegationApi.getUsers()
-      : Promise.resolve({ users: [] as { id: string; full_name: string }[] })
+    const usersPromise = delegationApi.getUsers()
     Promise.all([tasksPromise, usersPromise])
       .then(([tasksRes, usersRes]) => {
         setTasks(tasksRes.tasks || [])
-        if (canManage) setUsers(usersRes.users || [])
+        const loaded = usersRes.users || []
+        if (loaded.length) setUsers(loaded)
         else if (user?.id) setUsers([{ id: user.id, full_name: user.full_name || user.email || 'You' }])
       })
       .catch(() => message.error('Failed to load delegation tasks'))
@@ -220,7 +219,7 @@ export const DelegationPage = () => {
     OPEN_ACTION.DELEGATION_CREATE,
   )
 
-  useDeepLinkAction(OPEN_ACTION.DELEGATION_CREATE, openCreateModal, canManage)
+  useDeepLinkAction(OPEN_ACTION.DELEGATION_CREATE, openCreateModal)
 
   const canActOnTask = (task: DelegationTask) =>
     user?.id && (task.assignee_id === user.id || isAdmin)
@@ -552,9 +551,9 @@ export const DelegationPage = () => {
           <Form.Item name="has_document" label="Document" rules={[{ required: true, message: 'Please select' }]}>
             <Select placeholder="Select Yes or No" options={[{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }]} />
           </Form.Item>
-          <Form.Item name="submitted_by" label="Submitted By" hidden={!canManage}>
+          <Form.Item name="submitted_by" label="Submitted By" rules={[{ required: true, message: 'Please select who submitted' }]}>
             <Select
-              placeholder="Select who submitted (Admin/Approver only)"
+              placeholder="Select who submitted"
               options={users.map((u) => ({ value: u.id, label: u.full_name }))}
               showSearch
               optionFilterProp="label"

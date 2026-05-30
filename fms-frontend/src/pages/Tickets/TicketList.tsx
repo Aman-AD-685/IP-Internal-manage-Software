@@ -12,7 +12,7 @@ import {
   Dropdown,
   message,
 } from 'antd'
-import { SearchOutlined, PhoneOutlined, MailOutlined, MessageOutlined, LinkOutlined, MoreOutlined } from '@ant-design/icons'
+import { SearchOutlined, PhoneOutlined, MailOutlined, MessageOutlined, LinkOutlined, MoreOutlined, PauseCircleOutlined } from '@ant-design/icons'
 import { useSearchParams, useLocation, useNavigate } from 'react-router-dom'
 import { ticketsApi } from '../../api/tickets'
 import { supportApi } from '../../api/support'
@@ -219,6 +219,9 @@ export const TicketList = () => {
   /** Chores & Bugs/Register: filter by Type of Request */
   const [typeOfRequestFilter, setTypeOfRequestFilter] = useState<string>('')
   const [registerTypeFilters, setRegisterTypeFilters] = useState<string[]>(['chore'])
+  /** Feature section: toggle to view features the approver placed on Hold (approval_status='hold') */
+  const [featureHoldView, setFeatureHoldView] = useState(false)
+  const isFeatureHoldView = isFeatureListSection && featureHoldView
   const isRegisterChoresBugsMode =
     isRegisterSection && registerTypeFilters.some((t) => t === 'chore' || t === 'bug')
   const isChoresBugs =
@@ -244,6 +247,9 @@ export const TicketList = () => {
       setRegisterTypeFilters(['chore'])
     }
   }, [sectionFromUrl])
+  useEffect(() => {
+    if (!isFeatureListSection) setFeatureHoldView(false)
+  }, [isFeatureListSection])
 
   /** Open drawer when navigated from Support Dashboard (Reference click in Weekly Details, Pending Chores/Bugs, or Pending Feature) */
   useEffect(() => {
@@ -381,6 +387,7 @@ export const TicketList = () => {
         registerStatusFilter &&
         registerStatusFilter !== 'all' && { register_status_filter: registerStatusFilter }),
       ...(isApprovalSection && { section: 'approval-status', approval_filter: approvalFilter }),
+      ...(isFeatureHoldView && { approval_filter: 'hold' }),
       ...(filters.company_ids?.length ? { company_ids: filters.company_ids } : {}),
       ...(filters.priority && { priority: filters.priority }),
       ...(options?.dateFrom
@@ -409,6 +416,7 @@ export const TicketList = () => {
       approvalFilter,
       status2Filter,
       typeOfRequestFilter,
+      isFeatureHoldView,
     ],
   )
 
@@ -1413,7 +1421,7 @@ export const TicketList = () => {
               : sectionFromUrl === 'solutions'
                 ? 'Solution'
                 : typeFromUrl === 'feature'
-                  ? 'Feature'
+                  ? (featureHoldView ? 'Feature — On Hold (Approver)' : 'Feature')
                   : 'All Tickets'
 
   const isCompletedChoresBugs = sectionFromUrl === 'completed-chores-bugs'
@@ -1437,6 +1445,16 @@ export const TicketList = () => {
         >
           {pageTitle}
         </Title>
+        {isFeatureListSection && (
+          <Button
+            type={featureHoldView ? 'primary' : 'default'}
+            icon={<PauseCircleOutlined />}
+            onClick={() => setFeatureHoldView((v) => !v)}
+            style={featureHoldView ? undefined : { borderColor: '#faad14', color: '#d48806' }}
+          >
+            {featureHoldView ? 'Back to Feature List' : 'Hold – Approve'}
+          </Button>
+        )}
         <PrintExport
           pageTitle={pageTitle}
           dateRangeExport={{
@@ -1739,9 +1757,9 @@ export const TicketList = () => {
           readOnly={
             sectionFromUrl === 'completed-feature' ||
             sectionFromUrl === 'register-of-tickets' ||
-            (isApprovalSection && isUser && !isMasterAdmin)
+            ((isApprovalSection || isFeatureHoldView) && isUser && !isMasterAdmin)
           }
-          approvalMode={isApprovalSection}
+          approvalMode={isApprovalSection || isFeatureHoldView}
         />
       )}
     </div>

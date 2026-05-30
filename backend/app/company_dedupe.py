@@ -14,6 +14,17 @@ _COMPANY_ROWS_CACHE: list[dict[str, Any]] | None = None
 _COMPANY_ROWS_CACHE_AT: float = 0.0
 _COMPANY_CACHE_TTL_SEC = 300.0
 
+# Bulk-import / support-form bucket — tickets use division "All" (see COMPANY_ID_MAPPING.txt).
+_ALL_COMPANY_PLACEHOLDER_IDS = frozenset({"2142d04b-67bc-4a7f-bd80-47cff23aa379"})
+_ALL_COMPANY_DEFAULT_DIVISION = "All"
+
+
+def is_all_company_placeholder(company_id: str | None, company_name: str | None = None) -> bool:
+    cid = (company_id or "").strip()
+    if cid and cid in _ALL_COMPANY_PLACEHOLDER_IDS:
+        return True
+    return normalize_company_dedupe_key(company_name) == "all company"
+
 
 def normalize_company_dedupe_key(name: str | None) -> str:
     if not name:
@@ -183,6 +194,10 @@ def ensure_divisions_for_companies(company_ids: list[str], company_name: str) ->
     (division_abbreviation) so the support form can select a division_id.
     """
     division_names = _client_onb_division_names(company_name)
+    if not division_names and is_all_company_placeholder(None, company_name):
+        division_names = [_ALL_COMPANY_DEFAULT_DIVISION]
+    if not division_names and any(is_all_company_placeholder(cid) for cid in company_ids):
+        division_names = [_ALL_COMPANY_DEFAULT_DIVISION]
     if not division_names:
         return []
 
