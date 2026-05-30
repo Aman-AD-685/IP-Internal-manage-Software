@@ -1864,10 +1864,14 @@ def list_tickets(
     elif apply_section_filter and type:
         q = q.eq("type", type)
         if type == "feature":
-            # Feature section: only APPROVED features; unapproved/pending stay in Approval Status
-            q = q.eq("approval_status", "approved")
-            q = q.or_("staging_planned.is.null,live_review_status.eq.completed")
-            q = q.or_("live_status.is.null,live_status.neq.completed")
+            if (approval_filter or "").strip().lower() == "hold":
+                # Feature → "Hold – Approve" view: features the approver placed on hold
+                q = q.eq("approval_status", "hold")
+            else:
+                # Feature section: only APPROVED features; unapproved/pending stay in Approval Status
+                q = q.eq("approval_status", "approved")
+                q = q.or_("staging_planned.is.null,live_review_status.eq.completed")
+                q = q.or_("live_status.is.null,live_status.neq.completed")
             feat_s2 = (status_2_filter or "").strip().lower()
             if feat_s2:
                 q = q.eq("status_2", feat_s2)
@@ -1875,9 +1879,13 @@ def list_tickets(
         # type=feature when no section (e.g. /tickets?type=feature) - only APPROVED features
         q = q.eq("type", type)
         if type == "feature":
-            q = q.eq("approval_status", "approved")
-            q = q.or_("staging_planned.is.null,live_review_status.eq.completed")
-            q = q.or_("live_status.is.null,live_status.neq.completed")
+            if (approval_filter or "").strip().lower() == "hold":
+                # Feature → "Hold – Approve" view: features the approver placed on hold
+                q = q.eq("approval_status", "hold")
+            else:
+                q = q.eq("approval_status", "approved")
+                q = q.or_("staging_planned.is.null,live_review_status.eq.completed")
+                q = q.or_("live_status.is.null,live_status.neq.completed")
             feat_s2 = (status_2_filter or "").strip().lower()
             if feat_s2:
                 q = q.eq("status_2", feat_s2)
@@ -5678,6 +5686,7 @@ def list_divisions(
                 company_ids_for_division_lookup,
                 dedupe_division_rows,
                 ensure_divisions_for_companies,
+                is_all_company_placeholder,
                 _load_all_companies,
             )
 
@@ -5706,6 +5715,10 @@ def list_divisions(
                 .execute()
             )
             merged = dedupe_division_rows(list(r_all.data or []))
+            if not merged and is_all_company_placeholder(company_id, anchor_name):
+                merged = dedupe_division_rows(
+                    ensure_divisions_for_companies(all_ids, anchor_name or "All Company")
+                )
             total = len(merged)
             page_rows = merged[offset : offset + page_size]
             payload = {"data": page_rows, "total": total, "page": page, "page_size": page_size}
@@ -12869,9 +12882,7 @@ class CreateDelegationTaskRequest(BaseModel):
 
 @api_router.get("/delegation/users")
 def list_delegation_users(auth: dict = Depends(get_current_user), current: dict = Depends(get_current_user_with_role)):
-    """List users for assignee dropdown. Level 1 & 2 (admin, approver) only."""
-    if current.get("role") not in ("admin", "master_admin", "approver"):
-        return {"users": []}
+    """List active users for Submitted By / assignee dropdowns (all authenticated users)."""
     try:
         r = (
             supabase.table("user_profiles")
