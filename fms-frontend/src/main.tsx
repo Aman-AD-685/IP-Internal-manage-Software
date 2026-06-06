@@ -7,9 +7,11 @@ import {
   installAuthBrowserSessionHandlers,
 } from './utils/authBrowserSession'
 import App from './App'
+import { redirectRecoveryToResetPage, bootstrapRecoveryFromUrl } from './utils/recoveryAuth'
 
 installAuthBrowserSessionHandlers()
 bootstrapAuthBrowserSession()
+bootstrapRecoveryFromUrl()
 import 'antd/dist/reset.css'
 import './styles/print.css'
 import './styles/responsive.css'

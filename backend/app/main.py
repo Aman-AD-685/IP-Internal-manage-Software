@@ -482,6 +482,23 @@ class RecoveryPasswordRequest(BaseModel):
         return v
 
 
+class RecoverySessionRequest(BaseModel):
+    code: Optional[str] = None
+    token: Optional[str] = None
+
+
+class RecoveryResetRequest(BaseModel):
+    access_token: str
+    password: str
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters long")
+        return v
+
+
 # ---------- Routes ----------
 @app.get("/health")
 @app.get("/api/health")
@@ -1018,10 +1035,13 @@ def forgot_password_lookup(payload: ForgotPasswordLookupRequest, request: Reques
     without a time-limited recovery token.
     """
     email = payload.email.strip().lower()
-    frontend_url = os.getenv("FRONTEND_URL", os.getenv("SITE_URL", "http://localhost:3000")).rstrip("/")
-    redirect_to = f"{frontend_url}/reset-password"
+    from app.public_urls import get_frontend_base
+
+    redirect_to = f"{get_frontend_base()}/reset-password"
     try:
-        supabase_auth.auth.reset_password_for_email(email, {"redirectTo": redirect_to})
+        # gotrue Python expects snake_case "redirect_to" (not redirectTo).
+        supabase_auth.auth.reset_password_for_email(email, {"redirect_to": redirect_to})
+        _log(f"forgot-password: reset email requested redirect_to={redirect_to}")
     except Exception as e:
         # Avoid leaking existence via error messages. Retry after transient issues.
         _log(f"forgot-password request failed: {type(e).__name__}")
@@ -1041,18 +1061,80 @@ def forgot_password_complete(payload: ForgotPasswordCompleteRequest, request: Re
     raise HTTPException(status_code=410, detail="Use the password reset link from your email to set a new password.")
 
 
-@api_router.patch("/auth/recovery-password")
-def recovery_password(payload: RecoveryPasswordRequest, request: Request):
-    """Set new password using the recovery access_token from the email link (Authorization: Bearer …)."""
-    auth_header = (request.headers.get("authorization") or "").strip()
-    if not auth_header.lower().startswith("bearer "):
-        raise HTTPException(401, "Missing or invalid reset session. Open the link from your email again.")
-    token = auth_header[7:].strip()
-    if not token:
-        raise HTTPException(401, "Missing or invalid reset session. Open the link from your email again.")
+def _recovery_access_token_from_supabase_response(data: dict) -> Optional[str]:
+    if not isinstance(data, dict):
+        return None
+    direct = data.get("access_token")
+    if isinstance(direct, str) and direct.strip():
+        return direct.strip()
+    session = data.get("session")
+    if isinstance(session, dict):
+        nested = session.get("access_token")
+        if isinstance(nested, str) and nested.strip():
+            return nested.strip()
+    return None
+
+
+@api_router.post("/auth/recovery-password/session")
+def recovery_password_session(payload: RecoverySessionRequest):
+    """Exchange recovery ?code= or ?token= from the email redirect into an access_token."""
+    code = (payload.code or "").strip()
+    token = (payload.token or "").strip()
+    if not code and not token:
+        raise HTTPException(400, "Missing recovery code or token. Open the link from your email again.")
     apikey = (SUPABASE_ANON_KEY or "").strip()
     if not apikey:
         raise HTTPException(503, "Server configuration error: missing SUPABASE_ANON_KEY")
+    base = SUPABASE_URL.rstrip("/")
+    headers = {"apikey": apikey, "Content-Type": "application/json"}
+    try:
+        if code:
+            r = httpx.post(
+                f"{base}/auth/v1/token?grant_type=pkce",
+                headers=headers,
+                json={"auth_code": code},
+                timeout=45.0,
+            )
+            if r.status_code >= 400:
+                r = httpx.post(
+                    f"{base}/auth/v1/token",
+                    headers=headers,
+                    json={"grant_type": "authorization_code", "code": code},
+                    timeout=45.0,
+                )
+        else:
+            r = httpx.post(
+                f"{base}/auth/v1/verify",
+                headers=headers,
+                json={"type": "recovery", "token": token},
+                timeout=45.0,
+            )
+    except Exception as e:
+        _log(f"recovery-password/session httpx error: {type(e).__name__}")
+        raise HTTPException(503, "Could not reach authentication service. Try again later.")
+    if r.status_code >= 400:
+        _log(f"recovery-password/session: {r.status_code} {(r.text or '')[:400]}")
+        raise HTTPException(
+            400,
+            "Invalid or expired reset link. Request a new password reset from the login page.",
+        )
+    try:
+        data = r.json()
+    except Exception:
+        raise HTTPException(400, "Invalid or expired reset link. Request a new password reset from the login page.")
+    access_token = _recovery_access_token_from_supabase_response(data)
+    if not access_token:
+        raise HTTPException(400, "Invalid or expired reset link. Request a new password reset from the login page.")
+    return {"access_token": access_token}
+
+
+def _supabase_update_password_with_recovery_token(recovery_token: str, password: str) -> None:
+    apikey = (SUPABASE_ANON_KEY or "").strip()
+    if not apikey:
+        raise HTTPException(503, "Server configuration error: missing SUPABASE_ANON_KEY")
+    token = (recovery_token or "").strip()
+    if not token:
+        raise HTTPException(401, "Missing or invalid reset session. Open the link from your email again.")
     url = f"{SUPABASE_URL.rstrip('/')}/auth/v1/user"
     try:
         r = httpx.patch(
@@ -1062,7 +1144,7 @@ def recovery_password(payload: RecoveryPasswordRequest, request: Request):
                 "apikey": apikey,
                 "Content-Type": "application/json",
             },
-            json={"password": payload.password},
+            json={"password": password},
             timeout=45.0,
         )
     except Exception as e:
@@ -1074,6 +1156,23 @@ def recovery_password(payload: RecoveryPasswordRequest, request: Request):
             status_code=400,
             detail="Could not update password. The link may have expired. Request a new reset from the login page.",
         )
+
+
+@api_router.post("/auth/recovery-password/reset")
+def recovery_password_reset(payload: RecoveryResetRequest):
+    """Set new password from email link — no login session required (token in body)."""
+    _supabase_update_password_with_recovery_token(payload.access_token, payload.password)
+    return {"message": "Password updated successfully. You can sign in with your new password."}
+
+
+@api_router.patch("/auth/recovery-password")
+def recovery_password(payload: RecoveryPasswordRequest, request: Request):
+    """Set new password using the recovery access_token from the email link (Authorization: Bearer …)."""
+    auth_header = (request.headers.get("authorization") or "").strip()
+    if not auth_header.lower().startswith("bearer "):
+        raise HTTPException(401, "Missing or invalid reset session. Open the link from your email again.")
+    token = auth_header[7:].strip()
+    _supabase_update_password_with_recovery_token(token, payload.password)
     return {"message": "Password updated successfully. You can sign in with your new password."}
 
 
@@ -1170,6 +1269,7 @@ class CreateTicketRequest(BaseModel):
     query_response_at: str | None = None
     why_feature: str | None = None
     attachment_url: str | None = None
+    repeat_of_ticket_id: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -1182,7 +1282,7 @@ class CreateTicketRequest(BaseModel):
             "title", "description", "type", "priority", "assignee_id", "company_id", "page_id",
             "division_id", "division_other", "user_name", "communicated_through", "submitted_by",
             "query_arrival_at", "quality_of_response", "customer_questions", "query_response_at",
-            "why_feature", "attachment_url",
+            "why_feature", "attachment_url", "repeat_of_ticket_id",
         )
         for k in string_fields:
             if k not in out:
@@ -1375,12 +1475,12 @@ def create_ticket(payload: CreateTicketRequest, auth: dict = Depends(get_current
         data.setdefault("status_1", "no")
         # Stage 2: development / staging – start as "pending"
         data.setdefault("status_2", "pending")
-    extras = ["company_id", "page_id", "division_id", "division_other", "user_name", "communicated_through", "submitted_by", "query_arrival_at", "quality_of_response", "customer_questions", "query_response_at", "why_feature", "attachment_url"]
+    extras = ["company_id", "page_id", "division_id", "division_other", "user_name", "communicated_through", "submitted_by", "query_arrival_at", "quality_of_response", "customer_questions", "query_response_at", "why_feature", "attachment_url", "repeat_of_ticket_id"]
     for k in extras:
         v = getattr(payload, k, None)
         if v is None:
             continue
-        if k in ("company_id", "page_id", "division_id") and v == "":
+        if k in ("company_id", "page_id", "division_id", "repeat_of_ticket_id") and v == "":
             continue
         if k == "attachment_url":
             if not v or not str(v).strip():
@@ -1951,6 +2051,21 @@ def _mark_level3_edit_used(ticket_id: str, user_id: str) -> None:
         ).execute()
     except Exception:
         pass  # ignore duplicate (already used)
+
+
+@api_router.get("/tickets/similar")
+def list_similar_tickets(
+    title: str = Query(..., min_length=6, max_length=500),
+    limit: int = Query(10, ge=1, le=20),
+    auth: dict = Depends(get_current_user),
+):
+    """Support form: similar titles across all companies (global search)."""
+    from app.ticket_similarity import find_similar_tickets
+
+    payload = find_similar_tickets(title=title.strip(), limit=limit)
+    response = JSONResponse(content=payload)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @api_router.get("/tickets/{ticket_id}")

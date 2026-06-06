@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Modal, Form, Input, Select, DatePicker, Upload, message } from 'antd'
 import { InboxOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { ticketsApi } from '../../api/tickets'
+import { ticketsApi, type SimilarTicketsResponse } from '../../api/tickets'
 import { supportApi } from '../../api/support'
 import { draftsApi } from '../../api/drafts'
 import { uploadAttachment } from '../../api/upload'
@@ -10,10 +10,15 @@ import { useAuth } from '../../hooks/useAuth'
 import type { Company, Page, Division } from '../../api/support'
 import { dedupeCompaniesForSelect } from '../../utils/companiesDedupe'
 import { TICKET_PRIORITY_OPTIONS, normalizePriorityValue } from '../../utils/ticketPriority'
+import { SimilarTicketsPanel } from './SimilarTicketsPanel'
+import { ChoresBugsDetailDrawer } from '../tickets/ChoresBugsDetailDrawer'
+import { TicketDetailDrawer } from '../tickets/TicketDetailDrawer'
 const { TextArea } = Input
 const { Dragger } = Upload
 
 const DRAFT_DEBOUNCE_MS = 800
+const SIMILAR_TICKETS_DEBOUNCE_MS = 400
+const SIMILAR_TITLE_MIN_LEN = 6
 
 /** Serialize DatePicker value (dayjs or Date) to ISO string for the API */
 function toISODate(val: unknown): string | undefined {
@@ -127,6 +132,12 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
   const skipDraftSaveRef = useRef(false)
   const isLoadingDraftRef = useRef(false)
   const divisionsFetchGenRef = useRef(0)
+  const similarFetchGenRef = useRef(0)
+  const similarDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [similarResult, setSimilarResult] = useState<SimilarTicketsResponse | null>(null)
+  const [similarLoading, setSimilarLoading] = useState(false)
+  const [previewTicketId, setPreviewTicketId] = useState<string | null>(null)
+  const [previewTicketType, setPreviewTicketType] = useState<'chore' | 'bug' | 'feature' | null>(null)
   const attachmentUrlRef = useRef<string | null>(null)
   attachmentUrlRef.current = attachmentUrl
 
@@ -138,6 +149,10 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
       setDivisionOther(false)
       setTypeFeature(false)
       setRequestType('')
+      setSimilarResult(null)
+      setSimilarLoading(false)
+      setPreviewTicketId(null)
+      setPreviewTicketType(null)
       supportApi
         .getCompanies()
         .then((list) => setCompanies(dedupeCompaniesForSelect(list)))
@@ -221,6 +236,8 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
   }, [open, user?.full_name, prefill])
 
   const companyId = Form.useWatch('company_id', form)
+  const titleWatch = Form.useWatch('title', form)
+
   useEffect(() => {
     if (companyId) {
       const fetchGen = ++divisionsFetchGenRef.current
@@ -244,6 +261,42 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
       form.setFieldValue('division_other', undefined)
     }
   }, [companyId, form])
+
+  const similarScopeReady = String(titleWatch ?? '').trim().length >= SIMILAR_TITLE_MIN_LEN
+
+  useEffect(() => {
+    if (!open) return
+    similarFetchGenRef.current += 1
+    setSimilarResult(null)
+    if (similarDebounceRef.current) clearTimeout(similarDebounceRef.current)
+
+    const title = String(titleWatch ?? '').trim()
+    if (title.length < SIMILAR_TITLE_MIN_LEN) {
+      setSimilarLoading(false)
+      return
+    }
+
+    setSimilarLoading(true)
+    similarDebounceRef.current = setTimeout(() => {
+      const fetchGen = ++similarFetchGenRef.current
+      ticketsApi
+        .getSimilar({ title })
+        .then((res) => {
+          if (fetchGen !== similarFetchGenRef.current) return
+          setSimilarResult(res)
+        })
+        .catch(() => {
+          if (fetchGen !== similarFetchGenRef.current) return
+          setSimilarResult(null)
+        })
+        .finally(() => {
+          if (fetchGen === similarFetchGenRef.current) setSimilarLoading(false)
+        })
+    }, SIMILAR_TICKETS_DEBOUNCE_MS)
+    return () => {
+      if (similarDebounceRef.current) clearTimeout(similarDebounceRef.current)
+    }
+  }, [open, titleWatch])
 
   const handleTypeChange = (val: string) => {
     setRequestType(val)
@@ -274,44 +327,77 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
     }, DRAFT_DEBOUNCE_MS)
   }, [saveDraft])
 
+  const createTicketFromForm = async (
+    values: Record<string, unknown>,
+    repeatOfTicketId?: string
+  ) => {
+    const finalAttachmentUrl = attachmentUrl ?? toStr(values.attachment_url) ?? undefined
+    const createRes = (await ticketsApi.create({
+      title: toStr(values.title) ?? '',
+      description: toStr(values.description),
+      type: (toStr(values.type_of_request) ?? 'chore') as 'feature' | 'chore' | 'bug',
+      priority: normalizePriorityValue(toStr(values.priority)),
+      company_id: toStr(values.company_id),
+      page_id: toStr(values.page_id),
+      division_id: toStr(values.division_id),
+      division_other: toStr(values.division_other),
+      attachment_url: finalAttachmentUrl,
+      user_name: toStr(values.user_name),
+      communicated_through: toStr(values.communicated_through),
+      submitted_by: toStr(values.submitted_by),
+      query_arrival_at: toISODate(values.query_arrival_at),
+      quality_of_response: toStr(values.quality_of_response),
+      customer_questions: toStr(values.customer_questions),
+      query_response_at: toISODate(values.query_response_at),
+      why_feature: toStr(values.why_feature),
+      repeat_of_ticket_id: repeatOfTicketId,
+    })) as { data?: import('../../api/tickets').Ticket } | import('../../api/tickets').Ticket
+    const created =
+      createRes && typeof createRes === 'object' && 'data' in createRes && createRes.data
+        ? createRes.data
+        : (createRes as import('../../api/tickets').Ticket)
+    message.success('Support ticket created')
+    if (!prefill) {
+      await draftsApi.deleteSupportTicketDraft().catch(() => {})
+    }
+    form.resetFields()
+    setAttachmentFileList([])
+    setAttachmentUrl(null)
+    setSimilarResult(null)
+    onSuccess?.(created)
+    onClose()
+    window.dispatchEvent(new CustomEvent('support-ticket-created'))
+  }
+
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields()
-      setLoading(true)
-      const finalAttachmentUrl = attachmentUrl ?? toStr(values.attachment_url) ?? undefined
-      const createRes = (await ticketsApi.create({
-        title: toStr(values.title) ?? '',
-        description: toStr(values.description),
-        type: (toStr(values.type_of_request) ?? 'chore') as 'feature' | 'chore' | 'bug',
-        priority: normalizePriorityValue(toStr(values.priority)),
-        company_id: toStr(values.company_id),
-        page_id: toStr(values.page_id),
-        division_id: toStr(values.division_id),
-        division_other: toStr(values.division_other),
-        attachment_url: finalAttachmentUrl,
-        user_name: toStr(values.user_name),
-        communicated_through: toStr(values.communicated_through),
-        submitted_by: toStr(values.submitted_by),
-        query_arrival_at: toISODate(values.query_arrival_at),
-        quality_of_response: toStr(values.quality_of_response),
-        customer_questions: toStr(values.customer_questions),
-        query_response_at: toISODate(values.query_response_at),
-        why_feature: toStr(values.why_feature),
-      })) as { data?: import('../../api/tickets').Ticket } | import('../../api/tickets').Ticket
-      const created =
-        createRes && typeof createRes === 'object' && 'data' in createRes && createRes.data
-          ? createRes.data
-          : (createRes as import('../../api/tickets').Ticket)
-      message.success('Support ticket created')
-      if (!prefill) {
-        await draftsApi.deleteSupportTicketDraft().catch(() => {})
+      let repeatOfTicketId: string | undefined
+      if (
+        similarResult &&
+        similarResult.repeat_count >= 2 &&
+        similarResult.has_open_repeat
+      ) {
+        const refs = similarResult.matches
+          .filter((m) => m.is_open)
+          .map((m) => m.reference_no)
+          .slice(0, 5)
+          .join(', ')
+        const proceed = await new Promise<boolean>((resolve) => {
+          Modal.confirm({
+            title: 'Similar open tickets already exist',
+            content: `This title matches ${similarResult.repeat_count} prior ticket(s). Open: ${refs || similarResult.matches[0]?.reference_no}. Create a new ticket anyway?`,
+            okText: 'Create anyway',
+            cancelText: 'Review first',
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false),
+          })
+        })
+        if (!proceed) return
+        repeatOfTicketId = similarResult.matches[0]?.id
       }
-      form.resetFields()
-      setAttachmentFileList([])
-      setAttachmentUrl(null)
-      onSuccess?.(created)
-      onClose()
-      window.dispatchEvent(new CustomEvent('support-ticket-created'))
+      setLoading(true)
+      await createTicketFromForm(values, repeatOfTicketId)
     } catch (e: any) {
       if (e && typeof e === 'object' && 'errorFields' in e) return
       const detail = e?.response?.data?.detail ?? e?.message ?? 'Failed to create ticket'
@@ -338,10 +424,19 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
     setAttachmentUrl(null)
     setTypeFeature(false)
     setRequestType('')
+    setSimilarResult(null)
+    setPreviewTicketId(null)
+    setPreviewTicketType(null)
     onClose()
   }
 
+  const handleViewSimilarTicket = (ticketId: string, ticketType: 'chore' | 'bug' | 'feature') => {
+    setPreviewTicketId(ticketId)
+    setPreviewTicketType(ticketType)
+  }
+
   return (
+    <>
     <Modal
       title="Add New Support Ticket"
       open={open}
@@ -390,6 +485,13 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
         <Form.Item name="title" label="Title" rules={[{ required: true, message: 'Required' }]}>
           <Input placeholder="Ticket title" />
         </Form.Item>
+        <SimilarTicketsPanel
+          result={similarResult}
+          loading={similarLoading}
+          scopeReady={similarScopeReady}
+          scopeHint="Enter at least 6 characters in Title to search similar titles across all companies."
+          onViewTicket={handleViewSimilarTicket}
+        />
         <Form.Item name="attachment_url" label="Attachment (Optional)" hidden>
           <Input type="hidden" />
         </Form.Item>
@@ -505,5 +607,27 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
         )}
       </Form>
     </Modal>
+    {previewTicketType === 'feature' ? (
+      <TicketDetailDrawer
+        ticketId={previewTicketId}
+        open={!!previewTicketId}
+        onClose={() => {
+          setPreviewTicketId(null)
+          setPreviewTicketType(null)
+        }}
+        readOnly
+      />
+    ) : (
+      <ChoresBugsDetailDrawer
+        ticketId={previewTicketId}
+        open={!!previewTicketId && !!previewTicketType}
+        onClose={() => {
+          setPreviewTicketId(null)
+          setPreviewTicketType(null)
+        }}
+        readOnly
+      />
+    )}
+    </>
   )
 }

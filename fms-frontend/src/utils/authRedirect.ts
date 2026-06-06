@@ -4,6 +4,7 @@ import { getDefaultLandingRoute } from './helpers'
 
 const PUBLIC_AUTH_PATHS = new Set([
   ROUTES.LOGIN,
+  ROUTES.FORGOT_PASSWORD,
   ROUTES.REGISTER,
   ROUTES.RESET_PASSWORD,
   ROUTES.OTP,

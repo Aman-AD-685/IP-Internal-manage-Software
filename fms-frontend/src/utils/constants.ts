@@ -100,6 +100,7 @@ export const TICKET_ROUTE_SECTION_KEYS: readonly string[] = [
 export const ROUTES = {
   REGISTER: '/register',
   LOGIN: '/login',
+  FORGOT_PASSWORD: '/forgot-password',
   /** Supabase password recovery redirect (hash with access_token) */
   RESET_PASSWORD: '/reset-password',
   OTP: '/otp',

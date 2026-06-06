@@ -2,6 +2,7 @@ import axios, { AxiosError, InternalAxiosRequestConfig } from "axios"
 import { storage } from "../utils/storage"
 import { ROUTES } from "../utils/constants"
 import { buildLoginUrl } from "../utils/authRedirect"
+import { isPublicPasswordResetPath } from "../utils/recoveryAuth"
 import {
   DEFAULT_LOCAL_BACKEND_ORIGIN,
   getViteApiBaseFromEnv,
@@ -200,13 +201,32 @@ const logApiDuration = (
   console.debug("[api]", method, url, status, durationMs >= 0 ? durationMs : "n/a")
 }
 
+function requestHasAuthorizationHeader(config: InternalAxiosRequestConfig): boolean {
+  const headers = config.headers
+  if (!headers) return false
+  if (typeof (headers as { get?: (k: string) => unknown }).get === "function") {
+    return !!(headers as { get: (k: string) => unknown }).get("Authorization")
+  }
+  return !!(headers as Record<string, unknown>).Authorization
+}
+
+function shouldSkipLoginRedirect(): boolean {
+  if (typeof window === "undefined") return false
+  const path = window.location.pathname
+  return (
+    path.includes("/login") ||
+    path.includes("/register") ||
+    isPublicPasswordResetPath(path)
+  )
+}
+
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     const timed = config as TimedRequestConfig
     timed.metadata = { start: performance.now() }
     const token = storage.getToken()
-    // Do not overwrite explicit Authorization (e.g. Supabase recovery JWT on PATCH /auth/recovery-password)
-    if (token && config.headers && !config.headers.Authorization) {
+    // Do not overwrite explicit Authorization (e.g. Supabase recovery JWT)
+    if (token && config.headers && !requestHasAuthorizationHeader(config)) {
       config.headers.Authorization = `Bearer ${token}`
     }
     if (config.data instanceof FormData && config.headers) {
@@ -281,6 +301,8 @@ apiClient.interceptors.response.use(
         reqUrl.includes("/auth/login") ||
         reqUrl.includes("/auth/register") ||
         reqUrl.includes("/auth/verify-otp") ||
+        reqUrl.includes("/auth/forgot-password") ||
+        reqUrl.includes("/auth/recovery-password") ||
         reqUrl.includes("/approval/execute-by-token") ||
         reqUrl.includes("/approval/email-action")
       if (isPublicAuthEndpoint) {
@@ -290,7 +312,7 @@ apiClient.interceptors.response.use(
       const isRefreshRequest = originalRequest.url?.includes("/auth/refresh")
       if (isRefreshRequest) {
         storage.clear()
-        if (!window.location.pathname.includes("/login") && !window.location.pathname.includes("/register")) {
+        if (!shouldSkipLoginRedirect()) {
           window.location.href = buildLoginUrl()
         }
         return Promise.reject(error)
@@ -330,7 +352,7 @@ apiClient.interceptors.response.use(
       }
 
       storage.clear()
-      if (!window.location.pathname.includes("/login") && !window.location.pathname.includes("/register")) {
+      if (!shouldSkipLoginRedirect()) {
         window.location.href = buildLoginUrl()
       }
     } else if (error.request) {

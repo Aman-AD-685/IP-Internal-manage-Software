@@ -63,6 +63,8 @@ _AUTH_PATHS = {
     "/auth/forgot-password/lookup",
     "/auth/forgot-password/complete",
     "/auth/recovery-password",
+    "/auth/recovery-password/reset",
+    "/auth/recovery-password/session",
     "/approval/execute-by-token",
 }
 
