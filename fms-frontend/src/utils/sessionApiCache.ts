@@ -164,7 +164,7 @@ export function ticketGetLogicalKey(id: string): string {
 }
 
 export function supportDivisionsLogicalKey(companyId?: string): string {
-  return `support:divisions:v5:${companyId || 'none'}`
+  return `support:divisions:v7:${companyId || 'none'}`
 }
 
 export function invalidateAfterStage2Remark(): void {
