@@ -123,6 +123,37 @@
       </p>
     </noscript>
     <div id="root"></div>
+    <script>
+      (function () {
+        var path = window.location.pathname || "";
+        var hash = (window.location.hash || "").replace(/^#/, "");
+        var search = window.location.search || "";
+        function parseParams(qs) {
+          try { return new URLSearchParams(qs); } catch (e) { return null; }
+        }
+        function tokenFromParams(p) {
+          if (!p) return null;
+          var t = p.get("access_token");
+          var type = p.get("type");
+          if (!t) return null;
+          if (type && type !== "recovery") return null;
+          return t;
+        }
+        var hp = parseParams(hash);
+        var sp = parseParams(search.replace(/^\?/, ""));
+        var token = tokenFromParams(hp) || tokenFromParams(sp);
+        if (token) {
+          try { sessionStorage.setItem("fms_recovery_access_token", token); } catch (e) {}
+        }
+        var hasRecovery =
+          !!token ||
+          (hp && hp.get("type") === "recovery" && (hp.get("code") || hp.get("token"))) ||
+          (sp && sp.get("type") === "recovery" && (sp.get("code") || sp.get("token")));
+        if (hasRecovery && path !== "/reset-password") {
+          window.location.replace("/reset-password" + search + (window.location.hash || ""));
+        }
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

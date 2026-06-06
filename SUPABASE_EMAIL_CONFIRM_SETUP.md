@@ -14,6 +14,10 @@ After registration, users receive a **confirmation link** in their email (sent v
    - `http://localhost:3000/confirmation-success` (local dev)
    - `https://ip-internal-manage-software.vercel.app/confirmation-success` (production)
    - Or `https://*.vercel.app/confirmation-success` to allow preview URLs
+   - `http://localhost:3001/reset-password` (local dev — Vite port)
+   - `https://ip-internal-manage-software.vercel.app/reset-password` (production)
+   - `https://industryprime.vercel.app/reset-password` (production alternate)
+   - Or `https://*.vercel.app/reset-password` for preview URLs
 
 ### Auth → Providers → Email
 
@@ -33,7 +37,7 @@ FRONTEND_URL=https://ip-internal-manage-software.vercel.app
 For local dev:
 
 ```
-FRONTEND_URL=http://localhost:3000
+FRONTEND_URL=http://localhost:3001
 ```
 
 On **Render**: Add `FRONTEND_URL` in your service's Environment variables.
@@ -45,6 +49,19 @@ On **Render**: Add `FRONTEND_URL` in your service's Environment variables.
 1. User registers → backend calls `sign_up` → Supabase sends confirmation email (Custom SMTP)
 2. User clicks link in email → Supabase confirms → redirects to `/confirmation-success`
 3. User logs in
+
+---
+
+## Password reset (Forgot password)
+
+1. Login → **Forgot password?** → enter email → **Send reset link**
+2. User clicks **Reset Password** in email → lands on `/reset-password`
+3. Enter **New password** + **Confirm password** → **Update password**
+4. Sign in with the new password
+
+**Supabase Redirect URLs** must include `/reset-password` (see section 1 above).
+
+**Backend `FRONTEND_URL`** must match your deployed frontend (used in the reset email link).
 
 ---
 

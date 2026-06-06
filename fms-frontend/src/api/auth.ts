@@ -169,17 +169,42 @@ export const authApi = {
   },
 
   /**
-   * Set new password after opening email link (recovery session in Authorization header).
+   * Exchange ?code= or ?token= from the email link into a recovery access_token.
+   */
+  recoverySession: async (payload: {
+    code?: string
+    token?: string
+  }): Promise<ApiResponse<{ access_token: string }>> => {
+    try {
+      const response = await apiClient.post<{ access_token: string }>(
+        '/auth/recovery-password/session',
+        payload
+      )
+      return { data: response.data, error: undefined }
+    } catch (err: any) {
+      const rawDetail = err.response?.data?.detail
+      const msg =
+        typeof rawDetail === 'string'
+          ? rawDetail
+          : err.response?.data?.message || 'Invalid or expired reset link'
+      return {
+        data: undefined,
+        error: { message: msg, code: err.response?.status?.toString() },
+      }
+    }
+  },
+
+  /**
+   * Set new password after opening email link — no login required (token in body).
    */
   recoveryPassword: async (
     recoveryAccessToken: string,
     password: string
   ): Promise<ApiResponse<{ message: string }>> => {
     try {
-      const response = await apiClient.patch<{ message: string }>(
-        '/auth/recovery-password',
-        { password },
-        { headers: { Authorization: `Bearer ${recoveryAccessToken}` } }
+      const response = await apiClient.post<{ message: string }>(
+        '/auth/recovery-password/reset',
+        { access_token: recoveryAccessToken, password }
       )
       return { data: response.data, error: undefined }
     } catch (err: any) {

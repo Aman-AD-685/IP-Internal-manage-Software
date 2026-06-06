@@ -121,6 +121,30 @@ export interface CreateTicketRequest {
   query_response_at?: string
   why_feature?: string
   attachment_url?: string
+  repeat_of_ticket_id?: string
+}
+
+export interface SimilarTicketMatch {
+  id: string
+  reference_no: string
+  title: string
+  type: 'chore' | 'bug' | 'feature'
+  created_at: string
+  status_summary: string
+  status_2?: string
+  status_4?: string
+  approval_status?: string | null
+  is_open: boolean
+  match_score: number
+  match_kind: 'exact' | 'similar'
+}
+
+export interface SimilarTicketsResponse {
+  repeat_count: number
+  normalized_title: string
+  has_open_repeat: boolean
+  scope: 'global'
+  matches: SimilarTicketMatch[]
 }
 
 export interface UpdateTicketRequest {
@@ -242,6 +266,14 @@ export const ticketsApi = {
   create: async (data: CreateTicketRequest): Promise<ApiResponse<Ticket>> => {
     const response = await apiClient.post<ApiResponse<Ticket>>('/tickets', data)
     invalidateAfterTicketMutation()
+    return response.data
+  },
+
+  getSimilar: async (params: { title: string; limit?: number }): Promise<SimilarTicketsResponse> => {
+    const response = await apiClient.get<SimilarTicketsResponse>('/tickets/similar', {
+      params: { title: params.title, limit: params.limit ?? 10 },
+      timeout: 500,
+    })
     return response.data
   },
 

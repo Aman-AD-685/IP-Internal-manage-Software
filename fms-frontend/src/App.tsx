@@ -10,10 +10,13 @@ import { AuthProvider } from "./contexts/AuthProvider"
 import { readStoredAuthSession } from "./utils/authSession"
 import { AppLayout } from "./components/layout/AppLayout"
 import { ProtectedRoute } from "./components/layout/ProtectedRoute"
+import { RecoveryRedirectGuard } from "./components/auth/RecoveryRedirectGuard"
+import { hasRecoveryRedirectInUrl } from "./utils/recoveryAuth"
 
 import { Register } from "./pages/auth/Register"
 import { Login } from "./pages/auth/Login"
 import { ResetPassword } from "./pages/auth/ResetPassword"
+import { ForgotPassword } from "./pages/auth/ForgotPassword"
 import { OTPVerification } from "./pages/auth/OTPVerification"
 import { ConfirmationSuccess } from "./pages/auth/ConfirmationSuccess"
 
@@ -65,6 +68,10 @@ import {
 function RootRedirect() {
   const { isAuthenticated, isLoading, user } = useAuth()
   const hasStoredSession = readStoredAuthSession().hasSession
+  if (hasRecoveryRedirectInUrl()) {
+    const target = `${ROUTES.RESET_PASSWORD}${window.location.search}${window.location.hash}`
+    return <Navigate to={target} replace />
+  }
   if (isLoading && !hasStoredSession) return <LoadingSpinner fullPage />
   if (isAuthenticated && user) {
     return <Navigate to={getDefaultLandingRoute(user)} replace />
@@ -93,6 +100,7 @@ function AppTitle() {
   useEffect(() => {
     const titles: Record<string, string> = {
       [ROUTES.LOGIN]: "Login — Industry Prime FMS",
+      [ROUTES.FORGOT_PASSWORD]: "Forgot password",
       [ROUTES.RESET_PASSWORD]: "Reset password",
       [ROUTES.REGISTER]: "Register — Industry Prime",
       [ROUTES.DASHBOARD]: "Dashboard",
@@ -128,6 +136,7 @@ function AppTitle() {
     const page = titles[pathname] || (pathname.startsWith("/tickets") ? "Ticket" : pathname.startsWith("/client-to-lead/leads/") ? "Lead Detail" : pathname.startsWith("/onboarding") ? "Onboarding" : APP_NAME)
     const isPublicAuth =
       pathname === ROUTES.LOGIN ||
+      pathname === ROUTES.FORGOT_PASSWORD ||
       pathname === ROUTES.REGISTER ||
       pathname === ROUTES.RESET_PASSWORD
     document.title = isPublicAuth
@@ -158,6 +167,7 @@ function App() {
     >
       <AuthProvider>
         <BrowserRouter>
+          <RecoveryRedirectGuard />
           <GlobalContextMenuProvider>
           <AppTitle />
           <Suspense fallback={<PageSkeleton />}>
@@ -165,6 +175,7 @@ function App() {
             {/* ================= PUBLIC ROUTES ================= */}
             <Route path={ROUTES.REGISTER} element={<Register />} />
             <Route path={ROUTES.LOGIN} element={<Login />} />
+            <Route path={ROUTES.FORGOT_PASSWORD} element={<ForgotPassword />} />
             <Route path={ROUTES.RESET_PASSWORD} element={<ResetPassword />} />
             <Route path={ROUTES.OTP} element={<OTPVerification />} />
             <Route

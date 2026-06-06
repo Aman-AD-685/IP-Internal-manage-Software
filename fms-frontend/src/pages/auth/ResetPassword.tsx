@@ -5,6 +5,15 @@ import { useNavigate, Link } from 'react-router-dom'
 import { authApi } from '../../api/auth'
 import { AuthLayout } from '../../components/auth/AuthLayout'
 import { ROUTES } from '../../utils/constants'
+import {
+  clearRecoveryParamsFromUrl,
+  clearStoredRecoveryAccessToken,
+  parseRecoveryAccessTokenFromUrl,
+  readStoredRecoveryAccessToken,
+  recoveryCodeFromUrl,
+  recoveryVerifyTokenFromUrl,
+  saveRecoveryAccessToken,
+} from '../../utils/recoveryAuth'
 
 const { Text } = Typography
 
@@ -13,18 +22,6 @@ const colors = {
   lightBlue: '#7eb8da',
   white: '#ffffff',
   accent: '#f59e0b',
-}
-
-/** Parse Supabase recovery redirect: #access_token=...&type=recovery&... */
-function parseRecoveryTokenFromHash(): string | null {
-  const raw = (window.location.hash || '').replace(/^#/, '')
-  if (!raw) return null
-  const params = new URLSearchParams(raw)
-  const accessToken = params.get('access_token')
-  const type = params.get('type')
-  if (!accessToken) return null
-  if (type && type !== 'recovery') return null
-  return accessToken
 }
 
 export const ResetPassword = () => {
@@ -36,10 +33,40 @@ export const ResetPassword = () => {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const t = parseRecoveryTokenFromHash()
-    setToken(t)
-    if (t) {
-      window.history.replaceState(null, '', window.location.pathname + window.location.search)
+    let cancelled = false
+
+    const resolveToken = async () => {
+      const direct = parseRecoveryAccessTokenFromUrl() ?? readStoredRecoveryAccessToken()
+      if (direct) {
+        saveRecoveryAccessToken(direct)
+        if (!cancelled) setToken(direct)
+        clearRecoveryParamsFromUrl()
+        return
+      }
+
+      const code = recoveryCodeFromUrl()
+      const verifyToken = recoveryVerifyTokenFromUrl()
+      if (code || verifyToken) {
+        const res = await authApi.recoverySession({ code: code ?? undefined, token: verifyToken ?? undefined })
+        if (cancelled) return
+        if (res.error || !res.data?.access_token) {
+          setToken(null)
+          setError(res.error?.message || 'This reset link is invalid or has expired.')
+          clearRecoveryParamsFromUrl()
+          return
+        }
+        saveRecoveryAccessToken(res.data.access_token)
+        setToken(res.data.access_token)
+        clearRecoveryParamsFromUrl()
+        return
+      }
+
+      if (!cancelled) setToken(null)
+    }
+
+    void resolveToken()
+    return () => {
+      cancelled = true
     }
   }, [])
 
@@ -53,6 +80,7 @@ export const ResetPassword = () => {
       setError(res.error.message)
       return
     }
+    clearStoredRecoveryAccessToken()
     setDone(true)
     setTimeout(() => navigate(ROUTES.LOGIN), 2500)
   }
@@ -70,6 +98,9 @@ export const ResetPassword = () => {
       <AuthLayout variant="login">
         <div style={{ width: '100%', maxWidth: 560, textAlign: 'center' }}>
           <h1 style={{ color: colors.white, fontSize: 28, marginBottom: 16 }}>Invalid or expired link</h1>
+          {error && (
+            <Alert type="error" showIcon message={error} style={{ marginBottom: 24, textAlign: 'left' }} />
+          )}
           <Text style={{ color: colors.lightBlue, display: 'block', marginBottom: 24 }}>
             Open the password reset link from your email, or request a new one from the login page.
           </Text>

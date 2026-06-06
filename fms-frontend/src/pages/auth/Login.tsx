@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import { Form, Input, Button, message, Alert, Modal, Typography } from 'antd'
+import { Form, Input, Button, message, Alert } from 'antd'
 import { MailOutlined, LockOutlined } from '@ant-design/icons'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { authApi } from '../../api/auth'
 import { validateEmail } from '../../utils/validation'
 import { storage, checkSingleBrowserSession } from '../../utils/storage'
@@ -13,8 +13,6 @@ import { useAuth } from '../../hooks/useAuth'
 import { API_BASE_URL } from '../../api/axios'
 import { getLocalUvicornStartCommand } from '../../utils/localBackend'
 import type { LoginRequest } from '../../types/auth'
-
-const { Link: TextLink } = Typography
 
 const colors = {
   darkBlue: '#1e3a5f',
@@ -60,9 +58,6 @@ export const Login = () => {
   const [loading, setLoading] = useState(false)
   const [connectionError, setConnectionError] = useState<string | null>(null)
   const [loginError, setLoginError] = useState<string | null>(null)
-  const [forgotOpen, setForgotOpen] = useState(false)
-  const [forgotEmail, setForgotEmail] = useState('')
-  const [forgotLoading, setForgotLoading] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
   const { login, isAuthenticated, isLoading, user } = useAuth()
@@ -170,34 +165,6 @@ export const Login = () => {
   }
 
   const onFinish = (values: LoginRequest) => attemptLogin(values, 0)
-
-  const openForgot = () => {
-    const e = form.getFieldValue('email') as string | undefined
-    setForgotEmail(e && validateEmail(e) ? e : '')
-    setForgotOpen(true)
-  }
-
-  const closeForgot = () => {
-    setForgotOpen(false)
-  }
-
-  /** Modal OK: request reset email (do not update password directly). */
-  const handleForgotModalOk = async (): Promise<void> => {
-    const e = (forgotEmail || '').trim()
-    if (!e || !validateEmail(e)) {
-      message.warning('Enter a valid email address')
-      return Promise.reject()
-    }
-    setForgotLoading(true)
-    const res = await authApi.forgotPasswordLookup(e)
-    setForgotLoading(false)
-    if (res.error) {
-      message.error(res.error.message)
-      return Promise.reject()
-    }
-    message.success(res.data?.message || 'Check your email for a password reset link.')
-    closeForgot()
-  }
 
   return (
     <AuthLayout variant="login">
@@ -308,9 +275,12 @@ export const Login = () => {
           </Form.Item>
 
           <div style={{ textAlign: 'right', marginBottom: 20 }}>
-            <TextLink onClick={openForgot} style={{ color: colors.lightBlue, fontSize: 15 }}>
+            <Link
+              to={ROUTES.FORGOT_PASSWORD}
+              style={{ color: colors.lightBlue, fontSize: 15 }}
+            >
               Forgot password?
-            </TextLink>
+            </Link>
           </div>
 
           <Form.Item style={{ marginBottom: 20 }}>
@@ -352,31 +322,6 @@ export const Login = () => {
           </Form.Item>
         </Form>
       </div>
-
-      <Modal
-        title="Forgot password"
-        open={forgotOpen}
-        onCancel={closeForgot}
-        onOk={handleForgotModalOk}
-        confirmLoading={forgotLoading}
-        okText="Send reset email"
-        destroyOnClose
-        afterClose={() => {
-          setForgotEmail('')
-        }}
-      >
-        <p style={{ marginBottom: 12, color: '#666' }}>
-          Enter your account email. If it exists, we will send a time-limited password reset link to your inbox.
-        </p>
-        <Input
-          type="email"
-          placeholder="Your e-mail"
-          value={forgotEmail}
-          onChange={(ev) => setForgotEmail(ev.target.value)}
-          size="large"
-          autoComplete="email"
-        />
-      </Modal>
     </AuthLayout>
   )
 }
