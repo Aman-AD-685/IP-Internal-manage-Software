@@ -174,10 +174,33 @@ export const authApi = {
   recoverySession: async (payload: {
     code?: string
     token?: string
-  }): Promise<ApiResponse<{ access_token: string }>> => {
+  }): Promise<ApiResponse<{ access_token: string; refresh_token?: string | null }>> => {
     try {
-      const response = await apiClient.post<{ access_token: string }>(
+      const response = await apiClient.post<{ access_token: string; refresh_token?: string | null }>(
         '/auth/recovery-password/session',
+        payload
+      )
+      return { data: response.data, error: undefined }
+    } catch (err: any) {
+      const rawDetail = err.response?.data?.detail
+      const msg =
+        typeof rawDetail === 'string'
+          ? rawDetail
+          : err.response?.data?.message || 'Invalid or expired reset link'
+      return {
+        data: undefined,
+        error: { message: msg, code: err.response?.status?.toString() },
+      }
+    }
+  },
+
+  recoveryValidate: async (payload: {
+    access_token: string
+    refresh_token?: string | null
+  }): Promise<ApiResponse<{ valid: boolean }>> => {
+    try {
+      const response = await apiClient.post<{ valid: boolean }>(
+        '/auth/recovery-password/validate',
         payload
       )
       return { data: response.data, error: undefined }
@@ -199,12 +222,17 @@ export const authApi = {
    */
   recoveryPassword: async (
     recoveryAccessToken: string,
-    password: string
+    password: string,
+    refreshToken?: string | null
   ): Promise<ApiResponse<{ message: string }>> => {
     try {
       const response = await apiClient.post<{ message: string }>(
         '/auth/recovery-password/reset',
-        { access_token: recoveryAccessToken, password }
+        {
+          access_token: recoveryAccessToken,
+          password,
+          refresh_token: refreshToken ?? undefined,
+        }
       )
       return { data: response.data, error: undefined }
     } catch (err: any) {

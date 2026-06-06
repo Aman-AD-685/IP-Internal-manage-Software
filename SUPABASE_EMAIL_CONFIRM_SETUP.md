@@ -63,6 +63,21 @@ On **Render**: Add `FRONTEND_URL` in your service's Environment variables.
 
 **Backend `FRONTEND_URL`** must match your deployed frontend (used in the reset email link).
 
+### Reset link expires too soon / “Could not update password”
+
+1. **Supabase → Authentication → Providers → Email** — set **Email OTP Expiration** to **3600** (1 hour) or higher. Default may be 600 (10 minutes).
+2. **Gmail link prefetch** — some providers open reset links in the background, which uses the one-time token before you click. Request a **new** reset email and click the link **once** immediately.
+3. After deploy, the app stores both `access_token` and `refresh_token` from the email redirect and uses Supabase `PUT /auth/v1/user` (not PATCH) to update the password.
+
+### Reset emails go to spam
+
+1. **Supabase → Project Settings → Auth → SMTP** — use **Custom SMTP** (Postmark recommended; same as Render `POSTMARK_*` env).
+2. **Verify sender domain** in Postmark (SPF + DKIM). Use a branded From, e.g. `Industry Prime FMS <noreply@yourdomain.com>` — not a personal name only.
+3. **Supabase → Authentication → Email Templates → Reset password** — edit subject/body:
+   - Subject: `Reset your Industry Prime password`
+   - Keep `{{ .ConfirmationURL }}` as the button/link.
+4. Ask users to check **Spam/Junk** and mark as “Not spam” once.
+
 ---
 
 ## Email link vs OTP

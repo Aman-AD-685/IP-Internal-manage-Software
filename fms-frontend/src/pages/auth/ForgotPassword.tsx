@@ -6,6 +6,7 @@ import { authApi } from '../../api/auth'
 import { validateEmail } from '../../utils/validation'
 import { AuthLayout } from '../../components/auth/AuthLayout'
 import { ROUTES } from '../../utils/constants'
+import { clearStoredRecoveryAccessToken } from '../../utils/recoveryAuth'
 
 const { Text } = Typography
 
@@ -22,6 +23,7 @@ export const ForgotPassword = () => {
   const [error, setError] = useState<string | null>(null)
 
   const onFinish = async (values: { email: string }) => {
+    clearStoredRecoveryAccessToken()
     setLoading(true)
     setError(null)
     const res = await authApi.forgotPasswordLookup(values.email.trim())
@@ -43,6 +45,7 @@ export const ForgotPassword = () => {
         </h1>
         <Text style={{ color: colors.lightBlue, display: 'block', textAlign: 'center', marginBottom: 28 }}>
           Enter your account email. We will send a link to set a new password — no sign-in required.
+          Check your inbox and spam folder; click the link once within 1 hour.
         </Text>
 
         {sent && (
@@ -50,7 +53,7 @@ export const ForgotPassword = () => {
             type="success"
             showIcon
             message="Check your email"
-            description="Open the Reset Password link in the email. It opens a separate page where you can choose a new password."
+            description="Open the Reset Password link in the email (check spam/junk too). Click it once, then set your new password right away."
             style={{ marginBottom: 24 }}
           />
         )}

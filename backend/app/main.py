@@ -490,6 +490,7 @@ class RecoverySessionRequest(BaseModel):
 class RecoveryResetRequest(BaseModel):
     access_token: str
     password: str
+    refresh_token: Optional[str] = None
 
     @field_validator("password")
     @classmethod
@@ -497,6 +498,11 @@ class RecoveryResetRequest(BaseModel):
         if len(v) < 8:
             raise ValueError("Password must be at least 8 characters long")
         return v
+
+
+class RecoveryValidateRequest(BaseModel):
+    access_token: str
+    refresh_token: Optional[str] = None
 
 
 # ---------- Routes ----------
@@ -1125,43 +1131,136 @@ def recovery_password_session(payload: RecoverySessionRequest):
     access_token = _recovery_access_token_from_supabase_response(data)
     if not access_token:
         raise HTTPException(400, "Invalid or expired reset link. Request a new password reset from the login page.")
-    return {"access_token": access_token}
+    refresh_token = _recovery_refresh_token_from_supabase_response(data)
+    return {"access_token": access_token, "refresh_token": refresh_token}
 
 
-def _supabase_update_password_with_recovery_token(recovery_token: str, password: str) -> None:
+def _recovery_refresh_token_from_supabase_response(data: dict) -> Optional[str]:
+    if not isinstance(data, dict):
+        return None
+    direct = data.get("refresh_token")
+    if isinstance(direct, str) and direct.strip():
+        return direct.strip()
+    session = data.get("session")
+    if isinstance(session, dict):
+        nested = session.get("refresh_token")
+        if isinstance(nested, str) and nested.strip():
+            return nested.strip()
+    return None
+
+
+def _parse_supabase_auth_error(response: httpx.Response) -> str:
+    try:
+        body = response.json()
+    except Exception:
+        return "Could not update password. Request a new reset link from the login page."
+    if not isinstance(body, dict):
+        return "Could not update password. Request a new reset link from the login page."
+    msg = body.get("msg") or body.get("message") or body.get("error_description") or body.get("error")
+    if isinstance(msg, str) and msg.strip():
+        low = msg.lower()
+        if "expired" in low or "invalid" in low or "session" in low:
+            return "This reset link has expired. Request a new password reset from the login page."
+        if "password" in low:
+            return msg.strip()
+        return msg.strip()
+    return "Could not update password. Request a new reset link from the login page."
+
+
+def _recovery_user_id_from_token(access_token: str) -> Optional[str]:
+    apikey = (SUPABASE_ANON_KEY or "").strip()
+    if not apikey or not access_token:
+        return None
+    url = f"{SUPABASE_URL.rstrip('/')}/auth/v1/user"
+    try:
+        r = httpx.get(
+            url,
+            headers={"Authorization": f"Bearer {access_token}", "apikey": apikey},
+            timeout=45.0,
+        )
+    except Exception:
+        return None
+    if r.status_code >= 400:
+        return None
+    try:
+        data = r.json()
+    except Exception:
+        return None
+    user_id = data.get("id") if isinstance(data, dict) else None
+    return str(user_id).strip() if user_id else None
+
+
+def _supabase_update_password_with_recovery_token(
+    recovery_token: str,
+    password: str,
+    refresh_token: Optional[str] = None,
+) -> None:
     apikey = (SUPABASE_ANON_KEY or "").strip()
     if not apikey:
         raise HTTPException(503, "Server configuration error: missing SUPABASE_ANON_KEY")
     token = (recovery_token or "").strip()
     if not token:
         raise HTTPException(401, "Missing or invalid reset session. Open the link from your email again.")
+    refresh = (refresh_token or "").strip() or None
+
+    # Preferred: establish Supabase session (access + refresh) then update_user (PUT).
+    if refresh:
+        try:
+            supabase_auth.auth.set_session(token, refresh)
+            supabase_auth.auth.update_user({"password": password})
+            return
+        except Exception as e:
+            _log(f"recovery-password set_session/update_user: {type(e).__name__}: {str(e)[:200]}")
+
     url = f"{SUPABASE_URL.rstrip('/')}/auth/v1/user"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "apikey": apikey,
+        "Content-Type": "application/json",
+    }
     try:
-        r = httpx.patch(
-            url,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "apikey": apikey,
-                "Content-Type": "application/json",
-            },
-            json={"password": password},
-            timeout=45.0,
-        )
+        r = httpx.put(url, headers=headers, json={"password": password}, timeout=45.0)
     except Exception as e:
         _log(f"recovery-password httpx error: {type(e).__name__}")
         raise HTTPException(503, "Could not reach authentication service. Try again later.")
-    if r.status_code >= 400:
-        _log(f"recovery-password: {r.status_code} {(r.text or '')[:400]}")
+    if r.status_code < 400:
+        return
+
+    _log(f"recovery-password PUT: {r.status_code} {(r.text or '')[:400]}")
+    detail = _parse_supabase_auth_error(r)
+
+    # Fallback: admin password update after token identifies the user.
+    user_id = _recovery_user_id_from_token(token)
+    if user_id and SUPABASE_SERVICE_ROLE_KEY:
+        try:
+            supabase.auth.admin.update_user_by_id(user_id, {"password": password})
+            return
+        except Exception as e:
+            _log(f"recovery-password admin fallback: {type(e).__name__}: {str(e)[:200]}")
+
+    raise HTTPException(status_code=400, detail=detail)
+
+
+@api_router.post("/auth/recovery-password/validate")
+def recovery_password_validate(payload: RecoveryValidateRequest):
+    """Check recovery session is still valid before showing the reset form."""
+    user_id = _recovery_user_id_from_token(payload.access_token.strip())
+    if not user_id:
         raise HTTPException(
-            status_code=400,
-            detail="Could not update password. The link may have expired. Request a new reset from the login page.",
+            400,
+            "This reset link has expired or was already used. Request a new password reset from the login page.",
         )
+    return {"valid": True}
 
 
 @api_router.post("/auth/recovery-password/reset")
 def recovery_password_reset(payload: RecoveryResetRequest):
     """Set new password from email link — no login session required (token in body)."""
-    _supabase_update_password_with_recovery_token(payload.access_token, payload.password)
+    _supabase_update_password_with_recovery_token(
+        payload.access_token,
+        payload.password,
+        payload.refresh_token,
+    )
     return {"message": "Password updated successfully. You can sign in with your new password."}
 
 
