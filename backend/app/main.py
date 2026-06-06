@@ -5667,8 +5667,14 @@ def list_pages(
         return _etag_json(payload)
 
 
+def _divisions_lookup_response(payload: dict[str, Any]) -> JSONResponse:
+    """Support-form lookups must not be browser-cached (empty lists were sticking intermittently)."""
+    response = JSONResponse(content=payload)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @api_router.get("/divisions")
-@cached(ttl=30, key_prefix="divisions:")
 def list_divisions(
     company_id: str | None = None,
     page: int = 1,
@@ -5682,58 +5688,55 @@ def list_divisions(
         q = supabase.table("divisions").select("id, name, company_id", count="exact")
         if company_id:
             from app.company_dedupe import (
-                company_ids_by_name_fallback,
                 company_ids_for_division_lookup,
                 dedupe_division_rows,
+                division_names_from_ticket_history,
                 ensure_divisions_for_companies,
+                fetch_company_by_id,
                 is_all_company_placeholder,
-                _load_all_companies,
             )
 
-            lookup_ids = company_ids_for_division_lookup(company_id)
-            anchor_name = ""
-            for row in _load_all_companies():
-                if str(row.get("id")) == str(company_id):
-                    anchor_name = str(row.get("name") or "")
-                    break
+            anchor_row = fetch_company_by_id(company_id)
+            anchor_name = str(anchor_row.get("name") or "") if anchor_row else ""
+            all_ids = company_ids_for_division_lookup(company_id)
 
-            extra_ids: list[str] = []
-            if anchor_name:
-                extra_ids = company_ids_by_name_fallback(
-                    anchor_name, exclude_ids=set(lookup_ids)
+            def _query_division_rows() -> list[dict[str, Any]]:
+                r_all = (
+                    supabase.table("divisions")
+                    .select("id, name, company_id")
+                    .in_("company_id", all_ids)
+                    .order("name")
+                    .execute()
                 )
-            all_ids = list(dict.fromkeys(lookup_ids + extra_ids)) or [company_id]
+                return dedupe_division_rows(list(r_all.data or []))
 
-            if anchor_name:
-                ensure_divisions_for_companies(all_ids, anchor_name)
-
-            r_all = (
-                supabase.table("divisions")
-                .select("id, name, company_id")
-                .in_("company_id", all_ids)
-                .order("name")
-                .execute()
-            )
-            merged = dedupe_division_rows(list(r_all.data or []))
+            merged = _query_division_rows()
+            if not merged and anchor_name:
+                ensure_divisions_for_companies([company_id], anchor_name)
+                merged = _query_division_rows()
+            if not merged and anchor_name:
+                ticket_names = division_names_from_ticket_history(all_ids)
+                if ticket_names:
+                    ensure_divisions_for_companies(
+                        [company_id],
+                        anchor_name,
+                        extra_division_names=ticket_names,
+                    )
+                    merged = _query_division_rows()
             if not merged and is_all_company_placeholder(company_id, anchor_name):
                 merged = dedupe_division_rows(
-                    ensure_divisions_for_companies(all_ids, anchor_name or "All Company")
+                    ensure_divisions_for_companies([company_id], anchor_name or "All Company")
                 )
             total = len(merged)
             page_rows = merged[offset : offset + page_size]
             payload = {"data": page_rows, "total": total, "page": page, "page_size": page_size}
-            return _etag_json(payload)
+            return _divisions_lookup_response(payload)
         r = q.order("name").range(offset, offset + page_size - 1).execute()
         payload = {"data": r.data or [], "total": r.count or 0, "page": page, "page_size": page_size}
-        return _etag_json(payload)
-    except Exception:
-        payload = {
-            "data": [{"id": "1", "name": "Sales"}, {"id": "2", "name": "Support"}],
-            "total": 2,
-            "page": 1,
-            "page_size": 50,
-        }
-        return _etag_json(payload)
+        return _divisions_lookup_response(payload)
+    except Exception as e:
+        _log(f"divisions lookup error: {type(e).__name__}: {str(e)[:200]}")
+        return _divisions_lookup_response({"data": [], "total": 0, "page": 1, "page_size": 50})
 
 
 # ---------- Onboarding > Payment Status ----------

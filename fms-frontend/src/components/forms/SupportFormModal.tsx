@@ -126,6 +126,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
   const draftSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const skipDraftSaveRef = useRef(false)
   const isLoadingDraftRef = useRef(false)
+  const divisionsFetchGenRef = useRef(0)
   const attachmentUrlRef = useRef<string | null>(null)
   attachmentUrlRef.current = attachmentUrl
 
@@ -188,7 +189,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
           setRequestType(draftType)
           setTypeFeature(draftType === 'feature')
           if (data.company_id) {
-            const d = await supportApi.getDivisions(data.company_id as string)
+            const d = await supportApi.getDivisions(data.company_id as string, { bustCache: true })
             setDivisions(d)
             const hasOther = d.some((x) => x.name === 'Other')
             setDivisionOther(hasOther)
@@ -209,7 +210,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
             // If user selected company during draft-load window, fetch divisions now.
             const selectedCompanyId = form.getFieldValue('company_id') as string | undefined
             if (selectedCompanyId) {
-              supportApi.getDivisions(selectedCompanyId).then((d) => {
+              supportApi.getDivisions(selectedCompanyId, { bustCache: true }).then((d) => {
                 setDivisions(d)
                 setDivisionOther(d.some((x) => x.name === 'Other'))
               })
@@ -222,21 +223,27 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
   const companyId = Form.useWatch('company_id', form)
   useEffect(() => {
     if (companyId) {
+      const fetchGen = ++divisionsFetchGenRef.current
       supportApi
         .getDivisions(companyId, { bustCache: true })
         .then((d) => {
+          if (fetchGen !== divisionsFetchGenRef.current) return
           setDivisions(d)
           setDivisionOther(d.some((x) => x.name === 'Other'))
         })
-        .catch(() => setDivisions([]))
+        .catch(() => {
+          if (fetchGen !== divisionsFetchGenRef.current) return
+          setDivisions([])
+        })
       form.setFieldValue('division_id', undefined)
       form.setFieldValue('division_other', undefined)
     } else {
+      divisionsFetchGenRef.current += 1
       setDivisions([])
       form.setFieldValue('division_id', undefined)
       form.setFieldValue('division_other', undefined)
     }
-  }, [companyId])
+  }, [companyId, form])
 
   const handleTypeChange = (val: string) => {
     setRequestType(val)

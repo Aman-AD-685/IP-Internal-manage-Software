@@ -86,7 +86,10 @@ export const supportApi = {
     if (cached) return cached
     const extra = companyId ? { company_id: companyId } : {}
     const rows = await fetchFullList<Division>('/divisions', extra)
-    sessionApiCacheSet(key, rows, API_CACHE_TTL_MS.supportDivisions)
+    // Never cache empty lists — transient misses were sticking for 15 minutes in the picker.
+    if (rows.length > 0) {
+      sessionApiCacheSet(key, rows, API_CACHE_TTL_MS.supportDivisions)
+    }
     return rows
   },
 }

@@ -43,6 +43,50 @@ def normalize_company_dedupe_key(name: str | None) -> str:
     return s
 
 
+def fetch_company_by_id(company_id: str) -> dict[str, Any] | None:
+    """Direct DB lookup — avoids stale in-memory company list missing newly added rows."""
+    cid = (company_id or "").strip()
+    if not cid:
+        return None
+    try:
+        r = supabase.table("companies").select("id, name").eq("id", cid).limit(1).execute()
+        rows = r.data or []
+        return rows[0] if rows else None
+    except Exception:
+        return None
+
+
+def division_names_from_ticket_history(company_ids: list[str]) -> list[str]:
+    """Distinct division labels already used on tickets for these companies (fallback when master data is missing)."""
+    ids = [str(x).strip() for x in company_ids if x and str(x).strip()]
+    if not ids:
+        return []
+    names: list[str] = []
+    seen: set[str] = set()
+    try:
+        r = (
+            supabase.table("tickets")
+            .select("division")
+            .in_("company_id", ids)
+            .not_.is_("division", "null")
+            .limit(1000)
+            .execute()
+        )
+        for row in r.data or []:
+            label = str(row.get("division") or "").strip()
+            if not label:
+                continue
+            key = label.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            names.append(label)
+    except Exception:
+        pass
+    names.sort(key=lambda x: x.lower())
+    return names
+
+
 def _load_all_companies() -> list[dict[str, Any]]:
     global _COMPANY_ROWS_CACHE, _COMPANY_ROWS_CACHE_AT
     now = time.time()
@@ -78,14 +122,14 @@ def company_ids_for_division_lookup(company_id: str) -> list[str]:
     cid = (company_id or "").strip()
     if not cid:
         return []
-    anchor_key = ""
-    for row in _load_all_companies():
-        if str(row.get("id")) == cid:
-            anchor_key = normalize_company_dedupe_key(row.get("name"))
-            break
+    anchor_row = fetch_company_by_id(cid)
+    anchor_name = str(anchor_row.get("name") or "") if anchor_row else ""
+    anchor_key = normalize_company_dedupe_key(anchor_name) if anchor_name else ""
     if not anchor_key:
         return [cid]
     ids = [str(r["id"]) for r in _load_all_companies() if normalize_company_dedupe_key(r.get("name")) == anchor_key]
+    if cid not in ids:
+        ids.insert(0, cid)
     return ids or [cid]
 
 
@@ -155,14 +199,9 @@ def _client_onb_division_names(company_name: str) -> list[str]:
             q = q.ilike("company_name", f"%{tokens[0]}%")
         r = q.limit(100).execute()
 
-        def _row_matches(row: dict[str, Any]) -> bool:
-            cn = normalize_company_dedupe_key(row.get("company_name"))
-            if cn == anchor_key:
-                return True
-            return bool(tokens) and all(t in cn for t in tokens)
-
         for row in r.data or []:
-            if not _row_matches(row):
+            cn = normalize_company_dedupe_key(row.get("company_name"))
+            if cn != anchor_key:
                 continue
             for field in (
                 row.get("division_abbreviation"),
@@ -188,12 +227,23 @@ def _client_onb_division_names(company_name: str) -> list[str]:
     return out
 
 
-def ensure_divisions_for_companies(company_ids: list[str], company_name: str) -> list[dict[str, Any]]:
+def ensure_divisions_for_companies(
+    company_ids: list[str],
+    company_name: str,
+    *,
+    extra_division_names: list[str] | None = None,
+) -> list[dict[str, Any]]:
     """
     If divisions table has no rows for these companies, create them from Client ONB
     (division_abbreviation) so the support form can select a division_id.
     """
     division_names = _client_onb_division_names(company_name)
+    for raw in extra_division_names or []:
+        label = str(raw or "").strip()
+        if not label:
+            continue
+        if not any(label.lower() == x.lower() for x in division_names):
+            division_names.append(label)
     if not division_names and is_all_company_placeholder(None, company_name):
         division_names = [_ALL_COMPANY_DEFAULT_DIVISION]
     if not division_names and any(is_all_company_placeholder(cid) for cid in company_ids):
@@ -201,33 +251,43 @@ def ensure_divisions_for_companies(company_ids: list[str], company_name: str) ->
     if not division_names:
         return []
 
+    # Seed only the selected company row — siblings are read via company_ids_for_division_lookup.
     target_ids = [cid for cid in company_ids if cid]
-    for cid in target_ids:
-        for dname in division_names:
-            try:
-                existing = (
-                    supabase.table("divisions")
-                    .select("id")
-                    .eq("company_id", cid)
-                    .ilike("name", dname)
-                    .limit(1)
-                    .execute()
-                )
-                if existing.data:
-                    continue
-                supabase.table("divisions").insert({"company_id": cid, "name": dname}).execute()
-            except Exception:
+    primary_id = target_ids[0] if target_ids else ""
+    if not primary_id:
+        return []
+
+    existing_names: set[str] = set()
+    try:
+        existing = (
+            supabase.table("divisions")
+            .select("name")
+            .eq("company_id", primary_id)
+            .execute()
+        )
+        existing_names = {str(x.get("name") or "").strip().lower() for x in (existing.data or [])}
+    except Exception:
+        pass
+
+    to_insert = [
+        {"company_id": primary_id, "name": dname}
+        for dname in division_names
+        if dname.strip().lower() not in existing_names
+    ]
+    if to_insert:
+        try:
+            supabase.table("divisions").insert(to_insert).execute()
+        except Exception:
+            for row in to_insert:
                 try:
-                    supabase.table("divisions").insert({"company_id": cid, "name": dname}).execute()
+                    supabase.table("divisions").insert(row).execute()
                 except Exception:
                     pass
 
-    if not target_ids:
-        return []
     r = (
         supabase.table("divisions")
         .select("id, name, company_id")
-        .in_("company_id", target_ids)
+        .eq("company_id", primary_id)
         .order("name")
         .execute()
     )

@@ -223,7 +223,7 @@ export const ChoresBugsDetailDrawer = ({ ticketId, open, onClose, onUpdate, read
       query_response_at: ticket.query_response_at || '',
     })
     if (nextCompanyId) {
-      supportApi.getDivisions(nextCompanyId).then((rows) => setDivisions(rows || [])).catch(() => setDivisions([]))
+      supportApi.getDivisions(nextCompanyId, { bustCache: true }).then((rows) => setDivisions(rows || [])).catch(() => setDivisions([]))
     } else {
       setDivisions([])
     }
@@ -945,7 +945,7 @@ export const ChoresBugsDetailDrawer = ({ ticketId, open, onClose, onUpdate, read
                 const nextCompanyId = String(v || '')
                 setEditForm((p) => ({ ...p, company_id: nextCompanyId, division_id: '', division_other: '' }))
                 if (nextCompanyId) {
-                  supportApi.getDivisions(nextCompanyId).then((rows) => setDivisions(rows || [])).catch(() => setDivisions([]))
+                  supportApi.getDivisions(nextCompanyId, { bustCache: true }).then((rows) => setDivisions(rows || [])).catch(() => setDivisions([]))
                 } else {
                   setDivisions([])
                 }
