@@ -65,6 +65,7 @@ _AUTH_PATHS = {
     "/auth/recovery-password",
     "/auth/recovery-password/reset",
     "/auth/recovery-password/session",
+    "/auth/recovery-password/validate",
     "/approval/execute-by-token",
 }
 

@@ -8,11 +8,12 @@ import { ROUTES } from '../../utils/constants'
 import {
   clearRecoveryParamsFromUrl,
   clearStoredRecoveryAccessToken,
-  parseRecoveryAccessTokenFromUrl,
-  readStoredRecoveryAccessToken,
+  parseRecoverySessionFromUrl,
+  readStoredRecoverySession,
   recoveryCodeFromUrl,
   recoveryVerifyTokenFromUrl,
-  saveRecoveryAccessToken,
+  saveRecoverySession,
+  type RecoverySessionTokens,
 } from '../../utils/recoveryAuth'
 
 const { Text } = Typography
@@ -27,7 +28,7 @@ const colors = {
 export const ResetPassword = () => {
   const [form] = Form.useForm()
   const navigate = useNavigate()
-  const [token, setToken] = useState<string | null | undefined>(undefined)
+  const [session, setSession] = useState<RecoverySessionTokens | null | undefined>(undefined)
   const [loading, setLoading] = useState(false)
   const [done, setDone] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -35,12 +36,25 @@ export const ResetPassword = () => {
   useEffect(() => {
     let cancelled = false
 
-    const resolveToken = async () => {
-      const direct = parseRecoveryAccessTokenFromUrl() ?? readStoredRecoveryAccessToken()
-      if (direct) {
-        saveRecoveryAccessToken(direct)
-        if (!cancelled) setToken(direct)
+    const validateSession = async (tokens: RecoverySessionTokens) => {
+      const res = await authApi.recoveryValidate(tokens)
+      if (cancelled) return false
+      if (res.error || !res.data?.valid) {
+        clearStoredRecoveryAccessToken()
+        setSession(null)
+        setError(res.error?.message || 'This reset link has expired or was already used.')
+        return false
+      }
+      setSession(tokens)
+      return true
+    }
+
+    const resolveSession = async () => {
+      const direct = parseRecoverySessionFromUrl() ?? readStoredRecoverySession()
+      if (direct?.access_token) {
+        saveRecoverySession(direct)
         clearRecoveryParamsFromUrl()
+        await validateSession(direct)
         return
       }
 
@@ -50,31 +64,39 @@ export const ResetPassword = () => {
         const res = await authApi.recoverySession({ code: code ?? undefined, token: verifyToken ?? undefined })
         if (cancelled) return
         if (res.error || !res.data?.access_token) {
-          setToken(null)
+          setSession(null)
           setError(res.error?.message || 'This reset link is invalid or has expired.')
           clearRecoveryParamsFromUrl()
           return
         }
-        saveRecoveryAccessToken(res.data.access_token)
-        setToken(res.data.access_token)
+        const tokens: RecoverySessionTokens = {
+          access_token: res.data.access_token,
+          refresh_token: res.data.refresh_token,
+        }
+        saveRecoverySession(tokens)
         clearRecoveryParamsFromUrl()
+        await validateSession(tokens)
         return
       }
 
-      if (!cancelled) setToken(null)
+      if (!cancelled) setSession(null)
     }
 
-    void resolveToken()
+    void resolveSession()
     return () => {
       cancelled = true
     }
   }, [])
 
   const onFinish = async (values: { password: string }) => {
-    if (!token) return
+    if (!session?.access_token) return
     setLoading(true)
     setError(null)
-    const res = await authApi.recoveryPassword(token, values.password)
+    const res = await authApi.recoveryPassword(
+      session.access_token,
+      values.password,
+      session.refresh_token
+    )
     setLoading(false)
     if (res.error) {
       setError(res.error.message)
@@ -85,7 +107,7 @@ export const ResetPassword = () => {
     setTimeout(() => navigate(ROUTES.LOGIN), 2500)
   }
 
-  if (token === undefined) {
+  if (session === undefined) {
     return (
       <AuthLayout variant="login">
         <Text style={{ color: colors.white }}>Loading…</Text>
@@ -93,7 +115,7 @@ export const ResetPassword = () => {
     )
   }
 
-  if (!token) {
+  if (!session?.access_token) {
     return (
       <AuthLayout variant="login">
         <div style={{ width: '100%', maxWidth: 560, textAlign: 'center' }}>
@@ -101,10 +123,13 @@ export const ResetPassword = () => {
           {error && (
             <Alert type="error" showIcon message={error} style={{ marginBottom: 24, textAlign: 'left' }} />
           )}
-          <Text style={{ color: colors.lightBlue, display: 'block', marginBottom: 24 }}>
-            Open the password reset link from your email, or request a new one from the login page.
+          <Text style={{ color: colors.lightBlue, display: 'block', marginBottom: 16 }}>
+            Reset links expire after some time. Gmail may also open the link in the background — request a fresh link and click it once.
           </Text>
-          <Link to={ROUTES.LOGIN} style={{ color: colors.accent, fontWeight: 600 }}>
+          <Link to={ROUTES.FORGOT_PASSWORD} style={{ color: colors.accent, fontWeight: 600, display: 'block', marginBottom: 12 }}>
+            Request a new reset link
+          </Link>
+          <Link to={ROUTES.LOGIN} style={{ color: colors.lightBlue }}>
             Back to Sign in
           </Link>
         </div>
@@ -119,7 +144,7 @@ export const ResetPassword = () => {
           Set new password
         </h1>
         <Text style={{ color: colors.lightBlue, display: 'block', textAlign: 'center', marginBottom: 28 }}>
-          Choose a strong password (at least 8 characters).
+          Choose a strong password (at least 8 characters). Use the link soon after you receive the email.
         </Text>
 
         {done && (
