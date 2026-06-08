@@ -9,10 +9,9 @@ import {
   Tag,
   DatePicker,
   Button,
-  Dropdown,
   message,
 } from 'antd'
-import { SearchOutlined, PhoneOutlined, MailOutlined, MessageOutlined, LinkOutlined, MoreOutlined, PauseCircleOutlined, RetweetOutlined } from '@ant-design/icons'
+import { SearchOutlined, PhoneOutlined, MailOutlined, MessageOutlined, LinkOutlined, PauseCircleOutlined, RetweetOutlined } from '@ant-design/icons'
 import { useSearchParams, useLocation, useNavigate } from 'react-router-dom'
 import { ticketsApi, type Ticket } from '../../api/tickets'
 import { supportApi } from '../../api/support'
@@ -225,7 +224,7 @@ export const TicketList = () => {
   const [featureHoldView, setFeatureHoldView] = useState(false)
   const isFeatureHoldView = isFeatureListSection && featureHoldView
   const showRepeatedColumn =
-    isChoresBugsSection || isFeatureListSection || isApprovalSection
+    isChoresBugsSection || isFeatureListSection || isApprovalSection || isRegisterSection
   const isRegisterChoresBugsMode =
     isRegisterSection && registerTypeFilters.some((t) => t === 'chore' || t === 'bug')
   const isChoresBugs =
@@ -990,10 +989,11 @@ export const TicketList = () => {
   const wrapStyle = { whiteSpace: 'normal' as const, wordBreak: 'break-word' as const }
 
   const repeatedColumn = {
-    title: 'Repeated',
+    title: 'Rep',
     key: 'repeated',
-    width: 92,
-    fixed: 'right' as const,
+    width: 44,
+    fixed: 'left' as const,
+    align: 'center' as const,
     render: (_: unknown, r: Ticket) => {
       const childCount = r.repeat_child_count ?? 0
       return (
@@ -1006,8 +1006,10 @@ export const TicketList = () => {
             e.stopPropagation()
             setRepeatedModalTicket({ id: r.id, ref: r.reference_no })
           }}
+          style={{ padding: 0, minWidth: 28, fontSize: 12 }}
+          title={childCount > 0 ? `View ${childCount} repeated ticket(s)` : 'No repeated tickets'}
         >
-          {childCount > 0 ? `View (${childCount})` : 'View'}
+          {childCount > 0 ? childCount : ''}
         </Button>
       )
     },
@@ -1029,41 +1031,7 @@ export const TicketList = () => {
           : undefined,
       render: (v: string) => v || '-',
     },
-    ...(isMasterAdmin
-      ? [
-          {
-            title: '',
-            key: 'actions',
-            width: 48,
-            fixed: 'left' as const,
-            render: (_: unknown, r: Ticket) => (
-              <Dropdown
-                menu={{
-                  items: [
-                    {
-                      key: 'edit',
-                      label: 'Edit',
-                      onClick: () => {
-                        openTicketDrawer(r)
-                      },
-                    },
-                  ],
-                }}
-                trigger={['click']}
-                getPopupContainer={() => document.body}
-              >
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<MoreOutlined />}
-                  onClick={(e) => e.stopPropagation()}
-                  aria-label="Master Admin actions"
-                />
-              </Dropdown>
-            ),
-          },
-        ]
-      : []),
+    ...(showRepeatedColumn ? [repeatedColumn] : []),
     {
       title: 'Company Name',
       dataIndex: 'company_name',
@@ -1514,7 +1482,6 @@ export const TicketList = () => {
           },
         ]
       : []),
-    ...(showRepeatedColumn ? [repeatedColumn] : []),
   ]
 
   const pageTitle =
