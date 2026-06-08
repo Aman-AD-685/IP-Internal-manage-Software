@@ -1950,6 +1950,23 @@ def _enrich_tickets_with_lookups(rows: list, *, include_repeat_counts: bool = Tr
     return rows
 
 
+def _enrich_tickets_with_lookups_fast(rows: list) -> list:
+    """List paint path: skip repeat counts and skip lookups when display fields are already set."""
+    if not rows:
+        return rows
+
+    def _has_company_name(row: dict) -> bool:
+        name = (row.get("company_name") or "").strip()
+        return bool(name) and not _is_placeholder_company_name(name)
+
+    all_have_company = all(_has_company_name(r) or not r.get("company_id") for r in rows)
+    all_have_page = all((r.get("page") or "").strip() or not r.get("page_id") for r in rows)
+    all_have_division = all((r.get("division") or "").strip() or not r.get("division_id") for r in rows)
+    if all_have_company and all_have_page and all_have_division and not any(r.get("approved_by") for r in rows):
+        return rows
+    return _enrich_tickets_with_lookups(rows, include_repeat_counts=False)
+
+
 def _apply_exclude_active_staging_filter(q):
     """Exclude tickets still in the Staging workflow (they belong under Staging, not Chores & Bugs)."""
     return q.or_("staging_planned.is.null,live_review_status.eq.completed")
@@ -1987,7 +2004,7 @@ def _supabase_list_total(r, page: int, page_size: int) -> int:
 
 
 @api_router.get("/tickets")
-@cached(ttl=60, key_prefix="tickets:list:")
+@cached(ttl=90, key_prefix="tickets:list:")
 def list_tickets(
     status: str | None = None,
     type: str | None = None,
@@ -2164,8 +2181,24 @@ def list_tickets(
         q = apply_exclude_ticket_na(q)
     q = q.range((page - 1) * page_size, page * page_size - 1)
     r = q.execute()
-    rows = _enrich_tickets_with_lookups(r.data or [], include_repeat_counts=include_repeat_counts)
+    raw_rows = r.data or []
+    if include_repeat_counts:
+        rows = _enrich_tickets_with_lookups(raw_rows, include_repeat_counts=True)
+    else:
+        rows = _enrich_tickets_with_lookups_fast(raw_rows)
     return {"data": rows, "total": _supabase_list_total(r, page, page_size), "page": page, "page_size": page_size}
+
+
+@api_router.get("/tickets/repeat-counts")
+def get_ticket_repeat_counts(
+    ticket_ids: list[str] = Query(default=[]),
+    auth: dict = Depends(get_current_user),
+):
+    """Batch repeat-child counts for list Rep column (deferred from main list for speed)."""
+    from app.ticket_similarity import fetch_repeat_child_counts
+
+    ids = [str(i).strip() for i in (ticket_ids or []) if i][:100]
+    return {"counts": fetch_repeat_child_counts(ids)}
 
 
 def _level3_used_for_ticket(ticket_id: str, user_id: str) -> bool:

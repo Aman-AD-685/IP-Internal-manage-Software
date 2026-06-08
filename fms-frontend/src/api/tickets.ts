@@ -315,6 +315,24 @@ export const ticketsApi = {
     return response.data
   },
 
+  getRepeatCounts: async (ticketIds: string[]): Promise<Record<string, number>> => {
+    const ids = ticketIds.filter(Boolean).slice(0, 100)
+    if (ids.length === 0) return {}
+    const response = await apiClient.get<{ counts?: Record<string, number> }>('/tickets/repeat-counts', {
+      params: { ticket_ids: ids },
+      paramsSerializer: (p: Record<string, unknown>) => {
+        const search = new URLSearchParams()
+        const list = p.ticket_ids
+        if (Array.isArray(list)) {
+          list.forEach((id) => search.append('ticket_ids', String(id)))
+        }
+        return search.toString()
+      },
+      timeout: 15000,
+    })
+    return response.data?.counts ?? {}
+  },
+
   getRepeats: async (ticketId: string): Promise<RepeatedTicketsResponse> => {
     const response = await apiClient.get<RepeatedTicketsResponse>(`/tickets/${ticketId}/repeats`, {
       timeout: 20000,
