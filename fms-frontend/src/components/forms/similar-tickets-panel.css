@@ -202,6 +202,7 @@
 .similar-tickets-row--header.similar-tickets-row--6col {
   grid-template-columns: 68px minmax(80px, 1fr) minmax(88px, 110px) 48px 56px 58px;
 }
+.similar-tickets-collapsed {
   display: flex;
   align-items: center;
   justify-content: space-between;
