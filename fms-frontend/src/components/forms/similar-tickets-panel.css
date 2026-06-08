@@ -187,6 +187,14 @@
   padding: 8px 0;
 }
 
+.similar-tickets-error {
+  margin-bottom: 16px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(250, 173, 20, 0.12);
+  border: 1px solid rgba(250, 173, 20, 0.35);
+}
+
 .similar-tickets-collapsed {
   display: flex;
   align-items: center;

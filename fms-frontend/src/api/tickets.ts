@@ -282,7 +282,8 @@ export const ticketsApi = {
   }): Promise<SimilarTicketsResponse> => {
     const response = await apiClient.get<SimilarTicketsResponse>('/tickets/similar', {
       params: { title: params.title, limit: params.limit ?? 10 },
-      timeout: 1200,
+      // Production (Vercel → Render → Supabase) often exceeds 1–2s; keep below global 30s cap.
+      timeout: 20000,
       signal: params.signal,
     })
     return response.data
