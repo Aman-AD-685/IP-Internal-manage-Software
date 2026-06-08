@@ -1,109 +1,223 @@
-import { Alert, Button, List, Space, Spin, Tag, Typography } from 'antd'
-import { HistoryOutlined, LinkOutlined } from '@ant-design/icons'
-import type { SimilarTicketsResponse } from '../../api/tickets'
-import { formatDateTable } from '../../utils/helpers'
+import { Button, Spin, Tag, Typography } from 'antd'
+import { EyeInvisibleOutlined, LinkOutlined } from '@ant-design/icons'
+import { useEffect, useState, type ReactNode } from 'react'
+import type { SimilarTicketMatch, SimilarTicketsResponse } from '../../api/tickets'
+import './similar-tickets-panel.css'
 
 const { Text } = Typography
 
 interface SimilarTicketsPanelProps {
   result: SimilarTicketsResponse | null
   loading?: boolean
+  query?: string
   scopeReady?: boolean
   scopeHint?: string
   onViewTicket?: (ticketId: string, ticketType: 'chore' | 'bug' | 'feature') => void
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function highlightTitle(title: string, query: string): ReactNode {
+  const q = query.trim()
+  if (!q || !title) return title
+
+  const tokens = q
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2)
+  if (tokens.length === 0) return title
+
+  const pattern = new RegExp(`(${tokens.map(escapeRegExp).join('|')})`, 'gi')
+  const parts = title.split(pattern)
+
+  return parts.map((part, index) => {
+    const lowerPart = part.toLowerCase()
+    const isMatch = tokens.some((t) => lowerPart === t.toLowerCase())
+    return isMatch ? (
+      <mark key={`${part}-${index}`} className="similar-tickets-highlight">
+        {part}
+      </mark>
+    ) : (
+      <span key={`${part}-${index}`}>{part}</span>
+    )
+  })
+}
+
+function typeLabel(item: SimilarTicketMatch): string {
+  if (item.type_label) return item.type_label
+  if (item.type === 'feature') return 'Feature'
+  if (item.type === 'bug') return 'Bug'
+  return 'Chores'
+}
+
+function scoreBadgeColor(score: number): string {
+  if (score >= 90) return 'blue'
+  return 'default'
+}
+
+function TicketRow({
+  item,
+  query,
+  onViewTicket,
+}: {
+  item: SimilarTicketMatch
+  query: string
+  onViewTicket?: (ticketId: string, ticketType: 'chore' | 'bug' | 'feature') => void
+}) {
+  const companyName = item.company_name?.trim() || '—'
+
+  return (
+    <div className="similar-tickets-row">
+      <div className="similar-tickets-row__ref">{item.reference_no}</div>
+      <div className="similar-tickets-row__title" title={item.title}>
+        {highlightTitle(item.title, query)}
+      </div>
+      <div className="similar-tickets-row__company" title={companyName}>
+        {companyName}
+      </div>
+      <div className="similar-tickets-row__type">{typeLabel(item)}</div>
+      <div className="similar-tickets-row__actions">
+        <Tag color={scoreBadgeColor(item.match_score)}>{item.match_score}%</Tag>
+        {onViewTicket ? (
+          <Button
+            type="link"
+            size="small"
+            icon={<LinkOutlined />}
+            onClick={() => onViewTicket(item.id, item.type)}
+            style={{ padding: 0, height: 'auto' }}
+          >
+            View
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function ColumnHeaders() {
+  return (
+    <div className="similar-tickets-row similar-tickets-row--header" aria-hidden="true">
+      <div>Ref No</div>
+      <div>Title</div>
+      <div>Company Name</div>
+      <div>Type</div>
+      <div>Match</div>
+    </div>
+  )
+}
+
+function TicketSection({
+  title,
+  items,
+  query,
+  onViewTicket,
+}: {
+  title: string
+  items: SimilarTicketMatch[]
+  query: string
+  onViewTicket?: (ticketId: string, ticketType: 'chore' | 'bug' | 'feature') => void
+}) {
+  if (items.length === 0) return null
+
+  return (
+    <>
+      <div className="similar-tickets-panel__section-title">{title}</div>
+      {items.map((item) => (
+        <TicketRow key={item.id} item={item} query={query} onViewTicket={onViewTicket} />
+      ))}
+    </>
+  )
+}
+
 export function SimilarTicketsPanel({
   result,
   loading,
+  query = '',
   scopeReady = true,
   scopeHint,
   onViewTicket,
 }: SimilarTicketsPanelProps) {
+  const [dismissed, setDismissed] = useState(false)
+
+  useEffect(() => {
+    setDismissed(false)
+  }, [query, result?.repeat_count])
+
   if (!scopeReady) {
     return (
       <div style={{ marginBottom: 16 }}>
-        <Text type="secondary">{scopeHint || 'Enter at least 6 characters in Title to search all companies.'}</Text>
+        <Text type="secondary">
+          {scopeHint || 'Enter at least 3 characters in Title to search all companies.'}
+        </Text>
       </div>
     )
   }
 
   if (loading) {
     return (
-      <div style={{ marginBottom: 16 }}>
-        <Spin size="small" /> <Text type="secondary">Searching similar titles across all companies…</Text>
+      <div className="similar-tickets-loading">
+        <Spin size="small" />{' '}
+        <Text type="secondary">Searching similar titles across all companies…</Text>
       </div>
     )
   }
 
-  if (!result || result.repeat_count === 0) {
+  const similar = result?.similar ?? []
+  const nearSimilar = result?.nearSimilar ?? []
+  const hasResults = similar.length > 0 || nearSimilar.length > 0
+
+  if (!hasResults) {
     return null
   }
 
-  const openCount = result.matches.filter((m) => m.is_open).length
+  const totalCount = similar.length + nearSimilar.length
+
+  if (dismissed) {
+    return (
+      <div className="similar-tickets-collapsed">
+        <Text type="secondary">
+          {totalCount} similar ticket{totalCount === 1 ? '' : 's'} found
+        </Text>
+        <Button type="link" size="small" onClick={() => setDismissed(false)}>
+          Show similar tickets
+        </Button>
+      </div>
+    )
+  }
 
   return (
-    <Alert
-      type={result.has_open_repeat ? 'warning' : 'info'}
-      showIcon
-      icon={<HistoryOutlined />}
-      style={{ marginBottom: 16 }}
-      message={
-        <Space direction="vertical" size={2}>
-          <Space wrap>
-            <Text strong>
-              Similar title found ({result.repeat_count} ticket{result.repeat_count === 1 ? '' : 's'} · all companies)
-            </Text>
-            {openCount > 0 && <Tag color="orange">{openCount} still open</Tag>}
-          </Space>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            Matching reference numbers and full titles from any company
-          </Text>
-        </Space>
-      }
-      description={
-        <List
+    <div className="similar-tickets-panel" role="listbox" aria-label="Similar ticket suggestions">
+      <div className="similar-tickets-panel__header">
+        <Text strong className="similar-tickets-panel__header-title">
+          Similar ticket suggestions
+        </Text>
+        <Button
+          type="text"
           size="small"
-          style={{ marginTop: 8 }}
-          dataSource={result.matches}
-          renderItem={(item) => (
-            <List.Item
-              style={{ padding: '6px 0', border: 'none' }}
-              actions={
-                onViewTicket
-                  ? [
-                      <Button
-                        key="view"
-                        type="link"
-                        size="small"
-                        icon={<LinkOutlined />}
-                        onClick={() => onViewTicket(item.id, item.type)}
-                      >
-                        View
-                      </Button>,
-                    ]
-                  : undefined
-              }
-            >
-              <Space direction="vertical" size={2} style={{ flex: 1, minWidth: 0 }}>
-                <Space wrap size={4}>
-                  <Text strong>{item.reference_no}</Text>
-                  {item.company_name ? <Tag color="geekblue">{item.company_name}</Tag> : null}
-                  <Tag>{item.type === 'feature' ? 'Feature' : item.type === 'bug' ? 'Bug' : 'Chores'}</Tag>
-                  <Tag color={item.match_kind === 'exact' ? 'blue' : 'default'}>
-                    {item.match_kind === 'exact' ? 'Exact phrase' : `Similar ${item.match_score}%`}
-                  </Tag>
-                </Space>
-                <Text style={{ display: 'block', wordBreak: 'break-word' }}>{item.title}</Text>
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  {item.status_summary}
-                  {item.created_at ? ` · ${formatDateTable(item.created_at)}` : ''}
-                </Text>
-              </Space>
-            </List.Item>
-          )}
+          icon={<EyeInvisibleOutlined />}
+          onClick={() => setDismissed(true)}
+          aria-label="Hide similar tickets"
+        >
+          Hide
+        </Button>
+      </div>
+      <div className="similar-tickets-panel__scroll">
+        <ColumnHeaders />
+        <TicketSection
+          title="Similar Tickets"
+          items={similar}
+          query={query}
+          onViewTicket={onViewTicket}
         />
-      }
-    />
+        <TicketSection
+          title="Near Similar Tickets"
+          items={nearSimilar}
+          query={query}
+          onViewTicket={onViewTicket}
+        />
+      </div>
+    </div>
   )
 }

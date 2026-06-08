@@ -2158,7 +2158,7 @@ def _mark_level3_edit_used(ticket_id: str, user_id: str) -> None:
 
 @api_router.get("/tickets/similar")
 def list_similar_tickets(
-    title: str = Query(..., min_length=6, max_length=500),
+    title: str = Query(..., min_length=3, max_length=500),
     limit: int = Query(10, ge=1, le=20),
     auth: dict = Depends(get_current_user),
 ):
@@ -2169,6 +2169,8 @@ def list_similar_tickets(
         title_clean = title.strip()
         response = JSONResponse(
             content={
+                "similar": [],
+                "nearSimilar": [],
                 "repeat_count": 0,
                 "normalized_title": title_clean.lower(),
                 "has_open_repeat": False,
