@@ -1432,6 +1432,7 @@ class UpdateTicketRequest(BaseModel):
     live_review_planned: str | None = None
     live_review_actual: str | None = None
     live_review_status: str | None = None
+    repeat_of_ticket_id: str | None = None
 
 
 class CreateTicketResponseRequest(BaseModel):
@@ -1747,7 +1748,7 @@ _TICKET_LIST_SELECT = (
     "planned_3,status_3,actual_3,planned_4,status_4,actual_4,quality_solution,"
     "quality_solution_submitted_by,quality_solution_submitted_at,staging_planned,"
     "staging_review_actual,staging_review_status,live_planned,live_actual,live_status,"
-    "live_review_planned,live_review_actual,live_review_status,attachment_url"
+    "live_review_planned,live_review_actual,live_review_status,attachment_url,repeat_of_ticket_id"
 )
 
 
@@ -2187,6 +2188,20 @@ def list_similar_tickets(
     return response
 
 
+@api_router.get("/tickets/{ticket_id}/repeats")
+def get_ticket_repeats(
+    ticket_id: str,
+    auth: dict = Depends(get_current_user),
+):
+    """Cross-company repeated issues for Chores / Bugs / Features (open Pending/Hold)."""
+    from app.ticket_similarity import find_repeats_for_ticket
+
+    payload = find_repeats_for_ticket(ticket_id)
+    response = JSONResponse(content=payload)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @api_router.get("/tickets/{ticket_id}")
 def get_ticket(ticket_id: str, auth: dict = Depends(get_current_user)):
     r = supabase.table("tickets").select("*").eq("id", ticket_id).single().execute()
@@ -2238,9 +2253,19 @@ _FEATURE_STAGE_2_KEYS = {"live_status", "live_actual", "live_planned"}
 
 @api_router.put("/tickets/{ticket_id}")
 def update_ticket(ticket_id: str, payload: UpdateTicketRequest, auth: dict = Depends(get_current_user)):
+    from app.ticket_similarity import similar_tickets_access_allowed
+
     raw = payload.model_dump(exclude_unset=True)
     data: dict = {}
     for k, v in raw.items():
+        if k == "repeat_of_ticket_id":
+            if not similar_tickets_access_allowed(auth.get("email")):
+                continue
+            if v in ("", None):
+                data["repeat_of_ticket_id"] = None
+            else:
+                data["repeat_of_ticket_id"] = v
+            continue
         if k == "approval_status" and v in ("", None):
             data["approval_status"] = None
         elif v is not None:

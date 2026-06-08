@@ -98,8 +98,8 @@ _PLACEHOLDER_COMPANY_NAMES = frozenset(
 )
 
 _SIMILAR_SELECT = (
-    "id,reference_no,title,description,type,company_id,company_name,created_at,status_2,status_4,"
-    "quality_solution,approval_status,live_review_status,live_status,staging_planned"
+    "id,reference_no,title,description,type,company_id,company_name,created_at,status_2,status_3,status_4,"
+    "quality_solution,approval_status,live_review_status,live_status,staging_planned,repeat_of_ticket_id"
 )
 
 _GLOBAL_CANDIDATE_LIMIT = 80
@@ -310,21 +310,51 @@ def _enrich_similar_company_names(rows: list[dict[str, Any]]) -> None:
 
 
 def is_ticket_still_open(row: dict[str, Any]) -> bool:
+    """Open = Pending / Hold / Staging / in-progress — not Completed, Register, or Rejected."""
     t = (row.get("type") or "").strip().lower()
     if t == "feature":
         live = (row.get("live_review_status") or row.get("live_status") or "").strip().lower()
         ap = (row.get("approval_status") or "").strip().lower()
         if ap == "rejected":
             return False
-        return live != "completed"
+        if live == "completed":
+            return False
+        return True
     qs = row.get("quality_solution")
     if qs is not None and str(qs).strip() and str(qs).strip().lower() not in ("null", "none"):
         return False
-    if (row.get("status_2") or "").strip().lower() == "rejected":
+    s2 = (row.get("status_2") or "").strip().lower()
+    s4 = (row.get("status_4") or "").strip().lower()
+    if s2 == "rejected":
         return False
-    if (row.get("status_4") or "").strip().lower() == "completed":
+    if s4 == "completed":
         return False
     return True
+
+
+def ticket_open_stage_label(row: dict[str, Any]) -> str:
+    t = (row.get("type") or "").strip().lower()
+    if t == "feature":
+        ap = (row.get("approval_status") or "").strip().lower()
+        if ap == "hold":
+            return "Hold"
+        if ap in ("", "unapproved", "null", "none"):
+            return "Pending"
+        if ap == "approved":
+            live = (row.get("live_review_status") or row.get("live_status") or "").strip().lower()
+            return "Live pending" if live != "completed" else "Live completed"
+        return ap.capitalize() if ap else "Pending"
+    s2 = (row.get("status_2") or "").strip().lower()
+    s3 = (row.get("status_3") or "").strip().lower()
+    if s2 == "hold" or s3 == "hold":
+        return "Hold"
+    if s2 == "pending" or s2 in ("", "null", "none"):
+        return "Pending"
+    if s2 == "staging":
+        return "Staging"
+    if (row.get("status_4") or "").strip().lower() == "completed":
+        return "Completed"
+    return ticket_status_summary(row)
 
 
 def _query_candidate_rows(tokens: list[str], *, include_description: bool) -> list[dict[str, Any]]:
@@ -452,4 +482,123 @@ def find_similar_tickets(
         "has_open_repeat": any(m.get("is_open") for m in matches),
         "scope": "global",
         "matches": matches,
+    }
+
+
+def _row_to_repeat_match(row: dict[str, Any], score: int, *, is_self: bool = False) -> dict[str, Any]:
+    ticket_type = (row.get("type") or "").strip().lower()
+    return {
+        "id": row.get("id"),
+        "reference_no": row.get("reference_no"),
+        "title": row.get("title"),
+        "type": ticket_type,
+        "type_label": _TYPE_LABELS.get(ticket_type, ticket_type),
+        "company_name": row.get("company_name") or "",
+        "created_at": row.get("created_at"),
+        "status_summary": ticket_status_summary(row),
+        "stage": ticket_open_stage_label(row),
+        "status": "Open" if is_ticket_still_open(row) else "Closed",
+        "is_open": is_ticket_still_open(row),
+        "match_score": score,
+        "is_self": is_self,
+        "repeat_of_ticket_id": row.get("repeat_of_ticket_id"),
+    }
+
+
+def find_repeats_for_ticket(ticket_id: str, *, limit: int = 20) -> dict[str, Any]:
+    """Cross-company repeated issues for an existing ticket (list/detail Repeated button)."""
+    empty: dict[str, Any] = {
+        "isRepeated": False,
+        "companyCount": 0,
+        "openRepeatCount": 0,
+        "parentTicketId": None,
+        "parentReferenceNo": None,
+        "repeatOfTicketId": None,
+        "related": [],
+    }
+    ticket_id = (ticket_id or "").strip()
+    if not ticket_id:
+        return empty
+    try:
+        r = (
+            supabase.table("tickets")
+            .select(_SIMILAR_SELECT)
+            .eq("id", ticket_id)
+            .single()
+            .execute()
+        )
+        row = r.data
+    except Exception:
+        return empty
+    if not row:
+        return empty
+
+    _enrich_similar_company_names([row])
+    title = (row.get("title") or "").strip()
+    if len(title) < MIN_TITLE_LEN:
+        return {**empty, "repeatOfTicketId": row.get("repeat_of_ticket_id")}
+
+    candidates = _fetch_global_candidates(title)
+    scored: list[tuple[int, dict[str, Any]]] = []
+    self_id = str(row.get("id") or "")
+    for cand in candidates:
+        cid = str(cand.get("id") or "")
+        score = combined_similarity_score(title, cand)
+        if score < NEAR_SIMILAR_MIN and cid != self_id:
+            continue
+        scored.append((score, cand))
+
+    self_score = 100
+    scored.append((self_score, row))
+    scored.sort(
+        key=lambda x: (-x[0], str(x[1].get("created_at") or ""), str(x[1].get("reference_no") or ""))
+    )
+
+    picked: list[tuple[int, dict[str, Any]]] = []
+    seen_ids: set[str] = set()
+    for score, cand in scored:
+        cid = str(cand.get("id") or "")
+        if not cid or cid in seen_ids:
+            continue
+        seen_ids.add(cid)
+        picked.append((score, cand))
+        if len(picked) >= limit:
+            break
+
+    _enrich_similar_company_names([c for _, c in picked])
+
+    related: list[dict[str, Any]] = []
+    companies: set[str] = set()
+    open_count = 0
+    for score, cand in picked:
+        cid = str(cand.get("id") or "")
+        match = _row_to_repeat_match(cand, score, is_self=(cid == self_id))
+        related.append(match)
+        cn = (match.get("company_name") or "").strip().lower()
+        if cn and cn not in ("—", "-"):
+            companies.add(cn)
+        if match.get("is_open"):
+            open_count += 1
+
+    parent_id: str | None = None
+    parent_ref: str | None = None
+    for _, cand in sorted(picked, key=lambda x: (str(x[1].get("created_at") or ""))):
+        if is_ticket_still_open(cand):
+            parent_id = str(cand.get("id") or "") or None
+            parent_ref = str(cand.get("reference_no") or "") or None
+            break
+    if not parent_id and picked:
+        parent_id = str(picked[-1][1].get("id") or "") or None
+        parent_ref = str(picked[-1][1].get("reference_no") or "") or None
+
+    is_repeated = len(companies) >= 2 and open_count >= 1
+
+    return {
+        "isRepeated": is_repeated,
+        "companyCount": len(companies),
+        "openRepeatCount": open_count,
+        "parentTicketId": parent_id,
+        "parentReferenceNo": parent_ref,
+        "repeatOfTicketId": row.get("repeat_of_ticket_id"),
+        "related": related,
     }
