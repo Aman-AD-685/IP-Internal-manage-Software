@@ -9,6 +9,7 @@ const { Text } = Typography
 interface SimilarTicketsPanelProps {
   result: SimilarTicketsResponse | null
   loading?: boolean
+  error?: string | null
   query?: string
   scopeReady?: boolean
   scopeHint?: string
@@ -134,6 +135,7 @@ function TicketSection({
 export function SimilarTicketsPanel({
   result,
   loading,
+  error,
   query = '',
   scopeReady = true,
   scopeHint,
@@ -160,6 +162,14 @@ export function SimilarTicketsPanel({
       <div className="similar-tickets-loading">
         <Spin size="small" />{' '}
         <Text type="secondary">Searching similar titles across all companies…</Text>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="similar-tickets-error">
+        <Text type="warning">{error}</Text>
       </div>
     )
   }

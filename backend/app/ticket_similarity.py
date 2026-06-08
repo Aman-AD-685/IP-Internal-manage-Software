@@ -327,34 +327,56 @@ def is_ticket_still_open(row: dict[str, Any]) -> bool:
     return True
 
 
-def _fetch_global_candidates(title: str) -> list[dict[str, Any]]:
-    tokens = _search_tokens(title)
-    if not tokens:
-        return []
+def _query_candidate_rows(tokens: list[str], *, include_description: bool) -> list[dict[str, Any]]:
     try:
         if len(tokens) == 1:
             t0 = tokens[0]
+            if include_description:
+                filt = f"title.ilike.%{t0}%,description.ilike.%{t0}%"
+            else:
+                filt = f"title.ilike.%{t0}%"
             q = (
                 supabase.table("tickets")
                 .select(_SIMILAR_SELECT)
-                .or_(f"title.ilike.%{t0}%,description.ilike.%{t0}%")
+                .or_(filt)
                 .order("created_at", desc=True)
             )
         else:
             t0, t1 = tokens[0], tokens[1]
-            q = (
-                supabase.table("tickets")
-                .select(_SIMILAR_SELECT)
-                .or_(
+            if include_description:
+                filt = (
                     f"title.ilike.%{t0}%,description.ilike.%{t0}%,"
                     f"title.ilike.%{t1}%,description.ilike.%{t1}%"
                 )
+            else:
+                filt = f"title.ilike.%{t0}%,title.ilike.%{t1}%"
+            q = (
+                supabase.table("tickets")
+                .select(_SIMILAR_SELECT)
+                .or_(filt)
                 .order("created_at", desc=True)
             )
         r = q.limit(_GLOBAL_CANDIDATE_LIMIT).execute()
         return list(r.data or [])
     except Exception:
         return []
+
+
+def _fetch_global_candidates(title: str) -> list[dict[str, Any]]:
+    tokens = _search_tokens(title)
+    if not tokens:
+        return []
+    # Title-only first — fast on production without description trigram index.
+    rows = _query_candidate_rows(tokens, include_description=False)
+    if len(rows) < 20:
+        extra = _query_candidate_rows(tokens, include_description=True)
+        seen = {str(r.get("id")) for r in rows if r.get("id")}
+        for row in extra:
+            rid = str(row.get("id") or "")
+            if rid and rid not in seen:
+                rows.append(row)
+                seen.add(rid)
+    return rows[:_GLOBAL_CANDIDATE_LIMIT]
 
 
 def _row_to_match(score: int, row: dict[str, Any]) -> dict[str, Any]:
@@ -393,7 +415,6 @@ def find_similar_tickets(
         return empty
 
     rows = _fetch_global_candidates(title)
-    _enrich_similar_company_names(rows)
     scored: list[tuple[int, dict[str, Any]]] = []
     for row in rows:
         score = combined_similarity_score(title, row)
@@ -405,11 +426,17 @@ def find_similar_tickets(
         key=lambda x: (-x[0], str(x[1].get("created_at") or ""), str(x[1].get("reference_no") or ""))
     )
 
+    picked: list[tuple[int, dict[str, Any]]] = []
+    for score, row in scored:
+        if len(picked) >= limit:
+            break
+        picked.append((score, row))
+
+    _enrich_similar_company_names([row for _, row in picked])
+
     similar: list[dict[str, Any]] = []
     near_similar: list[dict[str, Any]] = []
-    for score, row in scored:
-        if len(similar) + len(near_similar) >= limit:
-            break
+    for score, row in picked:
         match = _row_to_match(score, row)
         if score >= SIMILAR_THRESHOLD:
             similar.append(match)

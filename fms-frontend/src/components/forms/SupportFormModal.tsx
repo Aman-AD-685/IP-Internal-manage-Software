@@ -139,6 +139,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
   const similarAbortRef = useRef<AbortController | null>(null)
   const [similarResult, setSimilarResult] = useState<SimilarTicketsResponse | null>(null)
   const [similarLoading, setSimilarLoading] = useState(false)
+  const [similarError, setSimilarError] = useState<string | null>(null)
   const [previewTicketId, setPreviewTicketId] = useState<string | null>(null)
   const [previewTicketType, setPreviewTicketType] = useState<'chore' | 'bug' | 'feature' | null>(null)
   const attachmentUrlRef = useRef<string | null>(null)
@@ -154,6 +155,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
       setRequestType('')
       setSimilarResult(null)
       setSimilarLoading(false)
+      setSimilarError(null)
       setPreviewTicketId(null)
       setPreviewTicketType(null)
       supportApi
@@ -272,12 +274,13 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
       if (!canSimilarTickets) {
         setSimilarResult(null)
         setSimilarLoading(false)
+        setSimilarError(null)
       }
       return
     }
-    similarFetchGenRef.current += 1
     similarAbortRef.current?.abort()
     setSimilarResult(null)
+    setSimilarError(null)
     if (similarDebounceRef.current) clearTimeout(similarDebounceRef.current)
 
     const title = String(titleWatch ?? '').trim()
@@ -298,6 +301,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
         .then((res) => {
           if (fetchGen !== similarFetchGenRef.current) return
           setSimilarResult(res)
+          setSimilarError(null)
         })
         .catch((err: unknown) => {
           if (fetchGen !== similarFetchGenRef.current) return
@@ -306,9 +310,17 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
             (err as { name?: string })?.name === 'CanceledError'
           if (canceled) return
           setSimilarResult(null)
+          const timedOut = (err as { code?: string })?.code === 'ECONNABORTED'
+          setSimilarError(
+            timedOut
+              ? 'Similar ticket search timed out on production. Please wait a moment and try again.'
+              : 'Could not load similar tickets. Check your connection and try again.',
+          )
         })
         .finally(() => {
-          if (fetchGen === similarFetchGenRef.current) setSimilarLoading(false)
+          if (fetchGen === similarFetchGenRef.current) {
+            setSimilarLoading(false)
+          }
         })
     }, SIMILAR_TICKETS_DEBOUNCE_MS)
     return () => {
@@ -383,6 +395,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
     setAttachmentFileList([])
     setAttachmentUrl(null)
     setSimilarResult(null)
+    setSimilarError(null)
     onSuccess?.(created)
     onClose()
     window.dispatchEvent(new CustomEvent('support-ticket-created'))
@@ -509,6 +522,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
         <SimilarTicketsPanel
           result={similarResult}
           loading={similarLoading}
+          error={similarError}
           query={String(titleWatch ?? '').trim()}
           scopeReady={similarScopeReady}
           scopeHint="Enter at least 3 characters in Title to search similar titles across all companies."
