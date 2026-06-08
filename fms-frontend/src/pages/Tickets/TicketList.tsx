@@ -408,7 +408,6 @@ export const TicketList = () => {
           ? { date_to: filters.date_to }
           : {}),
       ...(options?.mineOnly ? { mine_only: true } : {}),
-      ...(showRepeatedColumn ? { include_repeat_counts: true } : {}),
       sort_by: filters.sort_by,
       sort_order: filters.sort_order,
     }),
@@ -425,8 +424,26 @@ export const TicketList = () => {
       status2Filter,
       typeOfRequestFilter,
       isFeatureHoldView,
-      showRepeatedColumn,
     ],
+  )
+
+  const applyRepeatCounts = useCallback(
+    async (rows: Ticket[]) => {
+      if (!showRepeatedColumn || rows.length === 0) return
+      try {
+        const counts = await ticketsApi.getRepeatCounts(rows.map((t) => t.id))
+        if (Object.keys(counts).length === 0) return
+        setTickets((prev) =>
+          prev.map((t) => ({
+            ...t,
+            repeat_child_count: counts[t.id] ?? t.repeat_child_count ?? 0,
+          })),
+        )
+      } catch {
+        /* Rep column optional; list already visible */
+      }
+    },
+    [showRepeatedColumn],
   )
 
   /** Fetches all tickets across pages with current filters/section/view. Used for stage filter and export. */
@@ -490,7 +507,7 @@ export const TicketList = () => {
     listExhaustedRef.current = false
     serverListPageRef.current = 0
 
-    const initialPageSize = isRegisterSection ? 100 : isChoresBugsSection ? 50 : TICKETS_CHUNK
+    const initialPageSize = isRegisterSection ? 100 : TICKETS_CHUNK
     const listParams = getTicketsListParams(1, initialPageSize)
     const listKey = ticketsListLogicalKey(listParams as object)
     const cachedPayload = sessionApiCacheGet<ApiResponse<PaginatedResponse<Ticket>>>(listKey)
@@ -504,6 +521,7 @@ export const TicketList = () => {
       listExhaustedRef.current =
         (apiTotal > 0 && list.length >= apiTotal) || list.length < initialPageSize
       setLoading(false)
+      void applyRepeatCounts(list)
     } else {
       setLoading(true)
       setTickets([])
@@ -522,6 +540,7 @@ export const TicketList = () => {
       serverListPageRef.current = 1
       listExhaustedRef.current =
         (apiTotal > 0 && list.length >= apiTotal) || list.length < initialPageSize
+      void applyRepeatCounts(list)
     } catch (error: unknown) {
       console.error('Failed to fetch tickets:', error)
       if (gen !== listFetchGeneration.current) return
@@ -558,7 +577,7 @@ export const TicketList = () => {
     } finally {
       if (gen === listFetchGeneration.current) setLoading(false)
     }
-  }, [getTicketsListParams, isChoresBugs, isRegisterSection, isChoresBugsSection])
+  }, [getTicketsListParams, isChoresBugs, isRegisterSection, applyRepeatCounts])
 
   const fetchTicketsAppend = useCallback(async () => {
     const gen = listFetchGeneration.current
@@ -570,7 +589,7 @@ export const TicketList = () => {
     setLoadingMore(true)
     try {
       const nextPage = serverListPageRef.current + 1
-      const pageSize = isRegisterSection ? 100 : isChoresBugsSection ? 50 : TICKETS_CHUNK
+      const pageSize = isRegisterSection ? 100 : TICKETS_CHUNK
       const response = await ticketsApi.list(
         getTicketsListParams(nextPage, pageSize, { skipCache: true }),
       )
@@ -597,13 +616,14 @@ export const TicketList = () => {
         return merged
       })
       serverListPageRef.current = nextPage
+      void applyRepeatCounts(newRows)
     } catch (error) {
       console.error('Failed to load more tickets:', error)
     } finally {
       loadingMoreRef.current = false
       setLoadingMore(false)
     }
-  }, [getTicketsListParams, isChoresBugs, isRegisterSection, isChoresBugsSection])
+  }, [getTicketsListParams, isChoresBugs, isRegisterSection, applyRepeatCounts])
 
   const getTableBodyEl = useCallback(
     (): HTMLElement | null => scrollRootRef.current?.querySelector('.ant-table-body') as HTMLElement | null,
@@ -650,7 +670,7 @@ export const TicketList = () => {
     const pagesLoaded = serverListPageRef.current
     if (pagesLoaded < 1) return
 
-    const pageSize = isRegisterSection ? 100 : isChoresBugsSection ? 50 : TICKETS_CHUNK
+    const pageSize = isRegisterSection ? 100 : TICKETS_CHUNK
     try {
       const merged: Ticket[] = []
       let apiTotal = totalRef.current
@@ -665,6 +685,7 @@ export const TicketList = () => {
       setTickets(list)
       setTotal(apiTotal)
       restoreScroll()
+      void applyRepeatCounts(list)
     } catch (error) {
       console.error('Failed to refresh loaded tickets:', error)
     }
@@ -680,6 +701,7 @@ export const TicketList = () => {
     isChoresBugs,
     isRegisterSection,
     getTicketsListParams,
+    applyRepeatCounts,
   ])
 
   const allTicketsForStageFilterRef = useRef<Ticket[]>([])

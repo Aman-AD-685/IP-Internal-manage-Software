@@ -83,7 +83,15 @@ export function prefetchRouteData(routeKey: string): void {
     fire(`prefetch:${routeKey}`, async () => {
       const common = { page: 1, page_size: 15 as const, sort_by: 'created_at', sort_order: 'desc' as const }
       if (q.includes('section=chores-bugs')) {
-        await ticketsApi.list({ ...common, section: 'chores-bugs' })
+        await ticketsApi.list({ ...common, section: 'chores-bugs', sort_by: 'created_at', sort_order: 'desc' })
+      } else if (q.includes('section=register-of-tickets')) {
+        await ticketsApi.list({
+          ...common,
+          section: 'register-of-tickets',
+          sort_by: 'reference_no',
+          sort_order: 'desc',
+          register_status_filter: 'completed',
+        })
       } else if (q.includes('section=completed-chores-bugs')) {
         await ticketsApi.list({ ...common, section: 'completed-chores-bugs' })
       } else if (q.includes('section=rejected-tickets')) {
