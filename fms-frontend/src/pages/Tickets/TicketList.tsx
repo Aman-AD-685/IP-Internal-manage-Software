@@ -37,7 +37,6 @@ import {
   TICKET_TABLE_QA_PREVIEW_MAX_CHARS,
 } from '../../utils/helpers'
 import { useRole } from '../../hooks/useRole'
-import type { Ticket } from '../../api/tickets'
 import type { Company } from '../../api/support'
 import { ROUTES } from '../../utils/constants'
 import { sessionApiCacheClearLogicalPrefix, sessionApiCacheGet, ticketsListLogicalKey } from '../../utils/sessionApiCache'
