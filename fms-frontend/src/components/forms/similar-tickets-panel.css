@@ -87,8 +87,17 @@
   background: var(--similar-panel-bg, #fafafa);
 }
 
-.similar-tickets-row:hover {
+.similar-tickets-row--clickable {
+  cursor: pointer;
+}
+
+.similar-tickets-row--clickable:hover,
+.similar-tickets-row--selected {
   background: var(--similar-row-hover, rgba(22, 119, 255, 0.06));
+}
+
+.similar-tickets-row--selected {
+  background: rgba(22, 119, 255, 0.1);
 }
 
 .similar-tickets-row__ref {

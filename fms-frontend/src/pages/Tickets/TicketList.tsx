@@ -9,10 +9,9 @@ import {
   Tag,
   DatePicker,
   Button,
-  Dropdown,
   message,
 } from 'antd'
-import { SearchOutlined, PhoneOutlined, MailOutlined, MessageOutlined, LinkOutlined, MoreOutlined, PauseCircleOutlined, RetweetOutlined } from '@ant-design/icons'
+import { SearchOutlined, PhoneOutlined, MailOutlined, MessageOutlined, LinkOutlined, PauseCircleOutlined, RetweetOutlined } from '@ant-design/icons'
 import { useSearchParams, useLocation, useNavigate } from 'react-router-dom'
 import { ticketsApi, type Ticket } from '../../api/tickets'
 import { supportApi } from '../../api/support'
@@ -195,6 +194,7 @@ export const TicketList = () => {
   const [companies, setCompanies] = useState<Company[]>([])
   const [drawerTicketId, setDrawerTicketId] = useState<string | null>(null)
   const [drawerTicketType, setDrawerTicketType] = useState<string | null>(null)
+  const [drawerInitialTicket, setDrawerInitialTicket] = useState<Ticket | null>(null)
   const [repeatedModalTicket, setRepeatedModalTicket] = useState<{ id: string; ref: string } | null>(null)
   const [filters, setFilters] = useState({
     search: '',
@@ -224,7 +224,7 @@ export const TicketList = () => {
   const [featureHoldView, setFeatureHoldView] = useState(false)
   const isFeatureHoldView = isFeatureListSection && featureHoldView
   const showRepeatedColumn =
-    isChoresBugsSection || isFeatureListSection || isApprovalSection
+    isChoresBugsSection || isFeatureListSection || isApprovalSection || isRegisterSection
   const isRegisterChoresBugsMode =
     isRegisterSection && registerTypeFilters.some((t) => t === 'chore' || t === 'bug')
   const isChoresBugs =
@@ -261,12 +261,16 @@ export const TicketList = () => {
     const openType = state?.openTicketType
     if (!openId) return
     if (sectionFromUrl === 'chores-bugs' && (openType === 'chore' || openType === 'bug')) {
+      setDrawerInitialTicket(null)
       setDrawerTicketId(openId)
       setDrawerTicketType(openType === 'bug' ? 'bug' : 'chore')
+      ticketsApi.get(openId).catch(() => {})
       navigate(location.pathname + location.search, { replace: true, state: {} })
     } else if (openType === 'feature') {
+      setDrawerInitialTicket(null)
       setDrawerTicketId(openId)
       setDrawerTicketType('feature')
+      ticketsApi.get(openId).catch(() => {})
       navigate(location.pathname + location.search, { replace: true, state: {} })
     }
   }, [sectionFromUrl, location.state, location.pathname, location.search, navigate])
@@ -404,6 +408,7 @@ export const TicketList = () => {
           ? { date_to: filters.date_to }
           : {}),
       ...(options?.mineOnly ? { mine_only: true } : {}),
+      ...(showRepeatedColumn ? { include_repeat_counts: true } : {}),
       sort_by: filters.sort_by,
       sort_order: filters.sort_order,
     }),
@@ -420,6 +425,7 @@ export const TicketList = () => {
       status2Filter,
       typeOfRequestFilter,
       isFeatureHoldView,
+      showRepeatedColumn,
     ],
   )
 
@@ -487,11 +493,7 @@ export const TicketList = () => {
     const initialPageSize = isRegisterSection ? 100 : isChoresBugsSection ? 50 : TICKETS_CHUNK
     const listParams = getTicketsListParams(1, initialPageSize)
     const listKey = ticketsListLogicalKey(listParams as object)
-    const skipListCache = isRegisterSection || isChoresBugsSection
-    const cached = skipListCache
-      ? null
-      : sessionApiCacheGet<ApiResponse<PaginatedResponse<Ticket>>>(listKey)
-    const cachedPayload = cached
+    const cachedPayload = sessionApiCacheGet<ApiResponse<PaginatedResponse<Ticket>>>(listKey)
     if (cachedPayload) {
       const { rows, total: apiTotal } = unwrapTicketListPayload(cachedPayload, initialPageSize)
       let list = rows
@@ -508,9 +510,7 @@ export const TicketList = () => {
     }
 
     try {
-      const response = await ticketsApi.list(
-        getTicketsListParams(1, initialPageSize, { skipCache: skipListCache }),
-      )
+      const response = await ticketsApi.list(getTicketsListParams(1, initialPageSize))
       if (gen !== listFetchGeneration.current) return
       const { rows, total: apiTotal } = unwrapTicketListPayload(response, initialPageSize)
       let list = rows
@@ -604,6 +604,83 @@ export const TicketList = () => {
       setLoadingMore(false)
     }
   }, [getTicketsListParams, isChoresBugs, isRegisterSection, isChoresBugsSection])
+
+  const getTableBodyEl = useCallback(
+    (): HTMLElement | null => scrollRootRef.current?.querySelector('.ant-table-body') as HTMLElement | null,
+    [],
+  )
+
+  /** Refresh list after edits without skeleton overlay or scroll reset (same idea as Performance Monitoring). */
+  const refreshLoadedTickets = useCallback(async () => {
+    const savedScrollTop = getTableBodyEl()?.scrollTop ?? 0
+    const restoreScroll = () => {
+      requestAnimationFrame(() => {
+        const body = getTableBodyEl()
+        if (body) body.scrollTop = savedScrollTop
+      })
+    }
+
+    const stageActive =
+      (showStageFilter && !!stageFilter) || (showStageFilterForFeature && !!stageFilter)
+
+    if (stageActive) {
+      try {
+        const allTickets = await fetchAllTicketsWithFilters()
+        let list = stageFilter
+          ? allTickets.filter((t) =>
+              showStageFilter
+                ? getChoresBugsCurrentStage(t).stageLabel === stageFilter
+                : getFeatureCurrentStage(t).stageLabel === stageFilter,
+            )
+          : allTickets
+        if (isChoresBugsSection || typeFromUrl === 'feature' || sectionFromUrl === 'completed-feature') {
+          list = sortTicketsByReferenceDesc(list)
+        }
+        const keepCount = Math.max(ticketsRef.current.length, TICKETS_CHUNK)
+        setAllTicketsForStageFilter(list)
+        setTickets(list.slice(0, Math.min(keepCount, list.length)))
+        setTotal(list.length)
+        restoreScroll()
+      } catch (error) {
+        console.error('Failed to refresh tickets (stage filter):', error)
+      }
+      return
+    }
+
+    const pagesLoaded = serverListPageRef.current
+    if (pagesLoaded < 1) return
+
+    const pageSize = isRegisterSection ? 100 : isChoresBugsSection ? 50 : TICKETS_CHUNK
+    try {
+      const merged: Ticket[] = []
+      let apiTotal = totalRef.current
+      for (let page = 1; page <= pagesLoaded; page++) {
+        const response = await ticketsApi.list(getTicketsListParams(page, pageSize, { skipCache: true }))
+        const { rows, total: t } = unwrapTicketListPayload(response, pageSize)
+        if (typeof t === 'number') apiTotal = t
+        merged.push(...rows)
+      }
+      let list = merged
+      if (isChoresBugs) list = keepOnlyChoresAndBugs(list)
+      setTickets(list)
+      setTotal(apiTotal)
+      restoreScroll()
+    } catch (error) {
+      console.error('Failed to refresh loaded tickets:', error)
+    }
+  }, [
+    getTableBodyEl,
+    showStageFilter,
+    showStageFilterForFeature,
+    stageFilter,
+    fetchAllTicketsWithFilters,
+    isChoresBugsSection,
+    typeFromUrl,
+    sectionFromUrl,
+    isChoresBugs,
+    isRegisterSection,
+    getTicketsListParams,
+  ])
 
   const allTicketsForStageFilterRef = useRef<Ticket[]>([])
   useEffect(() => {
@@ -725,10 +802,6 @@ export const TicketList = () => {
   }, [loading, tickets.length, total, loadingMore, tryLoadMoreTickets, listHasMoreRows])
 
   useEffect(() => {
-    sessionApiCacheClearLogicalPrefix('tickets:list:')
-  }, [location.pathname, location.search])
-
-  useEffect(() => {
     if ((showStageFilter && stageFilter) || (showStageFilterForFeature && stageFilter)) {
       void fetchAllTicketsForStageFilter()
     } else {
@@ -811,6 +884,17 @@ export const TicketList = () => {
   }
 
   const showChoresBugsDrawer = isChoresBugs || drawerTicketType === 'chore' || drawerTicketType === 'bug'
+
+  const openTicketDrawer = useCallback((record: Ticket) => {
+    setDrawerInitialTicket(record)
+    setDrawerTicketId(record.id)
+    setDrawerTicketType(record.type ?? null)
+    ticketsApi.get(record.id).catch(() => {})
+  }, [])
+
+  const prefetchTicketDetail = useCallback((ticketId: string) => {
+    ticketsApi.get(ticketId).catch(() => {})
+  }, [])
   const isSolutionsSection = sectionFromUrl === 'solutions'
 
   /** When stage filter is set (Chores & Bugs or Feature), filter tickets for table, Export and Print */
@@ -905,23 +989,30 @@ export const TicketList = () => {
   const wrapStyle = { whiteSpace: 'normal' as const, wordBreak: 'break-word' as const }
 
   const repeatedColumn = {
-    title: 'Repeated',
+    title: 'Rep',
     key: 'repeated',
-    width: 92,
-    fixed: 'right' as const,
-    render: (_: unknown, r: Ticket) => (
-      <Button
-        type="link"
-        size="small"
-        icon={<RetweetOutlined />}
-        onClick={(e) => {
-          e.stopPropagation()
-          setRepeatedModalTicket({ id: r.id, ref: r.reference_no })
-        }}
-      >
-        {r.repeat_of_ticket_id ? 'Linked' : 'View'}
-      </Button>
-    ),
+    width: 44,
+    fixed: 'left' as const,
+    align: 'center' as const,
+    render: (_: unknown, r: Ticket) => {
+      const childCount = r.repeat_child_count ?? 0
+      return (
+        <Button
+          type="link"
+          size="small"
+          icon={<RetweetOutlined />}
+          disabled={childCount === 0}
+          onClick={(e) => {
+            e.stopPropagation()
+            setRepeatedModalTicket({ id: r.id, ref: r.reference_no })
+          }}
+          style={{ padding: 0, minWidth: 28, fontSize: 12 }}
+          title={childCount > 0 ? `View ${childCount} repeated ticket(s)` : 'No repeated tickets'}
+        >
+          {childCount > 0 ? childCount : ''}
+        </Button>
+      )
+    },
   }
 
   const baseColumns = [
@@ -940,42 +1031,7 @@ export const TicketList = () => {
           : undefined,
       render: (v: string) => v || '-',
     },
-    ...(isMasterAdmin
-      ? [
-          {
-            title: '',
-            key: 'actions',
-            width: 48,
-            fixed: 'left' as const,
-            render: (_: unknown, r: Ticket) => (
-              <Dropdown
-                menu={{
-                  items: [
-                    {
-                      key: 'edit',
-                      label: 'Edit',
-                      onClick: () => {
-                        setDrawerTicketId(r.id)
-                        setDrawerTicketType(r.type ?? null)
-                      },
-                    },
-                  ],
-                }}
-                trigger={['click']}
-                getPopupContainer={() => document.body}
-              >
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<MoreOutlined />}
-                  onClick={(e) => e.stopPropagation()}
-                  aria-label="Master Admin actions"
-                />
-              </Dropdown>
-            ),
-          },
-        ]
-      : []),
+    ...(showRepeatedColumn ? [repeatedColumn] : []),
     {
       title: 'Company Name',
       dataIndex: 'company_name',
@@ -1426,7 +1482,6 @@ export const TicketList = () => {
           },
         ]
       : []),
-    ...(showRepeatedColumn ? [repeatedColumn] : []),
   ]
 
   const pageTitle =
@@ -1740,10 +1795,8 @@ export const TicketList = () => {
                 }
               }}
               onRow={(record) => ({
-                onClick: () => {
-                  setDrawerTicketId(record.id)
-                  setDrawerTicketType((record as { type?: string }).type ?? null)
-                },
+                onClick: () => openTicketDrawer(record as Ticket),
+                onMouseEnter: () => prefetchTicketDetail(record.id),
                 style: { cursor: 'pointer' },
               })}
               size="small"
@@ -1755,13 +1808,14 @@ export const TicketList = () => {
       {showChoresBugsDrawer ? (
         <ChoresBugsDetailDrawer
           ticketId={drawerTicketId}
+          initialTicket={drawerInitialTicket}
           open={!!drawerTicketId}
           onClose={() => {
             setDrawerTicketId(null)
             setDrawerTicketType(null)
-            refetchList()
+            setDrawerInitialTicket(null)
           }}
-          onUpdate={refetchList}
+          onUpdate={() => void refreshLoadedTickets()}
           readOnly={
             sectionFromUrl === 'completed-chores-bugs' ||
             sectionFromUrl === 'solutions' ||
@@ -1775,9 +1829,9 @@ export const TicketList = () => {
           onClose={() => {
             setDrawerTicketId(null)
             setDrawerTicketType(null)
-            refetchList()
+            setDrawerInitialTicket(null)
           }}
-          onUpdate={refetchList}
+          onUpdate={() => void refreshLoadedTickets()}
           readOnly={
             sectionFromUrl === 'completed-feature' ||
             sectionFromUrl === 'register-of-tickets' ||
@@ -1792,11 +1846,13 @@ export const TicketList = () => {
         ticketReference={repeatedModalTicket?.ref}
         open={!!repeatedModalTicket}
         onClose={() => setRepeatedModalTicket(null)}
-        onUpdated={refetchList}
+        onUpdated={() => void refreshLoadedTickets()}
         onViewTicket={(id, ticketType) => {
           setRepeatedModalTicket(null)
+          setDrawerInitialTicket(null)
           setDrawerTicketId(id)
           setDrawerTicketType(ticketType)
+          ticketsApi.get(id).catch(() => {})
         }}
       />
     </div>

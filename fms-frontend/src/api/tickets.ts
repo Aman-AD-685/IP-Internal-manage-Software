@@ -74,6 +74,8 @@ export interface Ticket {
   live_review_actual?: string
   live_review_status?: 'pending' | 'completed'
   repeat_of_ticket_id?: string
+  /** Tickets created with repeat_of_ticket_id pointing to this row */
+  repeat_child_count?: number
   /** Set by backend for Level 3 (user) role: true = this user has used their one-time edit; drawer is view-only except Stage 2 */
   level3_used_by_current_user?: boolean
   /** Stage locks: Admin/User can edit once; after that only Master Admin can edit */
@@ -154,20 +156,25 @@ export interface SimilarTicketsResponse {
   matches: SimilarTicketMatch[]
 }
 
-export interface RepeatedTicketMatch extends SimilarTicketMatch {
+export interface RepeatedChildTicket {
+  id: string
+  reference_no: string
+  title: string
+  description?: string
+  type: 'chore' | 'bug' | 'feature'
+  type_label?: string
+  company_name?: string
+  created_at: string
+  status_summary?: string
   stage?: string
-  is_self?: boolean
-  repeat_of_ticket_id?: string | null
+  is_open: boolean
 }
 
 export interface RepeatedTicketsResponse {
-  isRepeated: boolean
-  companyCount: number
-  openRepeatCount: number
-  parentTicketId: string | null
-  parentReferenceNo: string | null
-  repeatOfTicketId: string | null
-  related: RepeatedTicketMatch[]
+  childCount: number
+  children: RepeatedChildTicket[]
+  referenceNo: string | null
+  title: string | null
 }
 
 export interface UpdateTicketRequest {
@@ -243,6 +250,7 @@ export const ticketsApi = {
     /** Date-range CSV/print: include all rows in section for the range (chores-bugs: not only open queue). */
     export_date_range?: boolean
     register_status_filter?: 'completed' | 'rejected' | 'all'
+    include_repeat_counts?: boolean
   }): Promise<ApiResponse<PaginatedResponse<Ticket>>> => {
     const listKey = ticketsListLogicalKey(params as object | undefined)
     const skipCache = !!(params as { skipCache?: boolean } | undefined)?.skipCache

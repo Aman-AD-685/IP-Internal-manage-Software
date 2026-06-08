@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Modal, Form, Input, Select, DatePicker, Upload, message } from 'antd'
+import { Modal, Form, Input, Select, DatePicker, Upload, message, Tag } from 'antd'
 import { InboxOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { ticketsApi, type SimilarTicketsResponse } from '../../api/tickets'
@@ -140,6 +140,8 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
   const [similarResult, setSimilarResult] = useState<SimilarTicketsResponse | null>(null)
   const [similarLoading, setSimilarLoading] = useState(false)
   const [similarError, setSimilarError] = useState<string | null>(null)
+  const [selectedRepeatOfTicketId, setSelectedRepeatOfTicketId] = useState<string | null>(null)
+  const [selectedRepeatRef, setSelectedRepeatRef] = useState<string | null>(null)
   const [previewTicketId, setPreviewTicketId] = useState<string | null>(null)
   const [previewTicketType, setPreviewTicketType] = useState<'chore' | 'bug' | 'feature' | null>(null)
   const attachmentUrlRef = useRef<string | null>(null)
@@ -156,6 +158,8 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
       setSimilarResult(null)
       setSimilarLoading(false)
       setSimilarError(null)
+      setSelectedRepeatOfTicketId(null)
+      setSelectedRepeatRef(null)
       setPreviewTicketId(null)
       setPreviewTicketType(null)
       supportApi
@@ -396,6 +400,8 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
     setAttachmentUrl(null)
     setSimilarResult(null)
     setSimilarError(null)
+    setSelectedRepeatOfTicketId(null)
+    setSelectedRepeatRef(null)
     onSuccess?.(created)
     onClose()
     window.dispatchEvent(new CustomEvent('support-ticket-created'))
@@ -404,31 +410,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields()
-      let repeatOfTicketId: string | undefined
-      if (
-        canSimilarTickets &&
-        similarResult &&
-        similarResult.repeat_count >= 2 &&
-        similarResult.has_open_repeat
-      ) {
-        const refs = similarResult.matches
-          .filter((m) => m.is_open)
-          .map((m) => m.reference_no)
-          .slice(0, 5)
-          .join(', ')
-        const proceed = await new Promise<boolean>((resolve) => {
-          Modal.confirm({
-            title: 'Similar open tickets already exist',
-            content: `This title matches ${similarResult.repeat_count} prior ticket(s). Open: ${refs || similarResult.matches[0]?.reference_no}. Create a new ticket anyway?`,
-            okText: 'Create anyway',
-            cancelText: 'Review first',
-            onOk: () => resolve(true),
-            onCancel: () => resolve(false),
-          })
-        })
-        if (!proceed) return
-        repeatOfTicketId = similarResult.matches[0]?.id
-      }
+      const repeatOfTicketId = selectedRepeatOfTicketId ?? undefined
       setLoading(true)
       await createTicketFromForm(values, repeatOfTicketId)
     } catch (e: any) {
@@ -458,14 +440,38 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
     setTypeFeature(false)
     setRequestType('')
     setSimilarResult(null)
+    setSelectedRepeatOfTicketId(null)
+    setSelectedRepeatRef(null)
     setPreviewTicketId(null)
     setPreviewTicketType(null)
     onClose()
   }
 
-  const handleViewSimilarTicket = (ticketId: string, ticketType: 'chore' | 'bug' | 'feature') => {
-    setPreviewTicketId(ticketId)
-    setPreviewTicketType(ticketType)
+  const handleViewSimilarTicket = (item: import('../../api/tickets').SimilarTicketMatch) => {
+    setPreviewTicketId(item.id)
+    setPreviewTicketType(item.type)
+  }
+
+  const handleSelectSimilarTicket = async (item: import('../../api/tickets').SimilarTicketMatch) => {
+    setSelectedRepeatOfTicketId(item.id)
+    setSelectedRepeatRef(item.reference_no)
+    form.setFieldsValue({ title: item.title })
+    try {
+      const res = await ticketsApi.get(item.id)
+      const t =
+        res && typeof res === 'object' && 'data' in res && res.data && typeof res.data === 'object' && 'id' in res.data
+          ? (res.data as import('../../api/tickets').Ticket)
+          : res && typeof res === 'object' && 'id' in res
+            ? (res as import('../../api/tickets').Ticket)
+            : null
+      form.setFieldsValue({
+        title: t?.title ?? item.title,
+        description: t?.description ?? '',
+      })
+    } catch {
+      form.setFieldsValue({ title: item.title })
+    }
+    message.success(`Using ${item.reference_no} — title and description filled. New ticket will link to it.`)
   }
 
   return (
@@ -519,15 +525,24 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
           <Input placeholder="Ticket title" />
         </Form.Item>
         {canSimilarTickets && (
-        <SimilarTicketsPanel
-          result={similarResult}
-          loading={similarLoading}
-          error={similarError}
-          query={String(titleWatch ?? '').trim()}
-          scopeReady={similarScopeReady}
-          scopeHint="Enter at least 3 characters in Title to search similar titles across all companies."
-          onViewTicket={handleViewSimilarTicket}
-        />
+          <>
+            <SimilarTicketsPanel
+              result={similarResult}
+              loading={similarLoading}
+              error={similarError}
+              query={String(titleWatch ?? '').trim()}
+              scopeReady={similarScopeReady}
+              scopeHint="Enter at least 3 characters in Title to search similar titles across all companies."
+              selectedTicketId={selectedRepeatOfTicketId}
+              onSelectTicket={handleSelectSimilarTicket}
+              onViewTicket={handleViewSimilarTicket}
+            />
+            {selectedRepeatRef ? (
+              <div style={{ marginBottom: 16 }}>
+                <Tag color="blue">Will repeat of {selectedRepeatRef}</Tag>
+              </div>
+            ) : null}
+          </>
         )}
         <Form.Item name="attachment_url" label="Attachment (Optional)" hidden>
           <Input type="hidden" />

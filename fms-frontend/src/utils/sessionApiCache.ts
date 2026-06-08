@@ -26,7 +26,7 @@ export const API_CACHE_TTL_MS = {
   improvementI1List: 5 * 60 * 1000,
   ticketsList: 3 * 60 * 1000,
   leadsListActive: 90 * 1000,
-  ticketGet: 30 * 1000,
+  ticketGet: 3 * 60 * 1000,
   supportCompanies: 30 * 60 * 1000,
   supportPages: 30 * 60 * 1000,
   supportDivisions: 15 * 60 * 1000,
