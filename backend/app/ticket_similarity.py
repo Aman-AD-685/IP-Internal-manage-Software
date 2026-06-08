@@ -8,6 +8,17 @@ from typing import Any
 
 from app.supabase_client import supabase
 
+SIMILAR_TICKETS_ALLOWED_EMAILS = frozenset(
+    {
+        "aman@industryprime.com",
+        "rimpa@industryprime.com",
+    }
+)
+
+
+def similar_tickets_access_allowed(email: str | None) -> bool:
+    return (email or "").strip().lower() in SIMILAR_TICKETS_ALLOWED_EMAILS
+
 _TITLE_STOP_WORDS = frozenset(
     {
         "a",

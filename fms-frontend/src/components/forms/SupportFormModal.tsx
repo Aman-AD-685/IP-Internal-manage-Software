@@ -10,6 +10,7 @@ import { useAuth } from '../../hooks/useAuth'
 import type { Company, Page, Division } from '../../api/support'
 import { dedupeCompaniesForSelect } from '../../utils/companiesDedupe'
 import { TICKET_PRIORITY_OPTIONS, normalizePriorityValue } from '../../utils/ticketPriority'
+import { canUseSimilarTicketsSearch } from '../../utils/constants'
 import { SimilarTicketsPanel } from './SimilarTicketsPanel'
 import { ChoresBugsDetailDrawer } from '../tickets/ChoresBugsDetailDrawer'
 import { TicketDetailDrawer } from '../tickets/TicketDetailDrawer'
@@ -114,6 +115,7 @@ interface SupportFormModalProps {
 
 export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportFormModalProps) => {
   const { user } = useAuth()
+  const canSimilarTickets = canUseSimilarTicketsSearch(user?.email)
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
   const [companies, setCompanies] = useState<Company[]>([])
@@ -265,7 +267,13 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
   const similarScopeReady = String(titleWatch ?? '').trim().length >= SIMILAR_TITLE_MIN_LEN
 
   useEffect(() => {
-    if (!open) return
+    if (!open || !canSimilarTickets) {
+      if (!canSimilarTickets) {
+        setSimilarResult(null)
+        setSimilarLoading(false)
+      }
+      return
+    }
     similarFetchGenRef.current += 1
     setSimilarResult(null)
     if (similarDebounceRef.current) clearTimeout(similarDebounceRef.current)
@@ -296,7 +304,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
     return () => {
       if (similarDebounceRef.current) clearTimeout(similarDebounceRef.current)
     }
-  }, [open, titleWatch])
+  }, [open, titleWatch, canSimilarTickets])
 
   const handleTypeChange = (val: string) => {
     setRequestType(val)
@@ -374,6 +382,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
       const values = await form.validateFields()
       let repeatOfTicketId: string | undefined
       if (
+        canSimilarTickets &&
         similarResult &&
         similarResult.repeat_count >= 2 &&
         similarResult.has_open_repeat
@@ -485,6 +494,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
         <Form.Item name="title" label="Title" rules={[{ required: true, message: 'Required' }]}>
           <Input placeholder="Ticket title" />
         </Form.Item>
+        {canSimilarTickets && (
         <SimilarTicketsPanel
           result={similarResult}
           loading={similarLoading}
@@ -492,6 +502,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
           scopeHint="Enter at least 6 characters in Title to search similar titles across all companies."
           onViewTicket={handleViewSimilarTicket}
         />
+        )}
         <Form.Item name="attachment_url" label="Attachment (Optional)" hidden>
           <Input type="hidden" />
         </Form.Item>

@@ -1557,6 +1557,8 @@ def delete_support_ticket_draft(auth: dict = Depends(get_current_user)):
 
 @api_router.post("/tickets")
 def create_ticket(payload: CreateTicketRequest, auth: dict = Depends(get_current_user)):
+    from app.ticket_similarity import similar_tickets_access_allowed
+
     data = {
         "title": payload.title,
         "description": payload.description or "",
@@ -1578,6 +1580,8 @@ def create_ticket(payload: CreateTicketRequest, auth: dict = Depends(get_current
     for k in extras:
         v = getattr(payload, k, None)
         if v is None:
+            continue
+        if k == "repeat_of_ticket_id" and not similar_tickets_access_allowed(auth.get("email")):
             continue
         if k in ("company_id", "page_id", "division_id", "repeat_of_ticket_id") and v == "":
             continue
@@ -2159,7 +2163,21 @@ def list_similar_tickets(
     auth: dict = Depends(get_current_user),
 ):
     """Support form: similar titles across all companies (global search)."""
-    from app.ticket_similarity import find_similar_tickets
+    from app.ticket_similarity import find_similar_tickets, similar_tickets_access_allowed
+
+    if not similar_tickets_access_allowed(auth.get("email")):
+        title_clean = title.strip()
+        response = JSONResponse(
+            content={
+                "repeat_count": 0,
+                "normalized_title": title_clean.lower(),
+                "has_open_repeat": False,
+                "scope": "global",
+                "matches": [],
+            }
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     payload = find_similar_tickets(title=title.strip(), limit=limit)
     response = JSONResponse(content=payload)
