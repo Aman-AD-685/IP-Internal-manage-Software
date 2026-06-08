@@ -10,13 +10,6 @@ from typing import Any
 
 from app.supabase_client import supabase
 
-SIMILAR_TICKETS_ALLOWED_EMAILS = frozenset(
-    {
-        "aman@industryprime.com",
-        "rimpa@industryprime.com",
-    }
-)
-
 SIMILAR_THRESHOLD = 90
 NEAR_SIMILAR_MIN = 70
 MIN_TITLE_LEN = 3
@@ -33,7 +26,8 @@ SIMILAR_EMPTY: dict[str, Any] = {
 
 
 def similar_tickets_access_allowed(email: str | None) -> bool:
-    return (email or "").strip().lower() in SIMILAR_TICKETS_ALLOWED_EMAILS
+    """All authenticated users (routes already require get_current_user)."""
+    return bool((email or "").strip())
 
 
 _TITLE_STOP_WORDS = frozenset(
@@ -505,100 +499,96 @@ def _row_to_repeat_match(row: dict[str, Any], score: int, *, is_self: bool = Fal
     }
 
 
-def find_repeats_for_ticket(ticket_id: str, *, limit: int = 20) -> dict[str, Any]:
-    """Cross-company repeated issues for an existing ticket (list/detail Repeated button)."""
+def _row_to_child_repeat(row: dict[str, Any]) -> dict[str, Any]:
+    ticket_type = (row.get("type") or "").strip().lower()
+    return {
+        "id": row.get("id"),
+        "reference_no": row.get("reference_no"),
+        "title": row.get("title"),
+        "description": row.get("description") or "",
+        "type": ticket_type,
+        "type_label": _TYPE_LABELS.get(ticket_type, ticket_type),
+        "company_name": row.get("company_name") or "",
+        "created_at": row.get("created_at"),
+        "status_summary": ticket_status_summary(row),
+        "stage": ticket_open_stage_label(row),
+        "is_open": is_ticket_still_open(row),
+    }
+
+
+def fetch_repeat_child_counts(parent_ids: list[str]) -> dict[str, int]:
+    """Count tickets created with repeat_of_ticket_id pointing at each parent."""
+    out: dict[str, int] = {}
+    ids = [str(i).strip() for i in parent_ids if i]
+    if not ids:
+        return out
+    for i in range(0, len(ids), 80):
+        chunk = ids[i : i + 80]
+        try:
+            r = (
+                supabase.table("tickets")
+                .select("repeat_of_ticket_id")
+                .in_("repeat_of_ticket_id", chunk)
+                .execute()
+            )
+            for row in r.data or []:
+                pid = str(row.get("repeat_of_ticket_id") or "").strip()
+                if pid:
+                    out[pid] = out.get(pid, 0) + 1
+        except Exception:
+            pass
+    return out
+
+
+def attach_repeat_child_counts(rows: list[dict[str, Any]]) -> None:
+    if not rows:
+        return
+    parent_ids = [str(r.get("id") or "") for r in rows if r.get("id")]
+    counts = fetch_repeat_child_counts(parent_ids)
+    for row in rows:
+        rid = str(row.get("id") or "")
+        row["repeat_child_count"] = counts.get(rid, 0)
+
+
+def find_repeats_for_ticket(ticket_id: str, *, limit: int = 50) -> dict[str, Any]:
+    """Tickets created from this parent (repeat_of_ticket_id = ticket_id)."""
     empty: dict[str, Any] = {
-        "isRepeated": False,
-        "companyCount": 0,
-        "openRepeatCount": 0,
-        "parentTicketId": None,
-        "parentReferenceNo": None,
-        "repeatOfTicketId": None,
-        "related": [],
+        "childCount": 0,
+        "children": [],
+        "referenceNo": None,
+        "title": None,
     }
     ticket_id = (ticket_id or "").strip()
     if not ticket_id:
         return empty
     try:
-        r = (
+        pr = (
             supabase.table("tickets")
-            .select(_SIMILAR_SELECT)
+            .select("id,reference_no,title")
             .eq("id", ticket_id)
             .single()
             .execute()
         )
-        row = r.data
+        parent = pr.data or {}
     except Exception:
-        return empty
-    if not row:
-        return empty
-
-    _enrich_similar_company_names([row])
-    title = (row.get("title") or "").strip()
-    if len(title) < MIN_TITLE_LEN:
-        return {**empty, "repeatOfTicketId": row.get("repeat_of_ticket_id")}
-
-    candidates = _fetch_global_candidates(title)
-    scored: list[tuple[int, dict[str, Any]]] = []
-    self_id = str(row.get("id") or "")
-    for cand in candidates:
-        cid = str(cand.get("id") or "")
-        score = combined_similarity_score(title, cand)
-        if score < NEAR_SIMILAR_MIN and cid != self_id:
-            continue
-        scored.append((score, cand))
-
-    self_score = 100
-    scored.append((self_score, row))
-    scored.sort(
-        key=lambda x: (-x[0], str(x[1].get("created_at") or ""), str(x[1].get("reference_no") or ""))
-    )
-
-    picked: list[tuple[int, dict[str, Any]]] = []
-    seen_ids: set[str] = set()
-    for score, cand in scored:
-        cid = str(cand.get("id") or "")
-        if not cid or cid in seen_ids:
-            continue
-        seen_ids.add(cid)
-        picked.append((score, cand))
-        if len(picked) >= limit:
-            break
-
-    _enrich_similar_company_names([c for _, c in picked])
-
-    related: list[dict[str, Any]] = []
-    companies: set[str] = set()
-    open_count = 0
-    for score, cand in picked:
-        cid = str(cand.get("id") or "")
-        match = _row_to_repeat_match(cand, score, is_self=(cid == self_id))
-        related.append(match)
-        cn = (match.get("company_name") or "").strip().lower()
-        if cn and cn not in ("—", "-"):
-            companies.add(cn)
-        if match.get("is_open"):
-            open_count += 1
-
-    parent_id: str | None = None
-    parent_ref: str | None = None
-    for _, cand in sorted(picked, key=lambda x: (str(x[1].get("created_at") or ""))):
-        if is_ticket_still_open(cand):
-            parent_id = str(cand.get("id") or "") or None
-            parent_ref = str(cand.get("reference_no") or "") or None
-            break
-    if not parent_id and picked:
-        parent_id = str(picked[-1][1].get("id") or "") or None
-        parent_ref = str(picked[-1][1].get("reference_no") or "") or None
-
-    is_repeated = len(companies) >= 2 and open_count >= 1
-
+        parent = {}
+    try:
+        cr = (
+            supabase.table("tickets")
+            .select(_SIMILAR_SELECT)
+            .eq("repeat_of_ticket_id", ticket_id)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        child_rows = list(cr.data or [])
+    except Exception:
+        child_rows = []
+    _enrich_similar_company_names(child_rows)
+    children = [_row_to_child_repeat(row) for row in child_rows]
     return {
-        "isRepeated": is_repeated,
-        "companyCount": len(companies),
-        "openRepeatCount": open_count,
-        "parentTicketId": parent_id,
-        "parentReferenceNo": parent_ref,
-        "repeatOfTicketId": row.get("repeat_of_ticket_id"),
-        "related": related,
+        "childCount": len(children),
+        "children": children,
+        "referenceNo": parent.get("reference_no"),
+        "title": parent.get("title"),
     }

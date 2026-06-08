@@ -1,5 +1,5 @@
 import { Button, Spin, Tag, Typography } from 'antd'
-import { EyeInvisibleOutlined, LinkOutlined } from '@ant-design/icons'
+import { LinkOutlined, EyeInvisibleOutlined } from '@ant-design/icons'
 import { useEffect, useState, type ReactNode } from 'react'
 import type { SimilarTicketMatch, SimilarTicketsResponse } from '../../api/tickets'
 import './similar-tickets-panel.css'
@@ -13,7 +13,9 @@ interface SimilarTicketsPanelProps {
   query?: string
   scopeReady?: boolean
   scopeHint?: string
-  onViewTicket?: (ticketId: string, ticketType: 'chore' | 'bug' | 'feature') => void
+  selectedTicketId?: string | null
+  onSelectTicket?: (item: SimilarTicketMatch) => void
+  onViewTicket?: (item: SimilarTicketMatch) => void
 }
 
 function escapeRegExp(value: string): string {
@@ -61,16 +63,38 @@ function scoreBadgeColor(score: number): string {
 function TicketRow({
   item,
   query,
+  selected,
+  onSelectTicket,
   onViewTicket,
 }: {
   item: SimilarTicketMatch
   query: string
-  onViewTicket?: (ticketId: string, ticketType: 'chore' | 'bug' | 'feature') => void
+  selected?: boolean
+  onSelectTicket?: (item: SimilarTicketMatch) => void
+  onViewTicket?: (item: SimilarTicketMatch) => void
 }) {
   const companyName = item.company_name?.trim() || '—'
 
+  const handleSelect = () => onSelectTicket?.(item)
+
   return (
-    <div className="similar-tickets-row">
+    <div
+      className={`similar-tickets-row${onSelectTicket ? ' similar-tickets-row--clickable' : ''}${selected ? ' similar-tickets-row--selected' : ''}`}
+      role={onSelectTicket ? 'option' : undefined}
+      aria-selected={onSelectTicket ? selected : undefined}
+      tabIndex={onSelectTicket ? 0 : undefined}
+      onClick={onSelectTicket ? handleSelect : undefined}
+      onKeyDown={
+        onSelectTicket
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                handleSelect()
+              }
+            }
+          : undefined
+      }
+    >
       <div className="similar-tickets-row__ref">{item.reference_no}</div>
       <div className="similar-tickets-row__title" title={item.title}>
         {highlightTitle(item.title, query)}
@@ -86,7 +110,10 @@ function TicketRow({
             type="link"
             size="small"
             icon={<LinkOutlined />}
-            onClick={() => onViewTicket(item.id, item.type)}
+            onClick={(e) => {
+              e.stopPropagation()
+              onViewTicket(item)
+            }}
             style={{ padding: 0, height: 'auto' }}
           >
             View
@@ -113,12 +140,16 @@ function TicketSection({
   title,
   items,
   query,
+  selectedTicketId,
+  onSelectTicket,
   onViewTicket,
 }: {
   title: string
   items: SimilarTicketMatch[]
   query: string
-  onViewTicket?: (ticketId: string, ticketType: 'chore' | 'bug' | 'feature') => void
+  selectedTicketId?: string | null
+  onSelectTicket?: (item: SimilarTicketMatch) => void
+  onViewTicket?: (item: SimilarTicketMatch) => void
 }) {
   if (items.length === 0) return null
 
@@ -126,7 +157,14 @@ function TicketSection({
     <>
       <div className="similar-tickets-panel__section-title">{title}</div>
       {items.map((item) => (
-        <TicketRow key={item.id} item={item} query={query} onViewTicket={onViewTicket} />
+        <TicketRow
+          key={item.id}
+          item={item}
+          query={query}
+          selected={selectedTicketId === item.id}
+          onSelectTicket={onSelectTicket}
+          onViewTicket={onViewTicket}
+        />
       ))}
     </>
   )
@@ -139,6 +177,8 @@ export function SimilarTicketsPanel({
   query = '',
   scopeReady = true,
   scopeHint,
+  selectedTicketId,
+  onSelectTicket,
   onViewTicket,
 }: SimilarTicketsPanelProps) {
   const [dismissed, setDismissed] = useState(false)
@@ -219,12 +259,16 @@ export function SimilarTicketsPanel({
           title="Similar Tickets"
           items={similar}
           query={query}
+          selectedTicketId={selectedTicketId}
+          onSelectTicket={onSelectTicket}
           onViewTicket={onViewTicket}
         />
         <TicketSection
           title="Near Similar Tickets"
           items={nearSimilar}
           query={query}
+          selectedTicketId={selectedTicketId}
+          onSelectTicket={onSelectTicket}
           onViewTicket={onViewTicket}
         />
       </div>

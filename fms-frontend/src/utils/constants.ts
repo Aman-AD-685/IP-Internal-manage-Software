@@ -180,16 +180,9 @@ export function canViewDbClientDbDash(email: string | null | undefined): boolean
   return DB_CLIENT_DB_DASH_ALLOWED_EMAILS.some((a) => a.toLowerCase() === e)
 }
 
-/** Similar / repeated-issue panel on Add Support Ticket — pilot users only. */
-export const SIMILAR_TICKETS_ALLOWED_EMAILS: readonly string[] = [
-  'aman@industryprime.com',
-  'rimpa@industryprime.com',
-]
-
+/** Similar / repeated-issue panel on Add Support Ticket — all logged-in users. */
 export function canUseSimilarTicketsSearch(email: string | null | undefined): boolean {
-  const e = (email ?? '').trim().toLowerCase()
-  if (!e) return false
-  return SIMILAR_TICKETS_ALLOWED_EMAILS.some((a) => a.toLowerCase() === e)
+  return Boolean((email ?? '').trim())
 }
 
 export const API_ENDPOINTS = {

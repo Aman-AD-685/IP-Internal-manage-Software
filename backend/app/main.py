@@ -1872,7 +1872,7 @@ def _enrich_kpi_ticket_slices(*slices: list[dict]) -> None:
         _enrich_tickets_with_lookups(list(by_id.values()))
 
 
-def _enrich_tickets_with_lookups(rows: list) -> list:
+def _enrich_tickets_with_lookups(rows: list, *, include_repeat_counts: bool = True) -> list:
     """Add company_name, page_name, division_name from lookup tables."""
     if not rows:
         return rows
@@ -1880,33 +1880,55 @@ def _enrich_tickets_with_lookups(rows: list) -> list:
     company_ids = {r.get("company_id") for r in rows if r.get("company_id")}
     page_ids = {r.get("page_id") for r in rows if r.get("page_id")}
     division_ids = {r.get("division_id") for r in rows if r.get("division_id")}
-    companies_map, pages_map, divisions_map = {}, {}, {}
-    try:
-        if company_ids:
-            r = supabase.table("companies").select("id,name").in_("id", list(company_ids)).execute()
-            companies_map = {c["id"]: c["name"] for c in (r.data or [])}
-    except Exception:
-        pass
-    try:
-        if page_ids:
-            r = supabase.table("pages").select("id,name").in_("id", list(page_ids)).execute()
-            pages_map = {p["id"]: p["name"] for p in (r.data or [])}
-    except Exception:
-        pass
-    try:
-        if division_ids:
-            r = supabase.table("divisions").select("id,name").in_("id", list(division_ids)).execute()
-            divisions_map = {d["id"]: d["name"] for d in (r.data or [])}
-    except Exception:
-        pass
     approved_by_ids = {r.get("approved_by") for r in rows if r.get("approved_by")}
-    approvers_map = {}
-    try:
-        if approved_by_ids:
-            r = supabase.table("user_profiles").select("id, full_name").in_("id", list(approved_by_ids)).execute()
-            approvers_map = {a["id"]: a.get("full_name") or "Unknown" for a in (r.data or [])}
-    except Exception:
-        pass
+    companies_map: dict = {}
+    pages_map: dict = {}
+    divisions_map: dict = {}
+    approvers_map: dict = {}
+
+    def _load_companies() -> dict:
+        r = supabase.table("companies").select("id,name").in_("id", list(company_ids)).execute()
+        return {c["id"]: c["name"] for c in (r.data or [])}
+
+    def _load_pages() -> dict:
+        r = supabase.table("pages").select("id,name").in_("id", list(page_ids)).execute()
+        return {p["id"]: p["name"] for p in (r.data or [])}
+
+    def _load_divisions() -> dict:
+        r = supabase.table("divisions").select("id,name").in_("id", list(division_ids)).execute()
+        return {d["id"]: d["name"] for d in (r.data or [])}
+
+    def _load_approvers() -> dict:
+        r = supabase.table("user_profiles").select("id, full_name").in_("id", list(approved_by_ids)).execute()
+        return {a["id"]: a.get("full_name") or "Unknown" for a in (r.data or [])}
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    tasks: list[tuple[str, object]] = []
+    if company_ids:
+        tasks.append(("companies", _load_companies))
+    if page_ids:
+        tasks.append(("pages", _load_pages))
+    if division_ids:
+        tasks.append(("divisions", _load_divisions))
+    if approved_by_ids:
+        tasks.append(("approvers", _load_approvers))
+    if tasks:
+        with ThreadPoolExecutor(max_workers=min(4, len(tasks))) as pool:
+            futures = {name: pool.submit(fn) for name, fn in tasks}
+            for name, fut in futures.items():
+                try:
+                    data = fut.result()
+                    if name == "companies":
+                        companies_map = data
+                    elif name == "pages":
+                        pages_map = data
+                    elif name == "divisions":
+                        divisions_map = data
+                    elif name == "approvers":
+                        approvers_map = data
+                except Exception:
+                    pass
     for row in rows:
         row["company_name"] = _resolve_ticket_company_name(row, companies_map, ref_to_company)
         row["page_name"] = (
@@ -1918,6 +1940,13 @@ def _enrich_tickets_with_lookups(rows: list) -> list:
             or (str(row.get("division")).strip() if row.get("division") and str(row.get("division")).strip() else None)
         )
         row["approved_by_name"] = approvers_map.get(row.get("approved_by")) if row.get("approved_by") else None
+    if include_repeat_counts:
+        try:
+            from app.ticket_similarity import attach_repeat_child_counts
+
+            attach_repeat_child_counts(rows)
+        except Exception:
+            pass
     return rows
 
 
@@ -1985,6 +2014,7 @@ def list_tickets(
         None,
         description="register-of-tickets: completed | rejected | all (default all with quality_solution)",
     ),
+    include_repeat_counts: bool = False,
     auth: dict = Depends(get_current_user),
 ):
     page = max(1, int(page or 1))
@@ -2134,7 +2164,7 @@ def list_tickets(
         q = apply_exclude_ticket_na(q)
     q = q.range((page - 1) * page_size, page * page_size - 1)
     r = q.execute()
-    rows = _enrich_tickets_with_lookups(r.data or [])
+    rows = _enrich_tickets_with_lookups(r.data or [], include_repeat_counts=include_repeat_counts)
     return {"data": rows, "total": _supabase_list_total(r, page, page_size), "page": page, "page_size": page_size}
 
 
@@ -2204,7 +2234,7 @@ def get_ticket_repeats(
 
 @api_router.get("/tickets/{ticket_id}")
 def get_ticket(ticket_id: str, auth: dict = Depends(get_current_user)):
-    r = supabase.table("tickets").select("*").eq("id", ticket_id).single().execute()
+    r = supabase.table("tickets").select(_TICKET_LIST_SELECT).eq("id", ticket_id).single().execute()
     if not r.data:
         raise HTTPException(status_code=404, detail="Ticket not found")
     rows = _enrich_tickets_with_lookups([r.data])

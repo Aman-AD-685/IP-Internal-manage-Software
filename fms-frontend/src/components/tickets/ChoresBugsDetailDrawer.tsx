@@ -37,6 +37,8 @@ const SUPPORT_TICKET_EDIT_ALLOWED_EMAILS = new Set(['aman@industryprime.com', 'r
 
 interface ChoresBugsDetailDrawerProps {
   ticketId: string | null
+  /** Row from list — instant drawer paint while full GET refreshes in background */
+  initialTicket?: Ticket | null
   open: boolean
   onClose: () => void
   onUpdate?: () => void
@@ -49,7 +51,22 @@ const getSlaColor = (seconds: number, limitSeconds: number) => {
   return 'red'
 }
 
-export const ChoresBugsDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly = false }: ChoresBugsDetailDrawerProps) => {
+function unwrapTicketResponse(res: unknown): Ticket | null {
+  if (res && typeof res === 'object' && 'data' in res && res.data && typeof res.data === 'object' && 'id' in res.data) {
+    return res.data as Ticket
+  }
+  if (res && typeof res === 'object' && 'id' in res) return res as Ticket
+  return null
+}
+
+export const ChoresBugsDetailDrawer = ({
+  ticketId,
+  initialTicket,
+  open,
+  onClose,
+  onUpdate,
+  readOnly = false,
+}: ChoresBugsDetailDrawerProps) => {
   const { user } = useAuth()
   const { isMasterAdmin } = useRole()
   const [ticket, setTicket] = useState<Ticket | null>(null)
@@ -104,33 +121,39 @@ export const ChoresBugsDetailDrawer = ({ ticketId, open, onClose, onUpdate, read
   const level3Restricted = isLevel3 && !isMasterAdmin && ticket?.level3_used_by_current_user === true
   useEffect(() => {
     if (open && ticketId) {
-      setLoading(true)
+      const hasInitial = initialTicket?.id === ticketId
+      if (hasInitial) {
+        setTicket(initialTicket)
+        setLoading(false)
+      } else {
+        setTicket(null)
+        setLoading(true)
+      }
+
       ticketsApi
         .get(ticketId)
         .then((res) => {
-          const t = res && typeof res === 'object' && 'data' in res && res.data && typeof res.data === 'object' && 'id' in res.data
-            ? (res.data as Ticket)
-            : res && typeof res === 'object' && 'id' in res ? (res as Ticket) : null
-          setTicket(t)
+          const t = unwrapTicketResponse(res)
+          if (t) setTicket(t)
         })
-        .catch(() => message.error('Failed to load ticket'))
+        .catch(() => {
+          if (!hasInitial) message.error('Failed to load ticket')
+        })
         .finally(() => setLoading(false))
-      ticketsApi.getStage2Remarks(ticketId).then((r) => setStage2Remarks((r?.data ?? []) as Stage2Remark[])).catch(() => setStage2Remarks([]))
-      const canLoadEditLookups = SUPPORT_TICKET_EDIT_ALLOWED_EMAILS.has((user?.email || '').trim().toLowerCase())
-      if (canLoadEditLookups) {
-        supportApi.getCompanies().then((rows) => setCompanies(rows || [])).catch(() => setCompanies([]))
-        supportApi.getPages().then((rows) => setPages(rows || [])).catch(() => setPages([]))
-      } else {
-        setCompanies([])
-        setPages([])
-      }
+
+      ticketsApi
+        .getStage2Remarks(ticketId)
+        .then((r) => setStage2Remarks((r?.data ?? []) as Stage2Remark[]))
+        .catch(() => setStage2Remarks([]))
     } else {
       setTicket(null)
       setStage2Remarks([])
       setEditingRemarkId(null)
       setDivisions([])
+      setCompanies([])
+      setPages([])
     }
-  }, [open, ticketId, user?.email])
+  }, [open, ticketId, initialTicket])
 
   const handleUpdate = async (updates: Partial<Ticket>) => {
     if (!ticketId) return
@@ -206,8 +229,20 @@ export const ChoresBugsDetailDrawer = ({ ticketId, open, onClose, onUpdate, read
   const canEditWithinWindow = !!createdAtMs && (Date.now() - createdAtMs) <= editWindowMs
   const canEditSupportTicket = !readOnly && canEditSupportTicketByEmail && canEditWithinWindow
 
+  const ensureEditLookups = () => {
+    const emailOk = SUPPORT_TICKET_EDIT_ALLOWED_EMAILS.has((user?.email || '').trim().toLowerCase())
+    if (!emailOk) return
+    if (companies.length === 0) {
+      supportApi.getCompanies().then((rows) => setCompanies(rows || [])).catch(() => setCompanies([]))
+    }
+    if (pages.length === 0) {
+      supportApi.getPages().then((rows) => setPages(rows || [])).catch(() => setPages([]))
+    }
+  }
+
   const openEditModal = () => {
     if (!ticket || !canEditSupportTicketByEmail) return
+    ensureEditLookups()
     const nextCompanyId = ticket.company_id || ''
     setEditForm({
       title: ticket.title || '',
@@ -409,7 +444,7 @@ export const ChoresBugsDetailDrawer = ({ ticketId, open, onClose, onUpdate, read
         width={640}
         open={open}
         onClose={onClose}
-        loading={loading}
+        loading={loading && !ticket}
         extra={
           ticket ? (
             <Button type="default" size="small" icon={<RetweetOutlined />} onClick={() => setRepeatedOpen(true)}>

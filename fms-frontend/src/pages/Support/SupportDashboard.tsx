@@ -1,4 +1,4 @@
-import { Typography, Row, Col, Card, Button, Modal, Table, Alert, Skeleton } from 'antd'
+import { Typography, Row, Col, Card, Button, Modal, Table, Alert } from 'antd'
 import { TextCellTooltip, tableCellEllipsisStyle } from '../../components/common/TextCellTooltip'
 import {
   CalendarOutlined,
@@ -13,7 +13,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { supportDashboardApi, type SupportDashboardStats, type WeekData } from '../../api/supportDashboard'
 import { sessionApiCacheGet } from '../../utils/sessionApiCache'
-import { ModalContentSkeleton } from '../../components/common/skeletons'
+import { ModalContentSkeleton, SkeletonOverlay } from '../../components/common/skeletons'
 import { formatDateWeekly, truncateTitleDescCell } from '../../utils/helpers'
 import { ROUTES } from '../../utils/constants'
 import { isLocalBackend } from '../../api/axios'
@@ -166,14 +166,6 @@ export const SupportDashboard = () => {
     }
   }
 
-  if (loading) {
-    return (
-      <div style={{ maxWidth: 1400, margin: '0 auto', padding: 16 }}>
-        <Skeleton active paragraph={{ rows: 8 }} />
-      </div>
-    )
-  }
-
   const weeks = data?.weeksData ?? []
   const countsChores = data?.counts?.chores ?? { '1-2': 0, '2-7': 0, '7+': 0, hold: 0 }
   const countsBugs = data?.counts?.bugs ?? { '1-2': 0, '2-7': 0, '7+': 0, hold: 0 }
@@ -189,6 +181,7 @@ export const SupportDashboard = () => {
   }
 
   return (
+    <SkeletonOverlay loading={loading && !data} minHeight={480}>
     <div
       style={{
         maxWidth: 1400,
@@ -749,5 +742,6 @@ export const SupportDashboard = () => {
         ) : null}
       </Modal>
     </div>
+    </SkeletonOverlay>
   )
 }
