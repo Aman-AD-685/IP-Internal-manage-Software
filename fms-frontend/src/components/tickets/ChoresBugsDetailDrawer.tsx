@@ -13,7 +13,7 @@ import {
   Divider,
   DatePicker,
 } from 'antd'
-import { RocketOutlined, EditOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons'
+import { RocketOutlined, EditOutlined, CheckOutlined, CloseOutlined, RetweetOutlined } from '@ant-design/icons'
 import { ticketsApi, type Stage2Remark } from '../../api/tickets'
 import { formatDateTable, formatReplySla, formatDelay, stagingDelaySeconds } from '../../utils/helpers'
 import type { Ticket } from '../../api/tickets'
@@ -24,6 +24,7 @@ import dayjs from 'dayjs'
 import { formatPriorityLabel, getPriorityTagColor } from '../../utils/ticketPriority'
 import { invalidateAfterStage2Remark } from '../../utils/sessionApiCache'
 import { notifyStage2RemarkAdded } from '../../utils/stage2RemarkEvents'
+import { RepeatedTicketsModal } from './RepeatedTicketsModal'
 
 const { TextArea } = Input
 const { Text } = Typography
@@ -65,6 +66,7 @@ export const ChoresBugsDetailDrawer = ({ ticketId, open, onClose, onUpdate, read
   const [updatingRemark, setUpdatingRemark] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [editSubmitting, setEditSubmitting] = useState(false)
+  const [repeatedOpen, setRepeatedOpen] = useState(false)
   const [companies, setCompanies] = useState<Company[]>([])
   const [pages, setPages] = useState<Page[]>([])
   const [divisions, setDivisions] = useState<Division[]>([])
@@ -408,6 +410,13 @@ export const ChoresBugsDetailDrawer = ({ ticketId, open, onClose, onUpdate, read
         open={open}
         onClose={onClose}
         loading={loading}
+        extra={
+          ticket ? (
+            <Button type="default" size="small" icon={<RetweetOutlined />} onClick={() => setRepeatedOpen(true)}>
+              Repeated
+            </Button>
+          ) : null
+        }
       >
         {ticket && (
           <>
@@ -1093,6 +1102,22 @@ export const ChoresBugsDetailDrawer = ({ ticketId, open, onClose, onUpdate, read
           />
         </div>
       </Modal>
+
+      <RepeatedTicketsModal
+        ticketId={ticketId}
+        ticketReference={ticket?.reference_no}
+        open={repeatedOpen}
+        onClose={() => setRepeatedOpen(false)}
+        onUpdated={() => {
+          onUpdate?.()
+          if (ticketId) {
+            ticketsApi.get(ticketId).then((res) => {
+              const data = res && typeof res === 'object' && 'data' in res ? res.data : res
+              if (data) setTicket(data as Ticket)
+            })
+          }
+        }}
+      />
     </>
   )
 }

@@ -73,6 +73,7 @@ export interface Ticket {
   live_review_planned?: string
   live_review_actual?: string
   live_review_status?: 'pending' | 'completed'
+  repeat_of_ticket_id?: string
   /** Set by backend for Level 3 (user) role: true = this user has used their one-time edit; drawer is view-only except Stage 2 */
   level3_used_by_current_user?: boolean
   /** Stage locks: Admin/User can edit once; after that only Master Admin can edit */
@@ -153,6 +154,22 @@ export interface SimilarTicketsResponse {
   matches: SimilarTicketMatch[]
 }
 
+export interface RepeatedTicketMatch extends SimilarTicketMatch {
+  stage?: string
+  is_self?: boolean
+  repeat_of_ticket_id?: string | null
+}
+
+export interface RepeatedTicketsResponse {
+  isRepeated: boolean
+  companyCount: number
+  openRepeatCount: number
+  parentTicketId: string | null
+  parentReferenceNo: string | null
+  repeatOfTicketId: string | null
+  related: RepeatedTicketMatch[]
+}
+
 export interface UpdateTicketRequest {
   title?: string
   description?: string
@@ -195,6 +212,7 @@ export interface UpdateTicketRequest {
   live_status?: 'pending' | 'completed'
   live_review_status?: 'pending' | 'completed'
   live_review_actual?: string
+  repeat_of_ticket_id?: string | null
 }
 
 export const ticketsApi = {
@@ -287,6 +305,17 @@ export const ticketsApi = {
       signal: params.signal,
     })
     return response.data
+  },
+
+  getRepeats: async (ticketId: string): Promise<RepeatedTicketsResponse> => {
+    const response = await apiClient.get<RepeatedTicketsResponse>(`/tickets/${ticketId}/repeats`, {
+      timeout: 20000,
+    })
+    return response.data
+  },
+
+  markRepeat: async (ticketId: string, parentTicketId: string): Promise<ApiResponse<Ticket>> => {
+    return ticketsApi.update(ticketId, { repeat_of_ticket_id: parentTicketId })
   },
 
   update: async (id: string, data: UpdateTicketRequest): Promise<ApiResponse<Ticket>> => {

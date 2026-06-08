@@ -12,12 +12,13 @@ import {
   Dropdown,
   message,
 } from 'antd'
-import { SearchOutlined, PhoneOutlined, MailOutlined, MessageOutlined, LinkOutlined, MoreOutlined, PauseCircleOutlined } from '@ant-design/icons'
+import { SearchOutlined, PhoneOutlined, MailOutlined, MessageOutlined, LinkOutlined, MoreOutlined, PauseCircleOutlined, RetweetOutlined } from '@ant-design/icons'
 import { useSearchParams, useLocation, useNavigate } from 'react-router-dom'
-import { ticketsApi } from '../../api/tickets'
+import { ticketsApi, type Ticket } from '../../api/tickets'
 import { supportApi } from '../../api/support'
 import { TicketDetailDrawer } from '../../components/tickets/TicketDetailDrawer'
 import { ChoresBugsDetailDrawer } from '../../components/tickets/ChoresBugsDetailDrawer'
+import { RepeatedTicketsModal } from '../../components/tickets/RepeatedTicketsModal'
 import { PrintExport } from '../../components/common/PrintExport'
 import { TableLoadMoreSkeleton, TableWithSkeletonLoading } from '../../components/common/skeletons'
 import { TextCellTooltip, tableCellEllipsisStyle } from '../../components/common/TextCellTooltip'
@@ -36,7 +37,6 @@ import {
   TICKET_TABLE_QA_PREVIEW_MAX_CHARS,
 } from '../../utils/helpers'
 import { useRole } from '../../hooks/useRole'
-import type { Ticket } from '../../api/tickets'
 import type { Company } from '../../api/support'
 import { ROUTES } from '../../utils/constants'
 import { sessionApiCacheClearLogicalPrefix, sessionApiCacheGet, ticketsListLogicalKey } from '../../utils/sessionApiCache'
@@ -195,6 +195,7 @@ export const TicketList = () => {
   const [companies, setCompanies] = useState<Company[]>([])
   const [drawerTicketId, setDrawerTicketId] = useState<string | null>(null)
   const [drawerTicketType, setDrawerTicketType] = useState<string | null>(null)
+  const [repeatedModalTicket, setRepeatedModalTicket] = useState<{ id: string; ref: string } | null>(null)
   const [filters, setFilters] = useState({
     search: '',
     reference_filter: '',
@@ -222,6 +223,8 @@ export const TicketList = () => {
   /** Feature section: toggle to view features the approver placed on Hold (approval_status='hold') */
   const [featureHoldView, setFeatureHoldView] = useState(false)
   const isFeatureHoldView = isFeatureListSection && featureHoldView
+  const showRepeatedColumn =
+    isChoresBugsSection || isFeatureListSection || isApprovalSection
   const isRegisterChoresBugsMode =
     isRegisterSection && registerTypeFilters.some((t) => t === 'chore' || t === 'bug')
   const isChoresBugs =
@@ -901,6 +904,26 @@ export const TicketList = () => {
 
   const wrapStyle = { whiteSpace: 'normal' as const, wordBreak: 'break-word' as const }
 
+  const repeatedColumn = {
+    title: 'Repeated',
+    key: 'repeated',
+    width: 92,
+    fixed: 'right' as const,
+    render: (_: unknown, r: Ticket) => (
+      <Button
+        type="link"
+        size="small"
+        icon={<RetweetOutlined />}
+        onClick={(e) => {
+          e.stopPropagation()
+          setRepeatedModalTicket({ id: r.id, ref: r.reference_no })
+        }}
+      >
+        {r.repeat_of_ticket_id ? 'Linked' : 'View'}
+      </Button>
+    ),
+  }
+
   const baseColumns = [
     {
       title: 'Reference No',
@@ -1403,6 +1426,7 @@ export const TicketList = () => {
           },
         ]
       : []),
+    ...(showRepeatedColumn ? [repeatedColumn] : []),
   ]
 
   const pageTitle =
@@ -1762,6 +1786,19 @@ export const TicketList = () => {
           approvalMode={isApprovalSection || isFeatureHoldView}
         />
       )}
+
+      <RepeatedTicketsModal
+        ticketId={repeatedModalTicket?.id ?? null}
+        ticketReference={repeatedModalTicket?.ref}
+        open={!!repeatedModalTicket}
+        onClose={() => setRepeatedModalTicket(null)}
+        onUpdated={refetchList}
+        onViewTicket={(id, ticketType) => {
+          setRepeatedModalTicket(null)
+          setDrawerTicketId(id)
+          setDrawerTicketType(ticketType)
+        }}
+      />
     </div>
   )
 }

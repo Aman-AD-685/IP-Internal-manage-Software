@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
 import { Drawer, Descriptions, Tag, Typography, Input, Button, Space, message, Modal, Divider, Select } from 'antd'
-import { CheckOutlined, CloseOutlined, PauseCircleOutlined, UndoOutlined } from '@ant-design/icons'
+import { CheckOutlined, CloseOutlined, PauseCircleOutlined, UndoOutlined, RetweetOutlined } from '@ant-design/icons'
 import { ticketsApi } from '../../api/tickets'
 import { formatDateTable, formatDuration, featureStage1DelaySeconds, featureStage2DelaySeconds, formatDelay } from '../../utils/helpers'
 import type { Ticket } from '../../api/tickets'
 import { useAuth } from '../../hooks/useAuth'
 import { useRole } from '../../hooks/useRole'
 import { formatPriorityLabel, getPriorityTagColor } from '../../utils/ticketPriority'
+import { RepeatedTicketsModal } from './RepeatedTicketsModal'
 
 const { TextArea } = Input
 const { Text } = Typography
@@ -88,6 +89,7 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
   const [approvalActionLoading, setApprovalActionLoading] = useState(false)
   const [solutionModalOpen, setSolutionModalOpen] = useState(false)
   const [solutionText, setSolutionText] = useState('')
+  const [repeatedOpen, setRepeatedOpen] = useState(false)
   const [submittingSolution, setSubmittingSolution] = useState(false)
 
   const handleFeatureStageUpdate = async (updates: Partial<Ticket>) => {
@@ -264,6 +266,7 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
   const canSubmitFeatureSolution = featureFinalCompleted && !hasQualitySolution
 
   return (
+    <>
     <Drawer
       title={ticket?.title || 'Ticket Details'}
       placement="right"
@@ -271,6 +274,13 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
       open={open}
       onClose={onClose}
       loading={loading}
+      extra={
+        ticket ? (
+          <Button type="default" size="small" icon={<RetweetOutlined />} onClick={() => setRepeatedOpen(true)}>
+            Repeated
+          </Button>
+        ) : null
+      }
     >
       {ticket && (
         <>
@@ -588,5 +598,22 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
         </div>
       </Modal>
     </Drawer>
+
+    <RepeatedTicketsModal
+      ticketId={ticketId}
+      ticketReference={ticket?.reference_no}
+      open={repeatedOpen}
+      onClose={() => setRepeatedOpen(false)}
+      onUpdated={() => {
+        onUpdate?.()
+        if (ticketId) {
+          ticketsApi.get(ticketId).then((res) => {
+            const data = res && typeof res === 'object' && 'data' in res ? res.data : res
+            if (data) setTicket(data as Ticket)
+          })
+        }
+      }}
+    />
+    </>
   )
 }
