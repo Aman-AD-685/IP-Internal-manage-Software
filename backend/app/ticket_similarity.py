@@ -1,5 +1,7 @@
 """
 Global similar-title lookup for the Support form (all companies, target <500ms).
+Uses indexed ILIKE candidate fetch + in-app scoring (title + description).
+Run database/TICKETS_SIMILAR_SEARCH.sql in Supabase for pg_trgm indexes.
 """
 from __future__ import annotations
 
@@ -15,9 +17,24 @@ SIMILAR_TICKETS_ALLOWED_EMAILS = frozenset(
     }
 )
 
+SIMILAR_THRESHOLD = 90
+NEAR_SIMILAR_MIN = 70
+MIN_TITLE_LEN = 3
+
+SIMILAR_EMPTY: dict[str, Any] = {
+    "similar": [],
+    "nearSimilar": [],
+    "repeat_count": 0,
+    "normalized_title": "",
+    "has_open_repeat": False,
+    "scope": "global",
+    "matches": [],
+}
+
 
 def similar_tickets_access_allowed(email: str | None) -> bool:
     return (email or "").strip().lower() in SIMILAR_TICKETS_ALLOWED_EMAILS
+
 
 _TITLE_STOP_WORDS = frozenset(
     {
@@ -63,9 +80,25 @@ _TITLE_STOP_WORDS = frozenset(
 
 _TYPE_LABELS = {"chore": "Chores", "bug": "Bug", "feature": "Feature"}
 
-# Narrow columns — keeps PostgREST payload small for sub-500ms responses.
+_PLACEHOLDER_COMPANY_NAMES = frozenset(
+    {
+        "company a",
+        "company b",
+        "company c",
+        "demo",
+        "demo_c",
+        "demo c",
+        "demo_c ",
+        "unknown",
+        "n/a",
+        "na",
+        "test",
+        "sample",
+    }
+)
+
 _SIMILAR_SELECT = (
-    "id,reference_no,title,type,company_name,created_at,status_2,status_4,"
+    "id,reference_no,title,description,type,company_id,company_name,created_at,status_2,status_4,"
     "quality_solution,approval_status,live_review_status,live_status,staging_planned"
 )
 
@@ -95,6 +128,24 @@ def _title_tokens(title: str | None) -> list[str]:
     return tokens
 
 
+def _fuzzy_token_match(a: str, b: str) -> bool:
+    if a == b:
+        return True
+    if len(a) >= 3 and len(b) >= 3 and (a.startswith(b) or b.startswith(a)):
+        return True
+    return False
+
+
+def _fuzzy_token_overlap(ta: set[str], tb: set[str]) -> set[str]:
+    matched: set[str] = set()
+    for a in ta:
+        for b in tb:
+            if _fuzzy_token_match(a, b):
+                matched.add(a)
+                break
+    return matched
+
+
 def title_similarity_score(a: str | None, b: str | None) -> int:
     na = normalize_ticket_title(a)
     nb = normalize_ticket_title(b)
@@ -107,23 +158,35 @@ def title_similarity_score(a: str | None, b: str | None) -> int:
     ta, tb = set(_title_tokens(a)), set(_title_tokens(b))
     if not ta or not tb:
         return 0
-    inter = ta & tb
+    inter = _fuzzy_token_overlap(ta, tb)
     union = ta | tb
     jaccard = int(round(100 * len(inter) / len(union))) if union else 0
     if len(inter) >= 2:
         return max(jaccard, 75)
-    if inter and any(len(t) >= 5 for t in inter):
+    if inter and any(len(t) >= 4 for t in inter):
+        return max(jaccard, 72)
+    if inter:
         return max(jaccard, 70)
     return jaccard
 
 
+def combined_similarity_score(query: str, row: dict[str, Any]) -> int:
+    title_score = title_similarity_score(query, row.get("title"))
+    desc_raw = str(row.get("description") or "")[:500]
+    desc_score = title_similarity_score(query, desc_raw)
+    return max(title_score, int(round(desc_score * 0.85)))
+
+
 def _search_tokens(title: str) -> list[str]:
-    tokens = [_sanitize_ilike(t) for t in _title_tokens(title) if len(t) >= 4]
+    tokens = [_sanitize_ilike(t) for t in _title_tokens(title) if len(t) >= 3]
     tokens = [t for t in tokens if t]
     if tokens:
         return tokens[:2]
-    norm = _sanitize_ilike(normalize_ticket_title(title).replace(" ", ""), max_len=16)
-    return [norm] if len(norm) >= 4 else []
+    compact = _sanitize_ilike(normalize_ticket_title(title).replace(" ", ""), max_len=16)
+    if len(compact) >= MIN_TITLE_LEN:
+        return [compact[:12]]
+    raw = _sanitize_ilike(title.strip(), max_len=12)
+    return [raw] if len(raw) >= MIN_TITLE_LEN else []
 
 
 def ticket_status_summary(row: dict[str, Any]) -> str:
@@ -154,6 +217,98 @@ def ticket_status_summary(row: dict[str, Any]) -> str:
     return f"Stage 2 {s2 or 'pending'}"
 
 
+def _is_placeholder_company_name(name: str | None) -> bool:
+    if not name:
+        return True
+    normalized = str(name).strip().lower()
+    if not normalized or normalized in ("null", "none", "-"):
+        return True
+    return normalized in _PLACEHOLDER_COMPANY_NAMES
+
+
+def _row_needs_ref_no_company_lookup(row: dict[str, Any]) -> bool:
+    ref = row.get("reference_no")
+    if not ref:
+        return False
+    if row.get("company_id"):
+        return False
+    stored = (row.get("company_name") or "").strip()
+    if stored and not _is_placeholder_company_name(stored):
+        return False
+    return True
+
+
+def _ref_no_to_company_for_rows(rows: list[dict[str, Any]]) -> dict[str, str]:
+    refs: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        ref = row.get("reference_no")
+        if not ref or not _row_needs_ref_no_company_lookup(row):
+            continue
+        key = str(ref).strip()
+        if key and key not in seen:
+            seen.add(key)
+            refs.append(key)
+    if not refs:
+        return {}
+    out: dict[str, str] = {}
+    for i in range(0, len(refs), 80):
+        chunk = refs[i : i + 80]
+        try:
+            r = (
+                supabase.table("tickets")
+                .select("reference_no, company_name, company_id")
+                .in_("reference_no", chunk)
+                .execute()
+            )
+            for hit in r.data or []:
+                ref = str(hit.get("reference_no") or "").strip()
+                name = (hit.get("company_name") or "").strip()
+                if ref and name and not _is_placeholder_company_name(name):
+                    out.setdefault(ref, name)
+        except Exception:
+            pass
+    return out
+
+
+def _resolve_company_name(
+    row: dict[str, Any],
+    companies_map: dict[str, str],
+    ref_to_company: dict[str, str],
+) -> str:
+    cid = row.get("company_id")
+    stored = (row.get("company_name") or "").strip()
+    from_id = (companies_map.get(cid) or "").strip() if cid else ""
+    from_ref = (ref_to_company.get(str(row.get("reference_no") or "").strip()) or "").strip()
+    for candidate in (from_id, stored, from_ref):
+        if candidate and not _is_placeholder_company_name(candidate):
+            return candidate
+    return from_id or stored or from_ref or ""
+
+
+def _enrich_similar_company_names(rows: list[dict[str, Any]]) -> None:
+    if not rows:
+        return
+    ref_to_company = _ref_no_to_company_for_rows(rows)
+    company_ids = {r.get("company_id") for r in rows if r.get("company_id")}
+    companies_map: dict[str, str] = {}
+    if company_ids:
+        id_list = list(company_ids)
+        for i in range(0, len(id_list), 80):
+            chunk = id_list[i : i + 80]
+            try:
+                r = supabase.table("companies").select("id,name").in_("id", chunk).execute()
+                for company in r.data or []:
+                    cid = company.get("id")
+                    name = (company.get("name") or "").strip()
+                    if cid and name:
+                        companies_map[cid] = name
+            except Exception:
+                pass
+    for row in rows:
+        row["company_name"] = _resolve_company_name(row, companies_map, ref_to_company)
+
+
 def is_ticket_still_open(row: dict[str, Any]) -> bool:
     t = (row.get("type") or "").strip().lower()
     if t == "feature":
@@ -178,10 +333,11 @@ def _fetch_global_candidates(title: str) -> list[dict[str, Any]]:
         return []
     try:
         if len(tokens) == 1:
+            t0 = tokens[0]
             q = (
                 supabase.table("tickets")
                 .select(_SIMILAR_SELECT)
-                .ilike("title", f"%{tokens[0]}%")
+                .or_(f"title.ilike.%{t0}%,description.ilike.%{t0}%")
                 .order("created_at", desc=True)
             )
         else:
@@ -189,7 +345,10 @@ def _fetch_global_candidates(title: str) -> list[dict[str, Any]]:
             q = (
                 supabase.table("tickets")
                 .select(_SIMILAR_SELECT)
-                .or_(f"title.ilike.%{t0}%,title.ilike.%{t1}%")
+                .or_(
+                    f"title.ilike.%{t0}%,description.ilike.%{t0}%,"
+                    f"title.ilike.%{t1}%,description.ilike.%{t1}%"
+                )
                 .order("created_at", desc=True)
             )
         r = q.limit(_GLOBAL_CANDIDATE_LIMIT).execute()
@@ -198,54 +357,72 @@ def _fetch_global_candidates(title: str) -> list[dict[str, Any]]:
         return []
 
 
+def _row_to_match(score: int, row: dict[str, Any]) -> dict[str, Any]:
+    ticket_type = (row.get("type") or "").strip().lower()
+    if score >= 100:
+        match_kind = "exact"
+    elif score >= SIMILAR_THRESHOLD:
+        match_kind = "similar"
+    else:
+        match_kind = "near_similar"
+    return {
+        "id": row.get("id"),
+        "reference_no": row.get("reference_no"),
+        "title": row.get("title"),
+        "type": ticket_type,
+        "type_label": _TYPE_LABELS.get(ticket_type, ticket_type),
+        "company_name": row.get("company_name") or "",
+        "created_at": row.get("created_at"),
+        "status_summary": ticket_status_summary(row),
+        "status": "Open" if is_ticket_still_open(row) else "Closed",
+        "is_open": is_ticket_still_open(row),
+        "match_score": score,
+        "match_kind": match_kind,
+    }
+
+
 def find_similar_tickets(
     *,
     title: str,
     limit: int = 10,
-    min_score: int = 70,
+    min_score: int = NEAR_SIMILAR_MIN,
 ) -> dict[str, Any]:
     title = (title or "").strip()
-    empty: dict[str, Any] = {
-        "repeat_count": 0,
-        "normalized_title": normalize_ticket_title(title),
-        "has_open_repeat": False,
-        "scope": "global",
-        "matches": [],
-    }
-    if len(title) < 6 or not _search_tokens(title):
+    empty = {**SIMILAR_EMPTY, "normalized_title": normalize_ticket_title(title)}
+    if len(title) < MIN_TITLE_LEN or not _search_tokens(title):
         return empty
 
     rows = _fetch_global_candidates(title)
+    _enrich_similar_company_names(rows)
     scored: list[tuple[int, dict[str, Any]]] = []
     for row in rows:
-        score = title_similarity_score(title, row.get("title"))
+        score = combined_similarity_score(title, row)
         if score < min_score:
             continue
         scored.append((score, row))
 
-    scored.sort(key=lambda x: (-x[0], str(x[1].get("created_at") or ""), str(x[1].get("reference_no") or "")))
-    matches: list[dict[str, Any]] = []
-    for score, row in scored[:limit]:
-        ticket_type = (row.get("type") or "").strip().lower()
-        matches.append(
-            {
-                "id": row.get("id"),
-                "reference_no": row.get("reference_no"),
-                "title": row.get("title"),
-                "type": ticket_type,
-                "type_label": _TYPE_LABELS.get(ticket_type, ticket_type),
-                "company_name": row.get("company_name") or "",
-                "created_at": row.get("created_at"),
-                "status_summary": ticket_status_summary(row),
-                "is_open": is_ticket_still_open(row),
-                "match_score": score,
-                "match_kind": "exact" if score >= 100 else "similar",
-            }
-        )
+    scored.sort(
+        key=lambda x: (-x[0], str(x[1].get("created_at") or ""), str(x[1].get("reference_no") or ""))
+    )
 
+    similar: list[dict[str, Any]] = []
+    near_similar: list[dict[str, Any]] = []
+    for score, row in scored:
+        if len(similar) + len(near_similar) >= limit:
+            break
+        match = _row_to_match(score, row)
+        if score >= SIMILAR_THRESHOLD:
+            similar.append(match)
+        else:
+            near_similar.append(match)
+
+    matches = similar + near_similar
     return {
-        **empty,
+        "similar": similar,
+        "nearSimilar": near_similar,
         "repeat_count": len(scored),
+        "normalized_title": normalize_ticket_title(title),
         "has_open_repeat": any(m.get("is_open") for m in matches),
+        "scope": "global",
         "matches": matches,
     }

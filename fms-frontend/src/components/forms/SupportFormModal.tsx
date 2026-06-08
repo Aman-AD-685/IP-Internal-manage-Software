@@ -18,8 +18,8 @@ const { TextArea } = Input
 const { Dragger } = Upload
 
 const DRAFT_DEBOUNCE_MS = 800
-const SIMILAR_TICKETS_DEBOUNCE_MS = 400
-const SIMILAR_TITLE_MIN_LEN = 6
+const SIMILAR_TICKETS_DEBOUNCE_MS = 500
+const SIMILAR_TITLE_MIN_LEN = 3
 
 /** Serialize DatePicker value (dayjs or Date) to ISO string for the API */
 function toISODate(val: unknown): string | undefined {
@@ -136,6 +136,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
   const divisionsFetchGenRef = useRef(0)
   const similarFetchGenRef = useRef(0)
   const similarDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const similarAbortRef = useRef<AbortController | null>(null)
   const [similarResult, setSimilarResult] = useState<SimilarTicketsResponse | null>(null)
   const [similarLoading, setSimilarLoading] = useState(false)
   const [previewTicketId, setPreviewTicketId] = useState<string | null>(null)
@@ -275,6 +276,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
       return
     }
     similarFetchGenRef.current += 1
+    similarAbortRef.current?.abort()
     setSimilarResult(null)
     if (similarDebounceRef.current) clearTimeout(similarDebounceRef.current)
 
@@ -287,14 +289,22 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
     setSimilarLoading(true)
     similarDebounceRef.current = setTimeout(() => {
       const fetchGen = ++similarFetchGenRef.current
+      similarAbortRef.current?.abort()
+      const controller = new AbortController()
+      similarAbortRef.current = controller
+
       ticketsApi
-        .getSimilar({ title })
+        .getSimilar({ title, signal: controller.signal })
         .then((res) => {
           if (fetchGen !== similarFetchGenRef.current) return
           setSimilarResult(res)
         })
-        .catch(() => {
+        .catch((err: unknown) => {
           if (fetchGen !== similarFetchGenRef.current) return
+          const canceled =
+            (err as { code?: string; name?: string })?.code === 'ERR_CANCELED' ||
+            (err as { name?: string })?.name === 'CanceledError'
+          if (canceled) return
           setSimilarResult(null)
         })
         .finally(() => {
@@ -303,6 +313,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
     }, SIMILAR_TICKETS_DEBOUNCE_MS)
     return () => {
       if (similarDebounceRef.current) clearTimeout(similarDebounceRef.current)
+      similarAbortRef.current?.abort()
     }
   }, [open, titleWatch, canSimilarTickets])
 
@@ -498,8 +509,9 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
         <SimilarTicketsPanel
           result={similarResult}
           loading={similarLoading}
+          query={String(titleWatch ?? '').trim()}
           scopeReady={similarScopeReady}
-          scopeHint="Enter at least 6 characters in Title to search similar titles across all companies."
+          scopeHint="Enter at least 3 characters in Title to search similar titles across all companies."
           onViewTicket={handleViewSimilarTicket}
         />
         )}

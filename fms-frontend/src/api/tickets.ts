@@ -129,21 +129,27 @@ export interface SimilarTicketMatch {
   reference_no: string
   title: string
   type: 'chore' | 'bug' | 'feature'
+  type_label?: string
+  company_name?: string
   created_at: string
   status_summary: string
+  status?: string
   status_2?: string
   status_4?: string
   approval_status?: string | null
   is_open: boolean
   match_score: number
-  match_kind: 'exact' | 'similar'
+  match_kind: 'exact' | 'similar' | 'near_similar'
 }
 
 export interface SimilarTicketsResponse {
+  similar: SimilarTicketMatch[]
+  nearSimilar: SimilarTicketMatch[]
   repeat_count: number
   normalized_title: string
   has_open_repeat: boolean
   scope: 'global'
+  /** Combined list (similar + nearSimilar) for backward compatibility */
   matches: SimilarTicketMatch[]
 }
 
@@ -269,10 +275,15 @@ export const ticketsApi = {
     return response.data
   },
 
-  getSimilar: async (params: { title: string; limit?: number }): Promise<SimilarTicketsResponse> => {
+  getSimilar: async (params: {
+    title: string
+    limit?: number
+    signal?: AbortSignal
+  }): Promise<SimilarTicketsResponse> => {
     const response = await apiClient.get<SimilarTicketsResponse>('/tickets/similar', {
       params: { title: params.title, limit: params.limit ?? 10 },
-      timeout: 500,
+      timeout: 1200,
+      signal: params.signal,
     })
     return response.data
   },
