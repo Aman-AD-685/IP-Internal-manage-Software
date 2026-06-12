@@ -104,6 +104,7 @@ interface FollowupFeature {
     status: string
     remarks?: string
     created_at: string
+    can_revert?: boolean
   }>
 }
 
@@ -468,6 +469,48 @@ export const PerformanceMonitoringPage = () => {
     }
   }
 
+  const reloadFollowupModalData = async () => {
+    if (!selectedItem) return
+    const r = await fetchWithTimeout(
+      `${API_BASE_URL}/success/performance/followups?ticket_id=${selectedItem.id}`,
+      { headers: getAuthHeaders() },
+    )
+    if (!r.ok) return
+    const j = await r.json()
+    const feats = (j.features || []) as FollowupFeature[]
+    setFollowupData({
+      features: feats,
+      total_percentage: j.total_percentage ?? null,
+      initial_percentage: j.initial_percentage ?? followupData.initial_percentage,
+      is_first_followup: j.is_first_followup ?? false,
+    })
+    followupForm.setFieldsValue({ previous_percentage: j.total_percentage ?? 0 })
+    await loadFollowupClicksForTfIds(feats.map((f) => f.ticket_feature_id))
+  }
+
+  const revertFollowup = async (followupId: string) => {
+    setFollowupSubmitting(true)
+    try {
+      const res = await fetchWithTimeout(
+        `${API_BASE_URL}/success/performance/followup/${encodeURIComponent(followupId)}/revert`,
+        { method: 'POST', headers: getAuthHeaders() },
+      )
+      const data = await res.json().catch(() => ({}))
+      if (res.ok) {
+        message.success(`Followup reverted. Total: ${data.total_percentage}%`)
+        await reloadFollowupModalData()
+        invalidateAfterPerformanceNaChange()
+        followupListDirtyRef.current = true
+      } else {
+        message.error(data?.detail || 'Could not revert followup')
+      }
+    } catch {
+      message.error('Could not revert followup')
+    } finally {
+      setFollowupSubmitting(false)
+    }
+  }
+
   const submitFollowup = async (ticketFeatureId: string) => {
     if (!selectedItem) return
     followupForm.setFieldsValue({ previous_percentage: followupData.total_percentage ?? 0 })
@@ -491,14 +534,7 @@ export const PerformanceMonitoringPage = () => {
         message.success(`Followup saved. Total: ${data.total_percentage}%`)
         followupForm.setFieldsValue({ previous_percentage: data.total_percentage })
         setFollowupData((d) => ({ ...d, total_percentage: data.total_percentage }))
-        const r = await fetchWithTimeout(
-          `${API_BASE_URL}/success/performance/followups?ticket_id=${selectedItem.id}`,
-          { headers: getAuthHeaders() }
-        )
-        if (r.ok) {
-          const j = await r.json()
-          setFollowupData({ features: j.features || [], total_percentage: j.total_percentage })
-        }
+        await reloadFollowupModalData()
         invalidateAfterPerformanceNaChange()
         // Defer the heavy background list reload until the modal closes so the
         // modal's scroll position is not reset on each Add Follow Up.
@@ -1045,8 +1081,30 @@ export const PerformanceMonitoringPage = () => {
             {f.followups.length > 0 && (
               <ul style={{ marginTop: 4, paddingLeft: 16 }}>
                 {f.followups.map((fu) => (
-                  <li key={fu.id}>
-                    Prev: {fu.previous_percentage}% → +{fu.added_percentage}% = {fu.total_percentage}% ({fu.status}) {fu.remarks && `- ${fu.remarks}`}
+                  <li key={fu.id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span>
+                      Prev: {fu.previous_percentage}% → +{fu.added_percentage}% = {fu.total_percentage}% ({fu.status})
+                      {fu.remarks && ` - ${fu.remarks}`}
+                    </span>
+                    {fu.can_revert && fu.status === 'completed' && (
+                      <Popconfirm
+                        title="Revert this Completed followup?"
+                        description="Within 24 hours only. Feature returns to Pending and total % is recalculated."
+                        onConfirm={() => void revertFollowup(fu.id)}
+                        okText="Back"
+                        cancelText="Cancel"
+                      >
+                        <Button
+                          type="link"
+                          size="small"
+                          icon={<UndoOutlined />}
+                          loading={followupSubmitting}
+                          style={{ padding: 0, height: 'auto' }}
+                        >
+                          Back
+                        </Button>
+                      </Popconfirm>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -1161,8 +1219,24 @@ export const PerformanceMonitoringPage = () => {
                         {f.followups && f.followups.length > 0 && (
                           <ul style={{ marginTop: 4, paddingLeft: 16 }}>
                             {f.followups.map((fu: Record<string, unknown>, idx: number) => (
-                              <li key={idx}>
-                                Prev: {fu.previous_percentage}% → +{fu.added_percentage}% = {fu.total_percentage}% ({fu.status}) {fu.remarks && `- ${fu.remarks}`}
+                              <li key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                <span>
+                                  Prev: {fu.previous_percentage}% → +{fu.added_percentage}% = {fu.total_percentage}% ({fu.status})
+                                  {fu.remarks && ` - ${fu.remarks}`}
+                                </span>
+                                {fu.can_revert && fu.status === 'completed' && typeof fu.id === 'string' && (
+                                  <Popconfirm
+                                    title="Revert this Completed followup?"
+                                    description="Within 24 hours only. Feature returns to Pending and total % is recalculated."
+                                    onConfirm={() => void revertFollowup(fu.id as string)}
+                                    okText="Back"
+                                    cancelText="Cancel"
+                                  >
+                                    <Button type="link" size="small" icon={<UndoOutlined />} loading={followupSubmitting} style={{ padding: 0, height: 'auto' }}>
+                                      Back
+                                    </Button>
+                                  </Popconfirm>
+                                )}
                               </li>
                             ))}
                           </ul>
