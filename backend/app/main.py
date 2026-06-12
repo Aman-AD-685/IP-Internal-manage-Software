@@ -11824,6 +11824,7 @@ def get_performance_details(
         for f in (tfs or []):
             by_tf[f["id"]] = {"ticket_feature_id": f["id"], "feature_name": feature_names.get(f["feature_id"], ""), "status": f.get("status", "Pending"), "followups": []}
         for fu in followups:
+            fu["can_revert"] = _followup_can_be_reverted(fu)
             tf_id = fu.get("ticket_feature_id")
             if tf_id in by_tf:
                 by_tf[tf_id]["followups"].append(fu)
@@ -12019,6 +12020,88 @@ def _count_followups_for_ticket(ticket_id: str) -> int:
         return 0
 
 
+FOLLOWUP_REVERT_HOURS = 24
+
+
+def _parse_dt_utc(val) -> datetime | None:
+    if not val:
+        return None
+    try:
+        dt = datetime.fromisoformat(val.replace("Z", "+00:00")) if isinstance(val, str) else val
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _followup_can_be_reverted(fu: dict) -> bool:
+    """Completed followups may be reversed within 24 hours of submission."""
+    if (fu.get("status") or "").strip().lower() != "completed":
+        return False
+    dt = _parse_dt_utc(fu.get("created_at"))
+    if not dt:
+        return False
+    age = (datetime.now(timezone.utc) - dt).total_seconds()
+    return 0 <= age <= FOLLOWUP_REVERT_HOURS * 3600
+
+
+def _resolve_ticket_id_for_ticket_feature(ticket_feature_id: str) -> str | None:
+    try:
+        tf = supabase.table("ticket_features").select("training_id").eq("id", ticket_feature_id).single().execute()
+        if not tf.data or not tf.data.get("training_id"):
+            return None
+        tr = (
+            supabase.table("performance_training")
+            .select("performance_id")
+            .eq("id", tf.data["training_id"])
+            .single()
+            .execute()
+        )
+        return (tr.data or {}).get("performance_id")
+    except Exception:
+        return None
+
+
+def _recompute_training_total_for_ticket(ticket_id: str) -> float:
+    """Latest total_percentage across followups; falls back to initial_percentage."""
+    training, tfs = _get_training_for_ticket(ticket_id)
+    if not training:
+        return 0.0
+    tf_ids = [f["id"] for f in (tfs or [])]
+    if tf_ids:
+        try:
+            r = (
+                supabase.table("feature_followups")
+                .select("total_percentage, created_at")
+                .in_("ticket_feature_id", tf_ids)
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if r.data and r.data[0].get("total_percentage") is not None:
+                return float(r.data[0]["total_percentage"])
+        except Exception:
+            pass
+    init = training.get("initial_percentage")
+    return float(init) if init is not None else 0.0
+
+
+def _feature_has_completed_followup(ticket_feature_id: str) -> bool:
+    try:
+        r = (
+            supabase.table("feature_followups")
+            .select("id")
+            .eq("ticket_feature_id", ticket_feature_id)
+            .eq("status", "completed")
+            .limit(1)
+            .execute()
+        )
+        return bool(r.data)
+    except Exception:
+        return False
+
+
 @api_router.get("/success/performance/followups")
 def list_performance_followups(
     ticket_id: str,
@@ -12045,6 +12128,7 @@ def list_performance_followups(
     for f in tfs:
         by_tf[f["id"]] = {"ticket_feature_id": f["id"], "feature_id": f["feature_id"], "feature_name": feature_names.get(f["feature_id"], ""), "status": f.get("status", "Pending"), "followups": []}
     for fu in followups:
+        fu["can_revert"] = _followup_can_be_reverted(fu)
         tf_id = fu.get("ticket_feature_id")
         if tf_id in by_tf:
             by_tf[tf_id]["followups"].append(fu)
@@ -12186,6 +12270,54 @@ def submit_performance_followup(payload: FollowupSubmitRequest, auth: dict = Dep
             raise HTTPException(status_code=503, detail="Run database/SUCCESS_PERFORMANCE_MONITORING.sql and Part2_Part3 migration first.")
         raise HTTPException(status_code=400, detail=str(e)[:200])
 
+
+@api_router.post("/success/performance/followup/{followup_id}/revert")
+def revert_performance_followup(followup_id: str, auth: dict = Depends(get_current_user)):
+    """Undo a mistaken Completed followup within 24 hours (restores Pending + recalculates %)."""
+    try:
+        fr = supabase.table("feature_followups").select("*").eq("id", followup_id).single().execute()
+        fu = fr.data
+        if not fu:
+            raise HTTPException(status_code=404, detail="Followup not found")
+        if not _followup_can_be_reverted(fu):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Only Completed followups within {FOLLOWUP_REVERT_HOURS} hours can be reverted",
+            )
+        tf_id = fu.get("ticket_feature_id")
+        if not tf_id:
+            raise HTTPException(status_code=400, detail="Invalid followup row")
+        ticket_id = _resolve_ticket_id_for_ticket_feature(tf_id)
+        if not ticket_id:
+            raise HTTPException(status_code=400, detail="Ticket not found for this followup")
+        training, _ = _get_training_for_ticket(ticket_id)
+        if not training:
+            raise HTTPException(status_code=400, detail="No training for this ticket")
+
+        supabase.table("feature_followups").delete().eq("id", followup_id).execute()
+
+        if not _feature_has_completed_followup(tf_id):
+            supabase.table("ticket_features").update({"status": "Pending"}).eq("id", tf_id).execute()
+
+        new_total = _recompute_training_total_for_ticket(ticket_id)
+        supabase.table("performance_training").update(
+            {"total_percentage": new_total, "updated_at": datetime.now(timezone.utc).isoformat()}
+        ).eq("id", training["id"]).execute()
+
+        supabase.table("performance_monitoring").update(
+            {"completion_status": "in_progress", "updated_at": datetime.now(timezone.utc).isoformat()}
+        ).eq("id", ticket_id).eq("completion_status", "completed").execute()
+
+        _invalidate_success_performance_caches(ticket_id)
+        invalidate_dashboard_read_caches()
+        return {"ok": True, "total_percentage": new_total, "ticket_id": ticket_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        err = str(e).lower()
+        if "does not exist" in err or "relation" in err:
+            raise HTTPException(status_code=503, detail="Run database/SUCCESS_PERFORMANCE_MONITORING.sql first.")
+        raise HTTPException(status_code=400, detail=str(e)[:200])
 
 
 # ---------- Users (admin = view only; master_admin = view + edit role, deactivate, section permissions) ----------
