@@ -8,6 +8,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { useRole } from '../../hooks/useRole'
 import { formatPriorityLabel, getPriorityTagColor } from '../../utils/ticketPriority'
 import { RepeatedTicketsModal } from './RepeatedTicketsModal'
+import { PriorityColoredReference } from './PriorityColoredReference'
 
 const { TextArea } = Input
 const { Text } = Typography
@@ -285,7 +286,9 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
       {ticket && (
         <>
           <Descriptions column={1} size="small" bordered style={{ marginBottom: 24 }}>
-            <Descriptions.Item label="Reference">{ticket.reference_no || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Reference">
+              <PriorityColoredReference referenceNo={ticket.reference_no} priority={ticket.priority} />
+            </Descriptions.Item>
             <Descriptions.Item label="Company">{ticket.company_name || '-'}</Descriptions.Item>
             <Descriptions.Item label="User Name">{ticket.user_name || '-'}</Descriptions.Item>
             <Descriptions.Item label="Page">{ticket.page_name || '-'}</Descriptions.Item>
@@ -580,7 +583,7 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
       >
         <div style={{ marginBottom: 8 }}>
           <Text strong>Reference No: </Text>
-          {ticket?.reference_no}
+          <PriorityColoredReference referenceNo={ticket?.reference_no} priority={ticket?.priority} strong={false} />
         </div>
         <div style={{ marginBottom: 8 }}>
           <Text strong>Submitted By: </Text>

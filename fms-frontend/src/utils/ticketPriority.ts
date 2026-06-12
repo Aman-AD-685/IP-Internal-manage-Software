@@ -24,6 +24,19 @@ export function getPriorityTagColor(priority: string | null | undefined): string
   return 'default'
 }
 
+/** CSS color for reference numbers and other inline priority emphasis. */
+export function getPriorityTextColor(priority: string | null | undefined): string | undefined {
+  const p = (priority || '').toLowerCase()
+  if (p === 'high' || p === 'critical' || p === 'urgent') return '#cf1322'
+  if (p === 'medium') return '#d48806'
+  if (p === 'low') return '#389e0d'
+  return undefined
+}
+
+export function hasPriorityColor(priority: string | null | undefined): boolean {
+  return getPriorityTextColor(priority) !== undefined
+}
+
 export function normalizePriorityValue(
   priority: string | null | undefined,
 ): TicketPriorityValue {

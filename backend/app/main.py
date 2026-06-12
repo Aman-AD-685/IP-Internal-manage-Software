@@ -1972,6 +1972,11 @@ def _apply_exclude_active_staging_filter(q):
     return q.or_("staging_planned.is.null,live_review_status.eq.completed")
 
 
+def _exclude_repeat_children_from_list(q):
+    """Repeat children are only visible under the parent's Repeated tickets modal."""
+    return q.is_("repeat_of_ticket_id", "null")
+
+
 def _apply_chores_bugs_pending_filters(q, type_filter: str | None = None, status_2_filter: str | None = None):
     """Chores & Bugs open queue: chore/bug, solution form not submitted, not in active Staging."""
     types_list = ["chore", "bug"] if type_filter not in ("chore", "bug") else [type_filter]
@@ -2179,6 +2184,7 @@ def list_tickets(
     q = q.order(order_col, desc=(sort_order.lower() == "desc"))
     if (status_2_filter or "").strip().lower() != "na":
         q = apply_exclude_ticket_na(q)
+    q = _exclude_repeat_children_from_list(q)
     q = q.range((page - 1) * page_size, page * page_size - 1)
     r = q.execute()
     raw_rows = r.data or []
@@ -2389,6 +2395,9 @@ def update_ticket(ticket_id: str, payload: UpdateTicketRequest, auth: dict = Dep
     _COMPANIES_BY_NAME_LOADED = False
     invalidate_dashboard_read_caches()
     _invalidate_ttl_cache_key_prefix("tickets:list:")
+    from app.ticket_similarity import cascade_repeat_children_stage_updates
+
+    cascade_repeat_children_stage_updates(ticket_id, data)
     # Log approval/rejection for audit
     if "approval_status" in data:
         try:
@@ -2458,6 +2467,11 @@ def mark_ticket_staging(ticket_id: str, auth: dict = Depends(get_current_user)):
     out = supabase.table("tickets").update(data).eq("id", ticket_id).execute()
     if out.data and role == "user":
         _mark_level3_edit_used(ticket_id, auth["id"])
+    from app.ticket_similarity import cascade_repeat_children_stage_updates
+
+    cascade_repeat_children_stage_updates(ticket_id, data)
+    _invalidate_ttl_cache_key_prefix("tickets:list:")
+    invalidate_dashboard_read_caches()
     return out.data[0] if out.data else {}
 
 
@@ -2480,6 +2494,11 @@ def staging_back(ticket_id: str, auth: dict = Depends(get_current_user)):
         "status_2": "pending",
     }
     out = supabase.table("tickets").update(data).eq("id", ticket_id).execute()
+    from app.ticket_similarity import cascade_repeat_children_stage_updates
+
+    cascade_repeat_children_stage_updates(ticket_id, data)
+    _invalidate_ttl_cache_key_prefix("tickets:list:")
+    invalidate_dashboard_read_caches()
     return out.data[0] if out.data else {}
 
 
