@@ -25,6 +25,7 @@ import { formatPriorityLabel, getPriorityTagColor } from '../../utils/ticketPrio
 import { invalidateAfterStage2Remark } from '../../utils/sessionApiCache'
 import { notifyStage2RemarkAdded } from '../../utils/stage2RemarkEvents'
 import { RepeatedTicketsModal } from './RepeatedTicketsModal'
+import { PriorityColoredReference } from './PriorityColoredReference'
 
 const { TextArea } = Input
 const { Text } = Typography
@@ -457,7 +458,9 @@ export const ChoresBugsDetailDrawer = ({
           <>
             {/* BASE FIELDS (read-only) */}
             <Descriptions column={1} size="small" bordered style={{ marginBottom: 16 }}>
-              <Descriptions.Item label="Reference No">{ticket.reference_no || '-'}</Descriptions.Item>
+              <Descriptions.Item label="Reference No">
+                <PriorityColoredReference referenceNo={ticket.reference_no} priority={ticket.priority} />
+              </Descriptions.Item>
               <Descriptions.Item label="Timestamp">{formatDateTable(ticket.created_at)}</Descriptions.Item>
               <Descriptions.Item label="Title">{ticket.title || '-'}</Descriptions.Item>
               <Descriptions.Item label="Description">{ticket.description || '-'}</Descriptions.Item>
@@ -1120,7 +1123,7 @@ export const ChoresBugsDetailDrawer = ({
       >
         <div style={{ marginBottom: 8 }}>
           <Text strong>Reference No: </Text>
-          {ticket?.reference_no}
+          <PriorityColoredReference referenceNo={ticket?.reference_no} priority={ticket?.priority} strong={false} />
         </div>
         <div style={{ marginBottom: 8 }}>
           <Text strong>Submitted By: </Text>

@@ -13,6 +13,8 @@ import {
 } from '../../utils/helpers'
 import type { Ticket } from '../../api/tickets'
 import { StagingDetailDrawer } from '../../components/tickets/StagingDetailDrawer'
+import { PriorityColoredReference } from '../../components/tickets/PriorityColoredReference'
+import { TicketPriorityFilter } from '../../components/tickets/TicketPriorityFilter'
 import { PrintExport } from '../../components/common/PrintExport'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
 import { TextCellTooltip, tableCellEllipsisStyle } from '../../components/common/TextCellTooltip'
@@ -45,7 +47,9 @@ const stagingTicketColumns = [
     dataIndex: 'reference_no',
     key: 'reference_no',
     width: 100,
-    render: (v: string) => v || '-',
+    render: (v: string, r: Ticket) => (
+      <PriorityColoredReference referenceNo={v} priority={r.priority} />
+    ),
   },
   {
     title: 'Company Name',
@@ -283,6 +287,7 @@ export const StagingList = () => {
   const [stageFilter, setStageFilter] = useState<string>('')
   const [referenceFilter, setReferenceFilter] = useState('')
   const [referenceFilterInput, setReferenceFilterInput] = useState('')
+  const [priorityFilter, setPriorityFilter] = useState('')
   const [allStagingTicketsForStageFilter, setAllStagingTicketsForStageFilter] = useState<Ticket[]>([])
   const listFetchGeneration = useRef(0)
   const listPageRef = useRef(0)
@@ -311,6 +316,7 @@ export const StagingList = () => {
         page: 1,
         limit: STAGING_CHUNK,
         ...(referenceFilter && { reference_filter: referenceFilter }),
+        ...(priorityFilter && { priority: priorityFilter }),
         sort_by: 'created_at',
         sort_order: 'desc',
       })
@@ -324,7 +330,7 @@ export const StagingList = () => {
     } finally {
       if (gen === listFetchGeneration.current) setLoading(false)
     }
-  }, [referenceFilter])
+  }, [referenceFilter, priorityFilter])
 
   const fetchStagingTicketsMore = useCallback(async () => {
     if (loading || loadingMoreRef.current || listExhaustedRef.current) return
@@ -339,6 +345,7 @@ export const StagingList = () => {
         page: nextPage,
         limit: STAGING_CHUNK,
         ...(referenceFilter && { reference_filter: referenceFilter }),
+        ...(priorityFilter && { priority: priorityFilter }),
         sort_by: 'created_at',
         sort_order: 'desc',
       })
@@ -356,7 +363,7 @@ export const StagingList = () => {
       loadingMoreRef.current = false
       setLoadingMore(false)
     }
-  }, [loading, referenceFilter])
+  }, [loading, referenceFilter, priorityFilter])
 
   /** Fetches all staging tickets across pages (section: staging, fixed sort). Used for stage filter and export. */
   const fetchAllStagingPages = useCallback(async (): Promise<Ticket[]> => {
@@ -370,6 +377,7 @@ export const StagingList = () => {
         page: currentPage,
         limit,
         ...(referenceFilter && { reference_filter: referenceFilter }),
+        ...(priorityFilter && { priority: priorityFilter }),
         sort_by: 'created_at',
         sort_order: 'desc',
       })
@@ -380,7 +388,7 @@ export const StagingList = () => {
       currentPage++
     }
     return allTickets
-  }, [referenceFilter])
+  }, [referenceFilter, priorityFilter])
 
   const fetchAllStagingTicketsForStageFilter = useCallback(async () => {
     const gen = ++listFetchGeneration.current
@@ -408,7 +416,7 @@ export const StagingList = () => {
     }
     setAllStagingTicketsForStageFilter([])
     void fetchStagingTickets()
-  }, [stageFilter, referenceFilter, fetchAllStagingTicketsForStageFilter, fetchStagingTickets])
+  }, [stageFilter, referenceFilter, priorityFilter, fetchAllStagingTicketsForStageFilter, fetchStagingTickets])
 
   const tryLoadMoreTickets = useCallback(() => {
     if (loading) return
@@ -497,6 +505,7 @@ export const StagingList = () => {
             }}
             allowClear
           />
+          <TicketPriorityFilter value={priorityFilter} onChange={setPriorityFilter} />
           <Select
             placeholder="Stage"
             style={{ width: 180 }}

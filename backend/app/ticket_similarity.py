@@ -516,6 +516,61 @@ def _row_to_child_repeat(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_REPEAT_CHILD_CASCADE_KEYS = frozenset({
+    "status_1",
+    "actual_1",
+    "planned_1",
+    "planned_2",
+    "status_2",
+    "actual_2",
+    "planned_3",
+    "status_3",
+    "actual_3",
+    "planned_4",
+    "status_4",
+    "actual_4",
+    "staging_planned",
+    "staging_review_actual",
+    "staging_review_status",
+    "live_planned",
+    "live_actual",
+    "live_status",
+    "live_review_planned",
+    "live_review_actual",
+    "live_review_status",
+    "status",
+    "resolved_at",
+})
+
+
+def cascade_repeat_children_stage_updates(parent_ticket_id: str, data: dict[str, Any]) -> int:
+    """When a parent ticket's stage/status changes, mirror those fields on repeat children."""
+    cascade = {k: v for k, v in data.items() if k in _REPEAT_CHILD_CASCADE_KEYS}
+    if not cascade:
+        return 0
+    parent_ticket_id = (parent_ticket_id or "").strip()
+    if not parent_ticket_id:
+        return 0
+    try:
+        cr = (
+            supabase.table("tickets")
+            .select("id")
+            .eq("repeat_of_ticket_id", parent_ticket_id)
+            .execute()
+        )
+        child_ids = [str(row["id"]) for row in (cr.data or []) if row.get("id")]
+    except Exception:
+        return 0
+    updated = 0
+    for child_id in child_ids:
+        try:
+            supabase.table("tickets").update(cascade).eq("id", child_id).execute()
+            updated += 1
+        except Exception:
+            pass
+    return updated
+
+
 def fetch_repeat_child_counts(parent_ids: list[str]) -> dict[str, int]:
     """Count tickets created with repeat_of_ticket_id pointing at each parent."""
     out: dict[str, int] = {}

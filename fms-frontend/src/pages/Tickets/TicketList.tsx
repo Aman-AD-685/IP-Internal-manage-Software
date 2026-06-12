@@ -41,7 +41,9 @@ import { ROUTES } from '../../utils/constants'
 import { sessionApiCacheClearLogicalPrefix, sessionApiCacheGet, ticketsListLogicalKey } from '../../utils/sessionApiCache'
 import type { ApiResponse, PaginatedResponse } from '../../api/types'
 import { dateRangeToIsoBounds, fetchAllTicketsPages } from '../../utils/ticketExportByDateRange'
-import { formatPriorityLabel, getPriorityTagColor, TICKET_PRIORITY_OPTIONS } from '../../utils/ticketPriority'
+import { formatPriorityLabel, getPriorityTagColor } from '../../utils/ticketPriority'
+import { PriorityColoredReference } from '../../components/tickets/PriorityColoredReference'
+import { TicketPriorityFilter } from '../../components/tickets/TicketPriorityFilter'
 
 const { Title, Text } = Typography
 const { Option } = Select
@@ -1051,7 +1053,9 @@ export const TicketList = () => {
             ? 'ascend'
             : 'descend'
           : undefined,
-      render: (v: string) => v || '-',
+      render: (v: string, r: Ticket) => (
+        <PriorityColoredReference referenceNo={v} priority={r.priority} />
+      ),
     },
     ...(showRepeatedColumn ? [repeatedColumn] : []),
     {
@@ -1427,7 +1431,9 @@ export const TicketList = () => {
       dataIndex: 'reference_no',
       key: 'reference_no',
       width: 110,
-      render: (v: string) => v || '-',
+      render: (v: string, r: Ticket) => (
+        <PriorityColoredReference referenceNo={v} priority={r.priority} />
+      ),
     },
     {
       title: 'Company Name',
@@ -1699,22 +1705,10 @@ export const TicketList = () => {
               {isRegisterSection && <Option value="feature">Feature</Option>}
             </Select>
           ) : null}
-          {isChoresBugsSection || !isRegisterSection ? (
-            <Select
-              placeholder="Priority"
-              style={{ width: 110 }}
-              value={filters.priority || undefined}
-              onChange={(v) => setFilters((f) => ({ ...f, priority: v || '' }))}
-              allowClear
-              getPopupContainer={() => document.body}
-            >
-              {TICKET_PRIORITY_OPTIONS.map((o) => (
-                <Option key={o.value} value={o.value}>
-                  {o.label}
-                </Option>
-              ))}
-            </Select>
-          ) : null}
+          <TicketPriorityFilter
+            value={filters.priority}
+            onChange={(priority) => setFilters((f) => ({ ...f, priority }))}
+          />
           {showStageFilter && (
             <Select
               placeholder="Stage"
