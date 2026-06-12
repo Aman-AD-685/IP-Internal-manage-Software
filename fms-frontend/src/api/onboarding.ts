@@ -24,12 +24,18 @@ export interface PaymentStatusRecord {
 
 export const onboardingApi = {
   listPaymentStatus: async () => {
-    const key = 'onboarding:payment-status:list'
-    const cached = sessionApiCacheGet<{ items: PaymentStatusRecord[] }>(key)
-    if (cached) return cached
-    const r = await apiClient.get<{ items: PaymentStatusRecord[] }>(API_ENDPOINTS.ONBOARDING_PAYMENT_STATUS.LIST)
-    sessionApiCacheSet(key, r.data, API_CACHE_TTL_MS.onboardingPaymentStatusList)
-    return r.data
+    const key = 'onboarding:payment-status:list:v2'
+    const cached = sessionApiCacheGet<{ items: PaymentStatusRecord[]; total?: number }>(key)
+    if (cached?.items) return cached
+    const r = await apiClient.get<{ data?: PaymentStatusRecord[]; items?: PaymentStatusRecord[]; total?: number }>(
+      API_ENDPOINTS.ONBOARDING_PAYMENT_STATUS.LIST,
+      { params: { page: 1, page_size: 200 } },
+    )
+    const body = r.data ?? {}
+    const rows = body.data ?? body.items ?? []
+    const payload = { items: rows, total: body.total ?? rows.length }
+    sessionApiCacheSet(key, payload, API_CACHE_TTL_MS.onboardingPaymentStatusList)
+    return payload
   },
 
   createPaymentStatus: async (payload: {
@@ -42,6 +48,7 @@ export const onboardingApi = {
   }) => {
     const r = await apiClient.post<PaymentStatusRecord>(API_ENDPOINTS.ONBOARDING_PAYMENT_STATUS.CREATE, payload)
     sessionApiCacheClearLogicalPrefix('onboarding:payment-status:list')
+    sessionApiCacheClearLogicalPrefix('onboarding:payment-status:list:v2')
     return r.data
   },
 
