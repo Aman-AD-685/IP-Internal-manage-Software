@@ -14,6 +14,7 @@ import {
 import { SearchOutlined, PhoneOutlined, MailOutlined, MessageOutlined, LinkOutlined, PauseCircleOutlined, RetweetOutlined } from '@ant-design/icons'
 import { useSearchParams, useLocation, useNavigate } from 'react-router-dom'
 import { ticketsApi, type Ticket } from '../../api/tickets'
+import { apiUserMessage } from '../../utils/apiUserMessage'
 import { supportApi } from '../../api/support'
 import { TicketDetailDrawer } from '../../components/tickets/TicketDetailDrawer'
 import { ChoresBugsDetailDrawer } from '../../components/tickets/ChoresBugsDetailDrawer'
@@ -571,9 +572,14 @@ export const TicketList = () => {
         }
       }
       message.error(
-        ax.response?.status === 429
-          ? 'Tickets could not load — server rate limit. Wait 30 seconds and click Refresh, or restart uvicorn.'
-          : 'Tickets could not load — network error or server busy (try Refresh). If this persists, restart uvicorn and npm run dev.',
+        apiUserMessage(
+          error,
+          'Unable to load tickets right now. Please refresh the page or try again shortly.',
+          {
+            status429:
+              'The server is busy. Please wait 30 seconds and click Refresh.',
+          },
+        ),
         6,
       )
     } finally {

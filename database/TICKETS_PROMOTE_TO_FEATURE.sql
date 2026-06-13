@@ -7,7 +7,7 @@ ALTER TABLE public.tickets
   ADD COLUMN IF NOT EXISTS source_reference_no text,
   ADD COLUMN IF NOT EXISTS source_type text CHECK (source_type IS NULL OR source_type IN ('chore', 'bug')),
   ADD COLUMN IF NOT EXISTS promoted_to_feature_at timestamptz,
-  ADD COLUMN IF NOT EXISTS promoted_by uuid REFERENCES public.users (id) ON DELETE SET NULL;
+  ADD COLUMN IF NOT EXISTS promoted_by uuid REFERENCES auth.users (id) ON DELETE SET NULL;
 
 COMMENT ON COLUMN public.tickets.source_reference_no IS
   'Original CH/BU reference when a ticket was promoted from Chores/Bug to Feature.';
