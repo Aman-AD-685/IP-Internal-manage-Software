@@ -520,7 +520,7 @@ def health():
 
 
 _APP_RELEASE_CACHE: dict = {"ts": 0.0, "payload": None}
-_APP_RELEASE_CACHE_TTL_SEC = 60
+_APP_RELEASE_CACHE_TTL_SEC = 10
 
 
 def _get_app_release_broadcast() -> dict:
@@ -574,7 +574,9 @@ def _get_app_release_broadcast() -> dict:
 def app_release_broadcast():
     """Public: current live release key. Frontend compares to embedded build key."""
     data = _get_app_release_broadcast()
-    return {"success": True, "data": data}
+    response = JSONResponse(content={"success": True, "data": data})
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.post("/auth/register-simple")

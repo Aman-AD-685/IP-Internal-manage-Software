@@ -2,13 +2,18 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Modal, Button, Typography } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { appReleaseApi, type AppReleaseBroadcast } from '../../api/appRelease'
+import { useAuth } from '../../hooks/useAuth'
+import {
+  APP_RELEASE_CHECK_EVENT,
+  releaseKeysMatch,
+} from '../../utils/releaseKey'
 
 const ACK_KEY = 'fms_release_acknowledged_key'
 const REMIND_KEY = 'fms_release_remind_later'
-/** Re-check often so deploy popup appears soon after bump_app_release (not only every 3 min). */
-const POLL_MS = 30 * 1000
+const POLL_MS = 20 * 1000
 const REMIND_LATER_MS = 17 * 60 * 60 * 1000
 const CLIENT_RELEASE_KEY = (import.meta.env.VITE_APP_RELEASE_KEY || 'dev-local').trim()
+const BURST_DELAYS_MS = [0, 3000, 10000, 20000]
 
 type RemindLaterState = {
   release_key: string
@@ -29,18 +34,21 @@ function readRemindLater(): RemindLaterState | null {
 
 function shouldShowPrompt(serverKey: string): boolean {
   const acknowledged = localStorage.getItem(ACK_KEY)?.trim()
-  if (acknowledged === serverKey) return false
+  if (acknowledged && releaseKeysMatch(acknowledged, serverKey)) return false
 
   const remind = readRemindLater()
-  if (remind?.release_key === serverKey && remind.until > Date.now()) return false
+  if (remind?.release_key && releaseKeysMatch(remind.release_key, serverKey) && remind.until > Date.now()) {
+    return false
+  }
 
   return true
 }
 
 /**
- * When Supabase live release_key differs from this build's embedded key, prompt all users to refresh.
+ * When live release_key differs from this build's embedded key, prompt users to refresh.
  */
 export function NewFeatureRefreshPrompt() {
+  const { isAuthenticated } = useAuth()
   const [open, setOpen] = useState(false)
   const [info, setInfo] = useState<AppReleaseBroadcast | null>(null)
   const checkingRef = useRef(false)
@@ -58,7 +66,7 @@ export function NewFeatureRefreshPrompt() {
 
       const serverKey = data.release_key.trim()
       lastServerKeyRef.current = serverKey
-      if (!serverKey || serverKey === CLIENT_RELEASE_KEY) {
+      if (!serverKey || releaseKeysMatch(CLIENT_RELEASE_KEY, serverKey)) {
         setOpen(false)
         return
       }
@@ -76,23 +84,34 @@ export function NewFeatureRefreshPrompt() {
   }, [])
 
   useEffect(() => {
-    void checkRelease()
+    if (!isAuthenticated) {
+      setOpen(false)
+      return
+    }
+
+    const burstIds = BURST_DELAYS_MS.map((delay) => window.setTimeout(() => void checkRelease(), delay))
     const pollId = window.setInterval(() => void checkRelease(), POLL_MS)
     const onFocus = () => void checkRelease()
     const onVisibility = () => {
       if (document.visibilityState === 'visible') void checkRelease()
     }
     const onPageShow = () => void checkRelease()
+    const onReleaseCheck = () => void checkRelease()
+
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener('pageshow', onPageShow)
+    window.addEventListener(APP_RELEASE_CHECK_EVENT, onReleaseCheck)
+
     return () => {
+      burstIds.forEach((id) => window.clearTimeout(id))
       window.clearInterval(pollId)
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('pageshow', onPageShow)
+      window.removeEventListener(APP_RELEASE_CHECK_EVENT, onReleaseCheck)
     }
-  }, [checkRelease])
+  }, [checkRelease, isAuthenticated])
 
   const handleRefresh = () => {
     const key = (info?.release_key || lastServerKeyRef.current || '').trim()
@@ -114,6 +133,8 @@ export function NewFeatureRefreshPrompt() {
     }
     setOpen(false)
   }
+
+  if (!isAuthenticated) return null
 
   return (
     <Modal

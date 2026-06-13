@@ -54,30 +54,19 @@ WHERE type = 'feature'
 ORDER BY promoted_to_feature_at ASC, id;
 
 -- -----------------------------------------------------------------------------
--- 3) FIX: renumber promoted tickets that got EX-FE-000x → proper FE-xxxx
---    Skips EX-FE rows when computing max so FE-0129 etc. define the sequence.
+-- 3) FIX: renumber ALL promoted EX-FE-* → proper FE-xxxx (run this block)
 --    BACKUP recommended before running.
 -- -----------------------------------------------------------------------------
-/*
 BEGIN;
 
 WITH legit_max AS (
   SELECT COALESCE(
-    MAX(
-      CASE
-        WHEN reference_no ~* '^FE-\d+$' THEN (substring(reference_no FROM 'FE-(\d+)$'))::int
-        WHEN reference_no ~* '^EX-FE-\d+$' THEN (substring(reference_no FROM 'EX-FE-(\d+)$'))::int
-        ELSE NULL
-      END
-    ),
+    MAX((substring(reference_no FROM 'FE-(\d+)$'))::int),
     0
   ) AS m
   FROM public.tickets
   WHERE type = 'feature'
-    AND NOT (
-      source_reference_no IS NOT NULL
-      AND reference_no ~* '^EX-FE-\d+$'
-    )
+    AND reference_no ~* '^FE-\d+$'
 ),
 to_fix AS (
   SELECT
@@ -104,7 +93,6 @@ WHERE t.id = staged.id;
 COMMIT;
 
 NOTIFY pgrst, 'reload schema';
-*/
 
 -- -----------------------------------------------------------------------------
 -- 4) VERIFY after fix
