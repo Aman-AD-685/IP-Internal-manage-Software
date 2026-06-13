@@ -205,6 +205,11 @@ const getPerformanceLevel = (value?: number) => {
   return { label: 'Low', background: 'rgba(220,53,69,0.15)', color: '#DC3545' }
 }
 
+const isCancelledDelegationKpiRow = (status?: string) => {
+  const v = (status || '').toLowerCase().trim()
+  return v === 'cancelled' || v === 'cancel' || v === 'canceled'
+}
+
 export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi' }: DashboardKPIPageProps) => {
   const { user } = useAuth()
   const userRole = (user?.role ?? 'user') as UserRole
@@ -1111,10 +1116,14 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                     </Space>
                   }
                 >
-                  {(delegation.rows?.length ?? 0) > 0 ? (
+                  {(delegation.rows?.filter((r) => !isCancelledDelegationKpiRow(r.status)).length ?? 0) > 0 ? (
                     <Table
                       size="small"
-                      dataSource={delegation.rows?.map((r, i) => ({ ...r, key: i })) ?? []}
+                      dataSource={
+                        delegation.rows
+                          ?.filter((r) => !isCancelledDelegationKpiRow(r.status))
+                          .map((r, i) => ({ ...r, key: i })) ?? []
+                      }
                       columns={[
                         { title: 'Task', dataIndex: 'task', key: 'task' },
                         {
@@ -1478,23 +1487,25 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                 }
               >
                 <Row gutter={[16, 16]}>
-                  <Col xs={24} md={6}>
-                    <Card
-                      size="small"
-                      className="kpi-success-card kpi-success-card--poc"
-                      bordered={false}
-                      title="POC Collected"
-                      hoverable
-                      style={{ cursor: 'pointer' }}
-                      onClick={() => setSuccessModal({ type: 'poc', title: 'POC Collected – Details' })}
-                    >
-                      <Title level={4} style={{ marginBottom: 4 }}>
-                        {successKpi.pocCollected.currentValue}/{successKpi.pocCollected.targetValue || 0}
-                      </Title>
-                      <Text type="secondary">POC entries added this week</Text>
-                    </Card>
-                  </Col>
-                  <Col xs={24} md={6}>
+                  {successKpi.meta?.pocIncluded !== false && (
+                    <Col xs={24} md={6}>
+                      <Card
+                        size="small"
+                        className="kpi-success-card kpi-success-card--poc"
+                        bordered={false}
+                        title="POC Collected"
+                        hoverable
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => setSuccessModal({ type: 'poc', title: 'POC Collected – Details' })}
+                      >
+                        <Title level={4} style={{ marginBottom: 4 }}>
+                          {successKpi.pocCollected.currentValue}/{successKpi.pocCollected.targetValue || 0}
+                        </Title>
+                        <Text type="secondary">POC entries added this week</Text>
+                      </Card>
+                    </Col>
+                  )}
+                  <Col xs={24} md={successKpi.meta?.pocIncluded === false ? 8 : 6}>
                     <Card
                       size="small"
                       className="kpi-success-card kpi-success-card--training"
@@ -1509,7 +1520,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                       <Text type="secondary">Trainings completed this week</Text>
                     </Card>
                   </Col>
-                  <Col xs={24} md={6}>
+                  <Col xs={24} md={successKpi.meta?.pocIncluded === false ? 8 : 6}>
                     <Card
                       size="small"
                       className="kpi-success-card kpi-success-card--followup"
@@ -1525,7 +1536,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                       <Text type="secondary">Follow-up calls logged</Text>
                     </Card>
                   </Col>
-                  <Col xs={24} md={6}>
+                  <Col xs={24} md={successKpi.meta?.pocIncluded === false ? 8 : 6}>
                     <Card
                       size="small"
                       className="kpi-success-card kpi-success-card--increase"

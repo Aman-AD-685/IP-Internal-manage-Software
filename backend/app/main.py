@@ -519,6 +519,64 @@ def health():
     return {"ok": True, "ts": int(time.time())}
 
 
+_APP_RELEASE_CACHE: dict = {"ts": 0.0, "payload": None}
+_APP_RELEASE_CACHE_TTL_SEC = 60
+
+
+def _get_app_release_broadcast() -> dict:
+    """Public release key for new-feature refresh prompt (cached)."""
+    now = time.time()
+    cached = _APP_RELEASE_CACHE.get("payload")
+    if cached and now - float(_APP_RELEASE_CACHE.get("ts") or 0) < _APP_RELEASE_CACHE_TTL_SEC:
+        return cached
+
+    env_key = (os.getenv("APP_RELEASE_KEY") or "").strip()
+    title = (os.getenv("APP_RELEASE_TITLE") or "New features are live").strip()
+    message = (
+        os.getenv("APP_RELEASE_MESSAGE") or
+        "A new version of Industry Prime is available. Refresh to load the latest features."
+    ).strip()
+    release_key = env_key
+    is_active = True
+
+    try:
+        r = supabase.table("app_release_broadcast").select(
+            "release_key, title, message, is_active"
+        ).eq("id", 1).limit(1).execute()
+        row = (r.data or [None])[0]
+        if row:
+            if row.get("release_key"):
+                release_key = str(row["release_key"]).strip()
+            if row.get("title"):
+                title = str(row["title"]).strip()
+            if row.get("message"):
+                message = str(row["message"]).strip()
+            is_active = bool(row.get("is_active", True))
+    except Exception as e:
+        _log(f"app/release broadcast: {e}")
+
+    if not release_key:
+        release_key = "dev-local"
+
+    payload = {
+        "release_key": release_key,
+        "title": title,
+        "message": message,
+        "is_active": is_active,
+    }
+    _APP_RELEASE_CACHE["ts"] = now
+    _APP_RELEASE_CACHE["payload"] = payload
+    return payload
+
+
+@app.get("/app/release")
+@app.get("/api/app/release")
+def app_release_broadcast():
+    """Public: current live release key. Frontend compares to embedded build key."""
+    data = _get_app_release_broadcast()
+    return {"success": True, "data": data}
+
+
 @app.post("/auth/register-simple")
 def register_simple(payload: RegisterRequest):
     """Minimal register - just echoes back. Use to test routing + validation."""
@@ -3499,6 +3557,12 @@ def _delegation_task_done(t: dict) -> bool:
     return bool(t.get("completed_at"))
 
 
+def _delegation_task_cancelled(t: dict) -> bool:
+    """Cancelled tasks are excluded from KPI dashboard lists and %."""
+    st = str(t.get("status") or "").lower().strip()
+    return st in ("cancelled", "cancel", "canceled")
+
+
 def _parse_kpi_week_num(week_str: str | None, default: int = 2) -> int:
     week_num = default
     if week_str and "week" in week_str.lower():
@@ -4341,7 +4405,7 @@ def _dashboard_kpi_data(
             )
             q = q.or_(f"assignee_id.eq.{user_id},submitted_by.eq.{user_id}")
             r = q.execute()
-            all_tasks = r.data or []
+            all_tasks = [t for t in (r.data or []) if not _delegation_task_cancelled(t)]
             # Weekly KPI should be scoped by the *due* week.
             # Some pending tasks may have `delegation_on` in the current week but `due_date` in another week;
             # using `delegation_on` here makes them appear in the wrong week.
