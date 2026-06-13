@@ -111,6 +111,59 @@ function restoreReloadBackup(): boolean {
   return true
 }
 
+function clearMirroredAuthInLocal(): void {
+  const local = getLocal()
+  if (!local) return
+  for (const key of AUTH_KEYS) {
+    local.removeItem(key)
+  }
+}
+
+/** Drop mirrored auth when the browser was fully closed (no session marker). */
+function clearStaleMirroredAuth(): void {
+  const local = getLocal()
+  if (!local) return
+  if (!local.getItem(BROWSER_SESSION_KEY)) {
+    clearMirroredAuthInLocal()
+  }
+}
+
+/** Copy mirrored auth from localStorage into this tab's sessionStorage. */
+export function syncAuthMirrorToSession(): void {
+  const session = getSession()
+  const local = getLocal()
+  if (!session || !local) return
+
+  const marker = local.getItem(BROWSER_SESSION_KEY)
+  if (!marker) {
+    clearAuthKeysInSession()
+    session.removeItem(BROWSER_SESSION_KEY)
+    return
+  }
+
+  for (const key of AUTH_KEYS) {
+    const value = local.getItem(key)
+    if (value) session.setItem(key, value)
+    else session.removeItem(key)
+  }
+  session.setItem(BROWSER_SESSION_KEY, marker)
+}
+
+/** New tab: copy auth from localStorage mirror when another tab is still signed in. */
+function hydrateAuthFromActiveBrowserSession(): void {
+  const session = getSession()
+  if (!session) return
+  if (session.getItem(STORAGE_KEYS.AUTH_TOKEN)) return
+
+  const local = getLocal()
+  if (!local?.getItem(BROWSER_SESSION_KEY)) return
+
+  const tabCount = parseInt(local.getItem(TAB_COUNT_KEY) || '0', 10) || 0
+  if (tabCount < 1) return
+
+  syncAuthMirrorToSession()
+}
+
 function clearStaleAuthAfterBrowserClose(): void {
   const session = getSession()
   const local = getLocal()
@@ -129,9 +182,7 @@ function clearStaleAuthAfterBrowserClose(): void {
   if (!localMarker || !sessionMarker || localMarker !== sessionMarker) {
     clearAuthKeysInSession()
     clearReloadBackup()
-    for (const key of AUTH_KEYS) {
-      local?.removeItem(key)
-    }
+    clearMirroredAuthInLocal()
   }
 }
 
@@ -149,6 +200,7 @@ function decrementOpenTabCount(): void {
   local.setItem(TAB_COUNT_KEY, String(next))
   if (next === 0) {
     local.removeItem(BROWSER_SESSION_KEY)
+    clearMirroredAuthInLocal()
   }
 }
 
@@ -158,16 +210,37 @@ let handlersInstalled = false
  * Call once before React mounts. Ensures closing the browser (all tabs) ends the session;
  * F5 / reload in the same tab keeps the user signed in.
  */
+/** Existing tab after deploy: push session auth into local mirror if missing. */
+function ensureAuthMirroredToLocal(): void {
+  const session = getSession()
+  const local = getLocal()
+  if (!session || !local) return
+  if (!local.getItem(BROWSER_SESSION_KEY)) return
+  if (local.getItem(STORAGE_KEYS.AUTH_TOKEN)) return
+
+  const token = session.getItem(STORAGE_KEYS.AUTH_TOKEN)
+  if (!token) return
+
+  for (const key of AUTH_KEYS) {
+    const value = session.getItem(key)
+    if (value) local.setItem(key, value)
+  }
+}
+
 export function bootstrapAuthBrowserSession(): void {
   if (typeof window === 'undefined') return
 
   bumpOpenTabCount()
+  clearStaleMirroredAuth()
 
   if (isReloadNavigation()) {
     restoreReloadBackup()
+    ensureAuthMirroredToLocal()
     return
   }
 
+  hydrateAuthFromActiveBrowserSession()
+  ensureAuthMirroredToLocal()
   clearStaleAuthAfterBrowserClose()
 }
 
@@ -189,6 +262,7 @@ export function clearAuthBrowserSessionMarkers(): void {
   getSession()?.removeItem(BROWSER_SESSION_KEY)
   getLocal()?.removeItem(BROWSER_SESSION_KEY)
   getLocal()?.setItem(TAB_COUNT_KEY, '0')
+  clearMirroredAuthInLocal()
   clearReloadBackup()
 }
 

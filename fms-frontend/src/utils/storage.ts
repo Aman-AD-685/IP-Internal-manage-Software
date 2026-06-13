@@ -1,13 +1,11 @@
 import { STORAGE_KEYS } from './constants'
 import { User } from '../types/auth'
-import { clearAuthBrowserSessionMarkers } from './authBrowserSession'
+import { clearAuthBrowserSessionMarkers, syncAuthMirrorToSession } from './authBrowserSession'
 
 /**
- * Auth (token, refresh, user) uses sessionStorage. Closing all browser tabs ends the session
- * (see authBrowserSession.ts: tab lease + reload backup). Reopening the browser requires login.
- *
- * Legacy localStorage auth from older builds is cleared on load (not read).
- * OTP email stays in sessionStorage (tab-local).
+ * Auth tokens live in sessionStorage (per tab) and are mirrored to localStorage while the
+ * browser session is active so new tabs / "Open in new tab" share the same login.
+ * Closing all tabs clears the mirror (see authBrowserSession.ts).
  */
 
 const AUTH_KEYS = [STORAGE_KEYS.AUTH_TOKEN, STORAGE_KEYS.REFRESH_TOKEN, STORAGE_KEYS.USER] as const
@@ -30,15 +28,35 @@ function getSession(): Storage | null {
   }
 }
 
-/** Drop persisted auth from older builds so reopening the browser does not auto-login. */
+const BROWSER_SESSION_KEY = 'fms_browser_session'
+
+/** Drop persisted auth from older builds when no active browser session mirror. */
 let legacyLocalAuthCleared = false
 function clearLegacyPersistedAuth(): void {
   if (legacyLocalAuthCleared) return
   legacyLocalAuthCleared = true
   try {
+    const local = getLocal()
+    if (local?.getItem(BROWSER_SESSION_KEY)) return
     for (const key of AUTH_KEYS) {
-      getLocal()?.removeItem(key)
+      local?.removeItem(key)
     }
+  } catch {
+    /* ignore */
+  }
+}
+
+function mirrorAuthToLocal(key: string, value: string): void {
+  try {
+    getLocal()?.setItem(key, value)
+  } catch {
+    /* ignore */
+  }
+}
+
+function removeAuthFromLocal(key: string): void {
+  try {
+    getLocal()?.removeItem(key)
   } catch {
     /* ignore */
   }
@@ -46,6 +64,7 @@ function clearLegacyPersistedAuth(): void {
 
 function getAuthStore(): Storage | null {
   clearLegacyPersistedAuth()
+  syncAuthMirrorToSession()
   return getSession()
 }
 
@@ -98,7 +117,7 @@ export const storage = {
   setToken: (token: string): void => {
     try {
       getAuthStore()?.setItem(STORAGE_KEYS.AUTH_TOKEN, token)
-      getLocal()?.removeItem(STORAGE_KEYS.AUTH_TOKEN)
+      mirrorAuthToLocal(STORAGE_KEYS.AUTH_TOKEN, token)
     } catch (error) {
       console.error('Failed to save token:', error)
     }
@@ -124,7 +143,7 @@ export const storage = {
   setRefreshToken: (token: string): void => {
     try {
       getAuthStore()?.setItem(STORAGE_KEYS.REFRESH_TOKEN, token)
-      getLocal()?.removeItem(STORAGE_KEYS.REFRESH_TOKEN)
+      mirrorAuthToLocal(STORAGE_KEYS.REFRESH_TOKEN, token)
     } catch (error) {
       console.error('Failed to save refresh token:', error)
     }
@@ -150,8 +169,9 @@ export const storage = {
 
   setUser: (user: User): void => {
     try {
-      getAuthStore()?.setItem(STORAGE_KEYS.USER, JSON.stringify(user))
-      getLocal()?.removeItem(STORAGE_KEYS.USER)
+      const serialized = JSON.stringify(user)
+      getAuthStore()?.setItem(STORAGE_KEYS.USER, serialized)
+      mirrorAuthToLocal(STORAGE_KEYS.USER, serialized)
     } catch (error) {
       console.error('Failed to save user:', error)
     }

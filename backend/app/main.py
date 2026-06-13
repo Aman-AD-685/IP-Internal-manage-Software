@@ -6198,8 +6198,14 @@ def create_onboarding_payment_status(payload: OnboardingPaymentStatusCreate, aut
     company_name = (payload.company_name or "").strip()
     if not company_name:
         raise HTTPException(400, "company_name is required")
-    if payload.poc_contact and not (payload.poc_contact.isdigit() and len(payload.poc_contact) == 10):
-        raise HTTPException(400, "poc_contact must be 10 digits")
+    if not payload.payment_received_date:
+        raise HTTPException(400, "payment_received_date is required")
+    poc_name = (payload.poc_name or "").strip()
+    if not poc_name:
+        raise HTTPException(400, "poc_name is required")
+    poc_contact = (payload.poc_contact or "").strip()
+    if not poc_contact or not (poc_contact.isdigit() and len(poc_contact) == 10):
+        raise HTTPException(400, "poc_contact is required and must be 10 digits")
     try:
         now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         ref = _generate_payment_reference(company_name)
@@ -6209,8 +6215,8 @@ def create_onboarding_payment_status(payload: OnboardingPaymentStatusCreate, aut
             "company_name": company_name,
             "payment_status": payload.payment_status,
             "payment_received_date": payload.payment_received_date.isoformat() if payload.payment_received_date else None,
-            "poc_name": (payload.poc_name or "").strip() or None,
-            "poc_contact": (payload.poc_contact or "").strip() or None,
+            "poc_name": poc_name,
+            "poc_contact": poc_contact,
             "accounts_remarks": (payload.accounts_remarks or "").strip() or None,
         }
         r = supabase.table("onboarding_payment_status").insert(row).execute()

@@ -15,6 +15,7 @@ import {
   Tag,
   Descriptions,
   Divider,
+  InputNumber,
 } from 'antd'
 import { PlusOutlined, FormOutlined, CheckSquareOutlined, EditOutlined, CheckCircleOutlined } from '@ant-design/icons'
 import type { Dayjs } from 'dayjs'
@@ -53,35 +54,84 @@ const PRE_ONBOARDING_FIELDS: { key: string; label: string; placeholder?: string 
 ]
 
 // Pre-Onboarding Checklist form fields (keys must match backend PRE_ONBOARDING_CHECKLIST_KEYS)
-const PRE_CHECKLIST_FIELDS: { key: string; label: string; placeholder?: string }[] = [
-  { key: 'poc_collected', label: 'POC collected?', placeholder: 'Yes/No' },
-  { key: 'whatsapp_group_created', label: 'WhatsApp Group created?', placeholder: 'Yes/No' },
-  { key: 'owner_added_in_group', label: 'Owner is added in group?', placeholder: 'Yes/No' },
-  { key: 'meeting_link_created_shared', label: 'Meeting Link Created & shared with company?', placeholder: 'Yes/No' },
-  { key: 'no_of_users_store_purchase_others', label: 'No of Users (Store+Purchase+others)', placeholder: 'Number' },
-  { key: 'no_of_users_will_use_software', label: 'No of Users who will use the software', placeholder: 'Number' },
-  { key: 'end_users_will_use_software', label: "End Users also will use the software?", placeholder: 'Yes/No' },
-  { key: 'gate_id_needed_or_not', label: "Gate I'D needed or not?", placeholder: 'Yes/No' },
-  { key: 'exact_store_purchase_persons', label: 'Exact no. of Store and Purchase persons', placeholder: 'Number' },
-  { key: 'training_flow_or_separately', label: 'Training will be done in a flow or store and purchase part separately?', placeholder: 'Details' },
-  { key: 'computer_literacy_level', label: 'Computer Literacy level?', placeholder: 'e.g. Basic/Advanced' },
-  { key: 'computers_in_store', label: 'Do we have Computers in the Store/Workplace', placeholder: 'Yes/No' },
-  { key: 'internet_available_at_store', label: 'Is Internet Connection Available at Store?', placeholder: 'Yes/No' },
-  { key: 'printer_available_at_store', label: 'Is Printer Available at the Store?', placeholder: 'Yes/No' },
-  { key: 'inventory_volume_items', label: 'What is the inventory Volume (Number of Items)', placeholder: 'Number' },
-  { key: 'purchase_volume_po_per_day', label: 'What is the Purchase Volume? (PO / Day)', placeholder: 'Number' },
-  { key: 'domain_email_present_or_not', label: 'Is Company Domain Email Present or Not', placeholder: 'Yes/No' },
-  { key: 'domain_vendor_contact_shared_if_not', label: 'If Company Domain not available Domain Vendor contact shared with POC?', placeholder: 'Yes/No' },
-  { key: 'cost_centre_updated_now_or_later', label: 'Is Cost Centre to be updated Now or Later?', placeholder: 'Now/Later' },
-  { key: 'location_updated_now_or_later', label: 'Is Location to be Updated Now or Later?', placeholder: 'Now/Later' },
-  { key: 'managing_purchase_now', label: 'How we are managing the purchase now?', placeholder: 'Details' },
-  { key: 'quotation_comparison', label: 'Do we do Quotation Comparison', placeholder: 'Yes/No' },
-  { key: 'basic_details_org_phone_division_gst_address_master_id_company_mail_item_list', label: 'Basic details to start the onboarding (Organization name, Phone Number, Division/s, GST, Address, Master I\'D details, Company Mail, Item list)', placeholder: 'Details' },
-  { key: 'days_required_for_details', label: 'How many days required to give these details.', placeholder: 'Number' },
-  { key: 'send_basic_details_from_previous_point', label: 'Send basic details which we need from them for point no. Previous', placeholder: 'Yes/No or details' },
-  { key: 'company_folder_created_in_drive', label: 'Company folder created in drive?', placeholder: 'Yes/No' },
-  { key: 'review_meeting_prepare_plan_of_action', label: 'Review the meeting and prepare a plan of action', placeholder: 'Details' },
+type PreChecklistFieldType = 'yes_no' | 'done_not_done' | 'number' | 'now_later' | 'literacy' | 'training_flow' | 'text'
+
+const YES_NO_OPTIONS = [
+  { label: 'Yes', value: 'Yes' },
+  { label: 'No', value: 'No' },
 ]
+
+const DONE_NOT_DONE_OPTIONS = [
+  { label: 'Done', value: 'Done' },
+  { label: 'Not Done', value: 'Not Done' },
+]
+
+const NOW_LATER_OPTIONS = [
+  { label: 'Now', value: 'Now' },
+  { label: 'Later', value: 'Later' },
+]
+
+const COMPUTER_LITERACY_OPTIONS = [
+  { label: 'Basic', value: 'Basic' },
+  { label: 'Intermediate', value: 'Intermediate' },
+  { label: 'Advanced', value: 'Advanced' },
+]
+
+const TRAINING_FLOW_OPTIONS = [
+  { label: 'In a flow', value: 'In a flow' },
+  { label: 'Store and purchase separately', value: 'Store and purchase separately' },
+]
+
+const PRE_CHECKLIST_FIELDS: { key: string; label: string; type: PreChecklistFieldType; placeholder?: string }[] = [
+  { key: 'poc_collected', label: 'POC collected?', type: 'yes_no' },
+  { key: 'whatsapp_group_created', label: 'WhatsApp Group created?', type: 'yes_no' },
+  { key: 'owner_added_in_group', label: 'Owner is added in group?', type: 'yes_no' },
+  { key: 'meeting_link_created_shared', label: 'Meeting Link Created & shared with company?', type: 'yes_no' },
+  { key: 'no_of_users_store_purchase_others', label: 'No of Users (Store+Purchase+others)', type: 'number' },
+  { key: 'no_of_users_will_use_software', label: 'No of Users who will use the software', type: 'number' },
+  { key: 'end_users_will_use_software', label: 'End Users also will use the software?', type: 'yes_no' },
+  { key: 'gate_id_needed_or_not', label: "Gate ID needed or not?", type: 'yes_no' },
+  { key: 'exact_store_purchase_persons', label: 'Exact no. of Store and Purchase persons', type: 'number' },
+  { key: 'training_flow_or_separately', label: 'Training will be done in a flow or store and purchase part separately?', type: 'training_flow' },
+  { key: 'computer_literacy_level', label: 'Computer Literacy level?', type: 'literacy' },
+  { key: 'computers_in_store', label: 'Do we have Computers in the Store/Workplace?', type: 'yes_no' },
+  { key: 'internet_available_at_store', label: 'Is Internet Connection Available at Store?', type: 'yes_no' },
+  { key: 'printer_available_at_store', label: 'Is Printer Available at the Store?', type: 'yes_no' },
+  { key: 'inventory_volume_items', label: 'What is the inventory Volume (Number of Items)?', type: 'number' },
+  { key: 'purchase_volume_po_per_day', label: 'What is the Purchase Volume? (PO / Day)', type: 'number' },
+  { key: 'domain_email_present_or_not', label: 'Is Company Domain Email Present or Not?', type: 'yes_no' },
+  { key: 'domain_vendor_contact_shared_if_not', label: 'If Company Domain not available — Domain Vendor contact shared with POC?', type: 'yes_no' },
+  { key: 'cost_centre_updated_now_or_later', label: 'Is Cost Centre to be updated Now or Later?', type: 'now_later' },
+  { key: 'location_updated_now_or_later', label: 'Is Location to be Updated Now or Later?', type: 'now_later' },
+  { key: 'managing_purchase_now', label: 'How we are managing the purchase now?', type: 'text', placeholder: 'Details' },
+  { key: 'quotation_comparison', label: 'Do we do Quotation Comparison?', type: 'yes_no' },
+  { key: 'basic_details_org_phone_division_gst_address_master_id_company_mail_item_list', label: 'Basic details to start the onboarding (Organization name, Phone Number, Division/s, GST, Address, Master ID details, Company Mail, Item list)', type: 'text', placeholder: 'Details' },
+  { key: 'days_required_for_details', label: 'How many days required to give these details?', type: 'number' },
+  { key: 'send_basic_details_from_previous_point', label: 'Send basic details which we need from them for point no. Previous', type: 'done_not_done' },
+  { key: 'company_folder_created_in_drive', label: 'Company folder created in drive?', type: 'yes_no' },
+  { key: 'review_meeting_prepare_plan_of_action', label: 'Review the meeting and prepare a plan of action', type: 'done_not_done' },
+]
+
+function renderPreChecklistFieldInput(field: (typeof PRE_CHECKLIST_FIELDS)[number]) {
+  switch (field.type) {
+    case 'yes_no':
+      return <Select placeholder="Yes / No" options={YES_NO_OPTIONS} getPopupContainer={() => document.body} />
+    case 'done_not_done':
+      return <Select placeholder="Done / Not Done" options={DONE_NOT_DONE_OPTIONS} getPopupContainer={() => document.body} />
+    case 'number':
+      return <InputNumber min={0} style={{ width: '100%' }} placeholder="Number" />
+    case 'now_later':
+      return <Select placeholder="Now / Later" options={NOW_LATER_OPTIONS} getPopupContainer={() => document.body} />
+    case 'literacy':
+      return <Select placeholder="Select level" options={COMPUTER_LITERACY_OPTIONS} getPopupContainer={() => document.body} />
+    case 'training_flow':
+      return <Select placeholder="Select training flow" options={TRAINING_FLOW_OPTIONS} getPopupContainer={() => document.body} />
+    case 'text':
+      return <TextArea rows={2} placeholder={field.placeholder || 'Details'} />
+    default:
+      return <Input placeholder={field.placeholder} />
+  }
+}
 
 // POC Checklist fields (sent formats)
 const POC_CHECKLIST_FIELDS: { key: string; label: string; placeholder?: string }[] = [
@@ -145,11 +195,6 @@ const POC_DETAILS_FIELDS: { key: string; label: string; placeholder?: string }[]
   { key: 'details_collected', label: 'Details Collected?', placeholder: 'Yes/No' },
   { key: 'details_collected_timestamp', label: 'Details Collected Timestamp', placeholder: 'DD-MMM-YYYY HH:mm' },
   { key: 'remarks', label: 'Remarks', placeholder: 'Optional remarks' },
-]
-
-const DONE_NOT_DONE_OPTIONS = [
-  { label: 'Done', value: 'Done' },
-  { label: 'Not Done', value: 'Not Done' },
 ]
 
 // Details Collected Checklist (after POC Details submit). All dropdowns Done / Not Done.
@@ -417,7 +462,7 @@ export function PaymentStatusPage() {
         .catch(() => message.error('Failed to submit'))
         .finally(() => setSubmitLoading(false))
     }).catch(() => {
-      message.warning('Please fill Company Name and Payment Status')
+      message.warning('Please fill all required fields (Accounts Remarks is optional)')
     })
   }
 
@@ -1202,11 +1247,19 @@ export function PaymentStatusPage() {
             />
           </Form.Item>
 
-          <Form.Item name="payment_received_date" label="Payment Received Date">
+          <Form.Item
+            name="payment_received_date"
+            label="Payment Received Date"
+            rules={[{ required: true, message: 'Payment Received Date is required' }]}
+          >
             <DatePicker style={{ width: '100%' }} format="DD-MMM-YYYY" />
           </Form.Item>
 
-          <Form.Item name="poc_name" label="POC Name">
+          <Form.Item
+            name="poc_name"
+            label="POC Name"
+            rules={[{ required: true, message: 'POC Name is required' }]}
+          >
             <Input placeholder="POC Name" />
           </Form.Item>
 
@@ -1214,10 +1267,10 @@ export function PaymentStatusPage() {
             name="poc_contact"
             label="POC Contact (10 digits)"
             rules={[
+              { required: true, message: 'POC Contact is required' },
               {
                 validator: (_, value) => {
-                  if (!value || String(value).trim() === '') return Promise.resolve()
-                  if (/^\d{10}$/.test(String(value).trim())) return Promise.resolve()
+                  if (/^\d{10}$/.test(String(value || '').trim())) return Promise.resolve()
                   return Promise.reject(new Error('Must be exactly 10 digits'))
                 },
               },
@@ -1703,7 +1756,7 @@ export function PaymentStatusPage() {
         open={preChecklistModalOpen}
         onCancel={() => { setPreChecklistModalOpen(false); setPreChecklistResult(null) }}
         footer={null}
-        width={640}
+        width={720}
         destroyOnClose
         style={{ top: 20 }}
       >
@@ -1728,15 +1781,25 @@ export function PaymentStatusPage() {
           </div>
         ) : (
           <Form form={preChecklistForm} layout="vertical" onFinish={submitPreChecklist}>
-            <div style={{ maxHeight: 400, overflow: 'auto' }}>
+            <div style={{ maxHeight: 480, overflow: 'auto', paddingRight: 4 }}>
               {PRE_CHECKLIST_FIELDS.map((f) => (
                 <Form.Item
                   key={f.key}
                   name={f.key}
                   label={f.label}
-                  rules={[{ required: true, message: `${f.label} is required` }]}
+                  rules={[
+                    {
+                      required: true,
+                      message:
+                        f.type === 'number'
+                          ? `Enter a number for ${f.label}`
+                          : f.type === 'text'
+                            ? `${f.label} is required`
+                            : `Select an option for ${f.label}`,
+                    },
+                  ]}
                 >
-                  <Input placeholder={f.placeholder} />
+                  {renderPreChecklistFieldInput(f)}
                 </Form.Item>
               ))}
             </div>
