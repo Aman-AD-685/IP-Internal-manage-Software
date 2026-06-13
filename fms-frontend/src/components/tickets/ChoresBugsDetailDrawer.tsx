@@ -1208,7 +1208,7 @@ export const ChoresBugsDetailDrawer = ({
         okText="Shift to Feature"
       >
         <Typography.Paragraph type="secondary">
-          This ticket will receive a new Feature reference (EX-FE-xxxx). The current reference{' '}
+          This ticket will receive a new Feature reference (next in your FE sequence). The current reference{' '}
           <Text strong>{ticket?.reference_no || '—'}</Text> will be saved for history.
         </Typography.Paragraph>
         <div>
