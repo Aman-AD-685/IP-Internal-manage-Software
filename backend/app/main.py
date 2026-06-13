@@ -1854,31 +1854,66 @@ def _ticket_list_select(*, wide: bool = False) -> str:
     return _TICKET_LIST_SELECT_BASE
 
 
+_TICKET_REF_PATTERNS: dict[str, list[tuple[re.Pattern[str], str]]] = {
+    "feature": [
+        (re.compile(r"^EX-FE-(\d+)$", re.I), "EX-FE-{n:04d}"),
+        (re.compile(r"^FE-(\d+)$", re.I), "FE-{n:04d}"),
+    ],
+    "chore": [
+        (re.compile(r"^EX-CH-(\d+)$", re.I), "EX-CH-{n:04d}"),
+        (re.compile(r"^CH-(\d+)$", re.I), "CH-{n:04d}"),
+    ],
+    "bug": [
+        (re.compile(r"^EX-BU-(\d+)$", re.I), "EX-BU-{n:04d}"),
+        (re.compile(r"^BU-(\d+)$", re.I), "BU-{n:04d}"),
+    ],
+}
+_TICKET_REF_DEFAULT_FORMAT = {
+    "feature": "FE-{n:04d}",
+    "chore": "CH-{n:04d}",
+    "bug": "BU-{n:04d}",
+}
+
+
 def _next_ex_ticket_reference_no(ticket_type: str) -> str:
-    """Next EX-CH / EX-BU / EX-FE reference (matches generate_ticket_reference trigger)."""
-    prefix_map = {"chore": "EX-CH", "bug": "EX-BU", "feature": "EX-FE"}
-    prefix = prefix_map.get(ticket_type)
-    if not prefix:
+    """Next reference for chore/bug/feature — follows existing FE-/CH-/BU- or EX-* sequence in DB."""
+    tt = (ticket_type or "").strip().lower()
+    patterns = _TICKET_REF_PATTERNS.get(tt)
+    if not patterns:
         raise ValueError(f"Invalid ticket type for reference: {ticket_type}")
+
     max_num = 0
+    format_counts: dict[str, int] = {fmt: 0 for _, fmt in patterns}
+
     try:
-        r = (
-            supabase.table("tickets")
-            .select("reference_no")
-            .eq("type", ticket_type)
-            .like("reference_no", f"{prefix}-%")
-            .execute()
+        rows = _supabase_fetch_all_rows(
+            lambda: supabase.table("tickets").select("reference_no").eq("type", tt),
+            page_size=1000,
+            max_rows=50000,
         )
-        for row in r.data or []:
+        for row in rows:
             ref = (row.get("reference_no") or "").strip()
-            if not ref.startswith(f"{prefix}-"):
-                continue
-            suffix = ref[len(prefix) + 1 :]
-            if suffix.isdigit():
-                max_num = max(max_num, int(suffix))
+            for regex, fmt in patterns:
+                m = regex.match(ref)
+                if not m:
+                    continue
+                max_num = max(max_num, int(m.group(1)))
+                format_counts[fmt] += 1
+                break
     except Exception as e:
         _log(f"next_ex_ticket_reference_no: {e}")
-    return f"{prefix}-{max_num + 1:04d}"
+
+    next_num = max_num + 1
+    if tt == "feature":
+        # Production uses FE-0129 style (not EX-FE-0001); always continue that series.
+        return f"FE-{next_num:04d}"
+
+    active_formats = [fmt for fmt, cnt in format_counts.items() if cnt > 0]
+    if active_formats:
+        best_fmt = max(active_formats, key=lambda f: (format_counts[f], f))
+    else:
+        best_fmt = _TICKET_REF_DEFAULT_FORMAT[tt]
+    return best_fmt.format(n=next_num)
 
 
 def _supabase_fetch_all_rows(build_query, *, page_size: int = 1000, max_rows: int = 20000) -> list[dict]:
