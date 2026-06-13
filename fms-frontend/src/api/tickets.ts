@@ -74,6 +74,11 @@ export interface Ticket {
   live_review_actual?: string
   live_review_status?: 'pending' | 'completed'
   repeat_of_ticket_id?: string
+  /** Original CH/BU reference after promote-to-feature */
+  source_reference_no?: string
+  source_type?: 'chore' | 'bug'
+  promoted_to_feature_at?: string
+  promoted_by?: string
   /** Tickets created with repeat_of_ticket_id pointing to this row */
   repeat_child_count?: number
   /** Set by backend for Level 3 (user) role: true = this user has used their one-time edit; drawer is view-only except Stage 2 */
@@ -384,6 +389,14 @@ export const ticketsApi = {
 
   stagingBack: async (ticketId: string): Promise<ApiResponse<Ticket>> => {
     const response = await apiClient.post<ApiResponse<Ticket>>(`/tickets/${ticketId}/staging-back`)
+    invalidateAfterTicketMutation(ticketId)
+    return response.data
+  },
+
+  promoteToFeature: async (ticketId: string, whyFeature: string): Promise<Ticket> => {
+    const response = await apiClient.post<Ticket>(`/tickets/${ticketId}/promote-to-feature`, {
+      why_feature: whyFeature,
+    })
     invalidateAfterTicketMutation(ticketId)
     return response.data
   },

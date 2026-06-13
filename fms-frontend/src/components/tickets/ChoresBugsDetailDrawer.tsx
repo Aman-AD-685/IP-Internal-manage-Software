@@ -13,7 +13,7 @@ import {
   Divider,
   DatePicker,
 } from 'antd'
-import { RocketOutlined, EditOutlined, CheckOutlined, CloseOutlined, RetweetOutlined } from '@ant-design/icons'
+import { RocketOutlined, EditOutlined, CheckOutlined, CloseOutlined, RetweetOutlined, StarOutlined } from '@ant-design/icons'
 import { ticketsApi, type Stage2Remark } from '../../api/tickets'
 import { formatDateTable, formatReplySla, formatDelay, stagingDelaySeconds } from '../../utils/helpers'
 import type { Ticket } from '../../api/tickets'
@@ -76,6 +76,9 @@ export const ChoresBugsDetailDrawer = ({
   const [solutionModalOpen, setSolutionModalOpen] = useState(false)
   const [solutionText, setSolutionText] = useState('')
   const [markingStaging, setMarkingStaging] = useState(false)
+  const [promoteModalOpen, setPromoteModalOpen] = useState(false)
+  const [promoteWhyFeature, setPromoteWhyFeature] = useState('')
+  const [promotingToFeature, setPromotingToFeature] = useState(false)
   const [stage2Remarks, setStage2Remarks] = useState<Stage2Remark[]>([])
   const [newRemarkText, setNewRemarkText] = useState('')
   const [addingRemark, setAddingRemark] = useState(false)
@@ -436,6 +439,35 @@ export const ChoresBugsDetailDrawer = ({
   // In Completed Chores & Bugs: only show Stage 1 & 2 for SLA; if ticket went through Staging, show staging stages too
   const completedViewOnlyTwoStages = readOnly
   const showStagingStages = readOnly && !!(ticket?.staging_planned)
+  const inStaging =
+    !!(ticket?.staging_planned) || (ticket?.status_2 || '').toLowerCase() === 'staging'
+  const canPromoteToFeature = !readOnly && !inStaging && (ticket?.type === 'chore' || ticket?.type === 'bug')
+
+  const handlePromoteToFeature = async () => {
+    if (!ticketId) return
+    const why = promoteWhyFeature.trim()
+    if (!why) {
+      message.warning('Please explain why this should be a Feature')
+      return
+    }
+    setPromotingToFeature(true)
+    try {
+      const updated = await ticketsApi.promoteToFeature(ticketId, why)
+      message.success(
+        `Shifted to Feature as ${updated.reference_no}` +
+          (updated.source_reference_no ? ` (was ${updated.source_reference_no})` : '')
+      )
+      setPromoteModalOpen(false)
+      setPromoteWhyFeature('')
+      onUpdate?.()
+      onClose()
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } }
+      message.error(err?.response?.data?.detail || 'Failed to shift to Feature')
+    } finally {
+      setPromotingToFeature(false)
+    }
+  }
 
   return (
     <>
@@ -529,27 +561,41 @@ export const ChoresBugsDetailDrawer = ({
 
             {!readOnly && !ticket.staging_planned && status1 === 'no' && (
               <div style={{ marginBottom: 16 }}>
-                <Button
-                  type="primary"
-                  icon={<RocketOutlined />}
-                  loading={markingStaging}
-                  onClick={async () => {
-                    if (!ticketId) return
-                    setMarkingStaging(true)
-                    try {
-                      await ticketsApi.markStaging(ticketId)
-                      message.success('Ticket moved to Staging')
-                      onUpdate?.()
-                      onClose()
-                    } catch (e: unknown) {
-                      const err = e as { response?: { data?: { detail?: string } } }
-                      message.error(err?.response?.data?.detail || 'Failed to mark as Staging')
-                    } finally {
-                      setMarkingStaging(false)
-                    }
-                  }}
-                >
-                  Mark as Staging
+                <Space wrap>
+                  <Button
+                    type="primary"
+                    icon={<RocketOutlined />}
+                    loading={markingStaging}
+                    onClick={async () => {
+                      if (!ticketId) return
+                      setMarkingStaging(true)
+                      try {
+                        await ticketsApi.markStaging(ticketId)
+                        message.success('Ticket moved to Staging')
+                        onUpdate?.()
+                        onClose()
+                      } catch (e: unknown) {
+                        const err = e as { response?: { data?: { detail?: string } } }
+                        message.error(err?.response?.data?.detail || 'Failed to mark as Staging')
+                      } finally {
+                        setMarkingStaging(false)
+                      }
+                    }}
+                  >
+                    Mark as Staging
+                  </Button>
+                  {canPromoteToFeature && (
+                    <Button icon={<StarOutlined />} onClick={() => setPromoteModalOpen(true)}>
+                      Shift to Feature
+                    </Button>
+                  )}
+                </Space>
+              </div>
+            )}
+            {!readOnly && canPromoteToFeature && (ticket.staging_planned || status1 !== 'no') && (
+              <div style={{ marginBottom: 16 }}>
+                <Button icon={<StarOutlined />} onClick={() => setPromoteModalOpen(true)}>
+                  Shift to Feature
                 </Button>
               </div>
             )}
@@ -1136,6 +1182,33 @@ export const ChoresBugsDetailDrawer = ({
             value={solutionText}
             onChange={(e) => setSolutionText(e.target.value)}
             placeholder="Enter quality of solution remark (mandatory)"
+            style={{ marginTop: 8 }}
+          />
+        </div>
+      </Modal>
+
+      <Modal
+        title="Shift to Feature"
+        open={promoteModalOpen}
+        onCancel={() => {
+          setPromoteModalOpen(false)
+          setPromoteWhyFeature('')
+        }}
+        onOk={() => void handlePromoteToFeature()}
+        confirmLoading={promotingToFeature}
+        okText="Shift to Feature"
+      >
+        <Typography.Paragraph type="secondary">
+          This ticket will receive a new Feature reference (EX-FE-xxxx). The current reference{' '}
+          <Text strong>{ticket?.reference_no || '—'}</Text> will be saved for history.
+        </Typography.Paragraph>
+        <div>
+          <Text strong>Why should this be a Feature? *</Text>
+          <TextArea
+            rows={4}
+            value={promoteWhyFeature}
+            onChange={(e) => setPromoteWhyFeature(e.target.value)}
+            placeholder="Explain why this is a feature request, not a chore or bug fix"
             style={{ marginTop: 8 }}
           />
         </div>
