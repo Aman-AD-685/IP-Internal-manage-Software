@@ -26,6 +26,7 @@ import { invalidateAfterStage2Remark } from '../../utils/sessionApiCache'
 import { notifyStage2RemarkAdded } from '../../utils/stage2RemarkEvents'
 import { RepeatedTicketsModal } from './RepeatedTicketsModal'
 import { PriorityColoredReference } from './PriorityColoredReference'
+import { apiUserMessage } from '../../utils/apiUserMessage'
 
 const { TextArea } = Input
 const { Text } = Typography
@@ -462,8 +463,16 @@ export const ChoresBugsDetailDrawer = ({
       onUpdate?.()
       onClose()
     } catch (e: unknown) {
-      const err = e as { response?: { data?: { detail?: string } } }
-      message.error(err?.response?.data?.detail || 'Failed to shift to Feature')
+      message.error(
+        apiUserMessage(
+          e,
+          'Could not shift this ticket to Feature. Please try again.',
+          {
+            status503:
+              'Shift to Feature is temporarily unavailable. Please try again in a few minutes or contact your administrator.',
+          },
+        ),
+      )
     } finally {
       setPromotingToFeature(false)
     }

@@ -1825,22 +1825,25 @@ _TICKET_PROMOTE_COLUMNS: bool | None = None
 
 
 def _ticket_promote_columns_available() -> bool:
-    """True when TICKETS_PROMOTE_TO_FEATURE.sql has been applied in Supabase."""
+    """True when promote-to-feature columns exist. Only caches a positive result (never cache False)."""
     global _TICKET_PROMOTE_COLUMNS
-    if _TICKET_PROMOTE_COLUMNS is not None:
-        return _TICKET_PROMOTE_COLUMNS
+    if _TICKET_PROMOTE_COLUMNS is True:
+        return True
     try:
-        supabase.table("tickets").select("source_reference_no").limit(1).execute()
+        supabase.table("tickets").select(
+            "source_reference_no,source_type,promoted_to_feature_at,promoted_by"
+        ).limit(1).execute()
         _TICKET_PROMOTE_COLUMNS = True
+        return True
     except Exception as e:
         err = str(e).lower()
-        if "source_reference_no" in err and (
-            "does not exist" in err or "42703" in err or "pgrst204" in err
+        if "source_reference_no" in err and any(
+            tok in err
+            for tok in ("does not exist", "42703", "pgrst204", "could not find", "schema cache")
         ):
-            _TICKET_PROMOTE_COLUMNS = False
-        else:
-            _TICKET_PROMOTE_COLUMNS = True
-    return _TICKET_PROMOTE_COLUMNS
+            return False
+        _log(f"ticket promote column probe: {e}")
+        return False
 
 
 def _ticket_list_select(*, wide: bool = False) -> str:
@@ -2618,7 +2621,7 @@ def promote_ticket_to_feature(
     if not _ticket_promote_columns_available():
         raise HTTPException(
             status_code=503,
-            detail="Run database/TICKETS_PROMOTE_TO_FEATURE.sql in Supabase, then try again.",
+            detail="Shift to Feature is temporarily unavailable. Please try again in a few minutes or contact your administrator.",
         )
     r = (
         supabase.table("tickets")
