@@ -5,7 +5,8 @@ import { appReleaseApi, type AppReleaseBroadcast } from '../../api/appRelease'
 
 const ACK_KEY = 'fms_release_acknowledged_key'
 const REMIND_KEY = 'fms_release_remind_later'
-const POLL_MS = 3 * 60 * 1000
+/** Re-check often so deploy popup appears soon after bump_app_release (not only every 3 min). */
+const POLL_MS = 30 * 1000
 const REMIND_LATER_MS = 17 * 60 * 60 * 1000
 const CLIENT_RELEASE_KEY = (import.meta.env.VITE_APP_RELEASE_KEY || 'dev-local').trim()
 
@@ -43,21 +44,29 @@ export function NewFeatureRefreshPrompt() {
   const [open, setOpen] = useState(false)
   const [info, setInfo] = useState<AppReleaseBroadcast | null>(null)
   const checkingRef = useRef(false)
+  const lastServerKeyRef = useRef<string | null>(null)
 
   const checkRelease = useCallback(async () => {
     if (checkingRef.current) return
     checkingRef.current = true
     try {
       const data = await appReleaseApi.get()
-      if (!data?.is_active || !data.release_key) return
+      if (!data?.is_active || !data.release_key) {
+        setOpen(false)
+        return
+      }
 
       const serverKey = data.release_key.trim()
+      lastServerKeyRef.current = serverKey
       if (!serverKey || serverKey === CLIENT_RELEASE_KEY) {
         setOpen(false)
         return
       }
 
-      if (!shouldShowPrompt(serverKey)) return
+      if (!shouldShowPrompt(serverKey)) {
+        setOpen(false)
+        return
+      }
 
       setInfo(data)
       setOpen(true)
@@ -68,22 +77,37 @@ export function NewFeatureRefreshPrompt() {
 
   useEffect(() => {
     void checkRelease()
-    const id = window.setInterval(() => void checkRelease(), POLL_MS)
-    return () => window.clearInterval(id)
+    const pollId = window.setInterval(() => void checkRelease(), POLL_MS)
+    const onFocus = () => void checkRelease()
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void checkRelease()
+    }
+    const onPageShow = () => void checkRelease()
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('pageshow', onPageShow)
+    return () => {
+      window.clearInterval(pollId)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('pageshow', onPageShow)
+    }
   }, [checkRelease])
 
   const handleRefresh = () => {
-    if (info?.release_key) {
-      localStorage.setItem(ACK_KEY, info.release_key.trim())
+    const key = (info?.release_key || lastServerKeyRef.current || '').trim()
+    if (key) {
+      localStorage.setItem(ACK_KEY, key)
       localStorage.removeItem(REMIND_KEY)
     }
     window.location.reload()
   }
 
   const handleLater = () => {
-    if (info?.release_key) {
+    const key = (info?.release_key || lastServerKeyRef.current || '').trim()
+    if (key) {
       const state: RemindLaterState = {
-        release_key: info.release_key.trim(),
+        release_key: key,
         until: Date.now() + REMIND_LATER_MS,
       }
       localStorage.setItem(REMIND_KEY, JSON.stringify(state))

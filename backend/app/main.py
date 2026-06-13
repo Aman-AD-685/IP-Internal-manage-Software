@@ -1807,7 +1807,7 @@ def _resolve_ticket_company_name(row: dict, companies_map: dict[str, str], ref_t
     return from_id or stored or from_ref or None
 
 
-_TICKET_LIST_SELECT = (
+_TICKET_LIST_SELECT_BASE = (
     "id,reference_no,title,description,type,status,priority,created_by,assignee_id,"
     "created_at,updated_at,resolved_at,company_id,company_name,page_id,page,division_id,division,"
     "user_name,communicated_through,submitted_by,query_arrival_at,query_response_at,"
@@ -1816,9 +1816,39 @@ _TICKET_LIST_SELECT = (
     "planned_3,status_3,actual_3,planned_4,status_4,actual_4,quality_solution,"
     "quality_solution_submitted_by,quality_solution_submitted_at,staging_planned,"
     "staging_review_actual,staging_review_status,live_planned,live_actual,live_status,"
-    "live_review_planned,live_review_actual,live_review_status,attachment_url,repeat_of_ticket_id,"
-    "source_reference_no,source_type,promoted_to_feature_at,promoted_by"
+    "live_review_planned,live_review_actual,live_review_status,attachment_url,repeat_of_ticket_id"
 )
+_TICKET_LIST_SELECT_PROMOTE = (
+    ",source_reference_no,source_type,promoted_to_feature_at,promoted_by"
+)
+_TICKET_PROMOTE_COLUMNS: bool | None = None
+
+
+def _ticket_promote_columns_available() -> bool:
+    """True when TICKETS_PROMOTE_TO_FEATURE.sql has been applied in Supabase."""
+    global _TICKET_PROMOTE_COLUMNS
+    if _TICKET_PROMOTE_COLUMNS is not None:
+        return _TICKET_PROMOTE_COLUMNS
+    try:
+        supabase.table("tickets").select("source_reference_no").limit(1).execute()
+        _TICKET_PROMOTE_COLUMNS = True
+    except Exception as e:
+        err = str(e).lower()
+        if "source_reference_no" in err and (
+            "does not exist" in err or "42703" in err or "pgrst204" in err
+        ):
+            _TICKET_PROMOTE_COLUMNS = False
+        else:
+            _TICKET_PROMOTE_COLUMNS = True
+    return _TICKET_PROMOTE_COLUMNS
+
+
+def _ticket_list_select(*, wide: bool = False) -> str:
+    if wide:
+        return "*"
+    if _ticket_promote_columns_available():
+        return _TICKET_LIST_SELECT_BASE + _TICKET_LIST_SELECT_PROMOTE
+    return _TICKET_LIST_SELECT_BASE
 
 
 def _next_ex_ticket_reference_no(ticket_type: str) -> str:
@@ -2143,7 +2173,7 @@ def list_tickets(
         if role not in ("admin", "master_admin", "approver"):
             raise HTTPException(status_code=403, detail="Approval Status is only available to Admin and Approver roles")
     use_wide_select = bool(search and search.strip()) or bool(reference_filter and reference_filter.strip())
-    ticket_cols = "*" if use_wide_select else _TICKET_LIST_SELECT
+    ticket_cols = _ticket_list_select(wide=use_wide_select)
     q = supabase.table("tickets").select(ticket_cols, count="exact")
     # When global search: bypass section/type filters to search across all tickets
     apply_section_filter = section and not (search_all_sections and search and search.strip())
@@ -2258,16 +2288,22 @@ def list_tickets(
     if search and search.strip():
         safe = _sanitize_ilike_input(search, max_len=200)
         if safe:
-            q = q.or_(
+            search_fields = (
                 f"title.ilike.%{safe}%,description.ilike.%{safe}%,user_name.ilike.%{safe}%,"
                 f"submitted_by.ilike.%{safe}%,customer_questions.ilike.%{safe}%,reference_no.ilike.%{safe}%,"
-                f"company_name.ilike.%{safe}%,quality_of_response.ilike.%{safe}%,quality_solution.ilike.%{safe}%,why_feature.ilike.%{safe}%,"
-                f"source_reference_no.ilike.%{safe}%"
+                f"company_name.ilike.%{safe}%,quality_of_response.ilike.%{safe}%,quality_solution.ilike.%{safe}%,"
+                f"why_feature.ilike.%{safe}%"
             )
+            if _ticket_promote_columns_available():
+                search_fields += f",source_reference_no.ilike.%{safe}%"
+            q = q.or_(search_fields)
     if reference_filter and reference_filter.strip():
         safe_ref = _sanitize_ilike_input(reference_filter, max_len=80)
         if safe_ref:
-            q = q.or_(f"reference_no.ilike.%{safe_ref}%,source_reference_no.ilike.%{safe_ref}%")
+            ref_filter = f"reference_no.ilike.%{safe_ref}%"
+            if _ticket_promote_columns_available():
+                ref_filter = f"reference_no.ilike.%{safe_ref}%,source_reference_no.ilike.%{safe_ref}%"
+            q = q.or_(ref_filter)
     order_col = sort_by if sort_by in (
         "created_at",
         "updated_at",
@@ -2370,7 +2406,7 @@ def get_ticket_repeats(
 
 @api_router.get("/tickets/{ticket_id}")
 def get_ticket(ticket_id: str, auth: dict = Depends(get_current_user)):
-    r = supabase.table("tickets").select(_TICKET_LIST_SELECT).eq("id", ticket_id).single().execute()
+    r = supabase.table("tickets").select(_ticket_list_select()).eq("id", ticket_id).single().execute()
     if not r.data:
         raise HTTPException(status_code=404, detail="Ticket not found")
     rows = _enrich_tickets_with_lookups([r.data])
@@ -2579,6 +2615,11 @@ def promote_ticket_to_feature(
     auth: dict = Depends(get_current_user),
 ):
     """Shift a Chores/Bug ticket to Feature: new EX-FE ref, store original CH/BU ref. All users allowed."""
+    if not _ticket_promote_columns_available():
+        raise HTTPException(
+            status_code=503,
+            detail="Run database/TICKETS_PROMOTE_TO_FEATURE.sql in Supabase, then try again.",
+        )
     r = (
         supabase.table("tickets")
         .select("id, type, reference_no, staging_planned, status_2, source_reference_no")
