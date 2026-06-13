@@ -5,6 +5,7 @@ import { STORAGE_KEYS } from '../utils/constants'
 import { sessionApiCacheClearAll } from '../utils/sessionApiCache'
 import { clearAmiGreetingSession } from '../utils/amiGreeting'
 import { authApi } from '../api/auth'
+import { dispatchAppReleaseCheck } from '../utils/releaseKey'
 import type { User } from '../types/auth'
 import { normalizeUserSectionPermissions } from '../utils/helpers'
 import { readStoredAuthSession } from '../utils/authSession'
@@ -207,6 +208,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     storage.setUser(merged)
     if (refreshToken) storage.setRefreshToken(refreshToken)
     markAuthBrowserSessionActive()
+    dispatchAppReleaseCheck()
   }
 
   const login = (newToken: string, newUser: User, refreshToken?: string) => {
