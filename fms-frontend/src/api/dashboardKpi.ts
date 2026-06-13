@@ -267,6 +267,7 @@ export interface SuccessKpiResponse {
   overallPercentage: number
   meta?: {
     weekLabel?: string
+    pocIncluded?: boolean
     targets?: { poc: number; training: number; followup: number; increase: number }
   }
 }

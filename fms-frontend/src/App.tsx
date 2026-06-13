@@ -22,6 +22,7 @@ import { ConfirmationSuccess } from "./pages/auth/ConfirmationSuccess"
 
 import { ErrorBoundary } from "./components/common/ErrorBoundary"
 import { GlobalContextMenuProvider } from "./contextMenu"
+import { NewFeatureRefreshPrompt } from "./components/common/NewFeatureRefreshPrompt"
 
 const Dashboard = lazy(() => import("./pages/Dashboard").then((m) => ({ default: m.Dashboard })))
 const DashboardKPIPage = lazy(() => import("./pages/Dashboard/DashboardKPIPage").then((m) => ({ default: m.DashboardKPIPage })))
@@ -168,6 +169,7 @@ function App() {
       <AuthProvider>
         <BrowserRouter>
           <RecoveryRedirectGuard />
+          <NewFeatureRefreshPrompt />
           <GlobalContextMenuProvider>
           <AppTitle />
           <Suspense fallback={<PageSkeleton />}>

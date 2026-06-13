@@ -758,8 +758,11 @@ export const Dashboard = () => {
   const successTraining = successKpiPreviousWeek?.weeklyTrainingTarget
   const successFollowup = successKpiPreviousWeek?.trainingFollowUp
   const successIncrease = successKpiPreviousWeek?.successIncrease
+  const successPocIncluded = successKpiPreviousWeek?.meta?.pocIncluded !== false
   const successCards = [
-    { key: 'poc', title: 'POC Collected', current: Number(successPoc?.currentValue ?? 0) },
+    ...(successPocIncluded
+      ? [{ key: 'poc', title: 'POC Collected', current: Number(successPoc?.currentValue ?? 0) }]
+      : []),
     { key: 'training', title: 'Training Target', current: Number(successTraining?.currentValue ?? 0) },
     { key: 'followup', title: 'Training Follow-up', current: Number(successFollowup?.currentValue ?? 0) },
     { key: 'increase', title: 'Success Increase', current: Number(successIncrease?.currentValue ?? 0) },

@@ -17,6 +17,9 @@ SUCCESS_KPI_TRAIN_TARGET = 1
 SUCCESS_KPI_FOLLOWUP_TARGET = 25
 SUCCESS_KPI_INCREASE_TARGET = 2
 
+# KPI weeks ending on or after this Monday exclude POC Collected (card + overall %).
+SUCCESS_KPI_POC_DISABLED_FROM = date(2026, 6, 9)
+
 _MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 _WD_SHORT = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
@@ -118,6 +121,11 @@ def _parse_iso_to_date(value) -> date | None:
 
 def _in_range(d: date | None, rs: date, re: date) -> bool:
     return d is not None and rs <= d <= re
+
+
+def _success_kpi_includes_poc(week_end: date) -> bool:
+    """POC Collected card and % only for KPI weeks wholly before SUCCESS_KPI_POC_DISABLED_FROM."""
+    return week_end < SUCCESS_KPI_POC_DISABLED_FROM
 
 
 def _company_key(company_id: Any, company_name: str | None) -> str | None:
@@ -229,23 +237,49 @@ def compute_success_kpi_for_dashboard(
                 followups = []
 
         rs, re = week_start, week_end
+        includes_poc = _success_kpi_includes_poc(re)
+
+        def _pm_company_excluded(pm_row: dict | None) -> bool:
+            if not pm_row or not pm_row.get("id"):
+                return True
+            cid = str(pm_row.get("company_id") or "")
+            return bool(cid and cid in na_company_ids)
 
         # --- Weekly counts for KPI cards (selected week) ---
-        # POC Collected = count of Performance Monitoring (POC) rows *entered* in this week (created_at in range).
-        poc_rows_w = [
-            row
-            for row in pm_rows
-            if _in_range(_parse_iso_to_date(row.get("created_at")), rs, re)
-            and not _pm_company_excluded(row)
-        ]
-        poc_company_keys = {
-            _company_key(row.get("company_id"), companies_map.get(row.get("company_id"), ""))
-            for row in poc_rows_w
-        }
-        poc_company_keys.discard(None)
-        poc_week = len(poc_company_keys)
+        poc_week = 0
         poc_target = SUCCESS_KPI_POC_TARGET
-        poc_pct = round(min(100, (poc_week / poc_target) * 100)) if poc_target else 0
+        poc_pct = 0
+        poc_details = {
+            "referenceNumbers": [],
+            "companies": [],
+            "messageOwner": [],
+            "dates": [],
+            "responses": [],
+            "contacts": [],
+        }
+        if includes_poc:
+            # POC Collected = count of Performance Monitoring (POC) rows *entered* in this week (created_at in range).
+            poc_rows_w = [
+                row
+                for row in pm_rows
+                if _in_range(_parse_iso_to_date(row.get("created_at")), rs, re)
+                and not _pm_company_excluded(row)
+            ]
+            poc_company_keys = {
+                _company_key(row.get("company_id"), companies_map.get(row.get("company_id"), ""))
+                for row in poc_rows_w
+            }
+            poc_company_keys.discard(None)
+            poc_week = len(poc_company_keys)
+            poc_pct = round(min(100, (poc_week / poc_target) * 100)) if poc_target else 0
+            poc_details = {
+                "referenceNumbers": [str(row.get("reference_no") or "") for row in poc_rows_w],
+                "companies": [companies_map.get(row.get("company_id"), "") for row in poc_rows_w],
+                "messageOwner": [row.get("message_owner") for row in poc_rows_w],
+                "dates": [str(row.get("created_at") or "") for row in poc_rows_w],
+                "responses": [row.get("response") or "" for row in poc_rows_w],
+                "contacts": [row.get("contact") or "" for row in poc_rows_w],
+            }
 
         train_week = []
         for t in trainings:
@@ -296,12 +330,6 @@ def compute_success_kpi_for_dashboard(
             all_click_rows = ce.data or []
         except Exception:
             all_click_rows = []
-
-        def _pm_company_excluded(pm_row: dict | None) -> bool:
-            if not pm_row or not pm_row.get("id"):
-                return True
-            cid = str(pm_row.get("company_id") or "")
-            return bool(cid and cid in na_company_ids)
 
         def _count_clicks_in_range(wrs: date, wre: date) -> int:
             n = 0
@@ -365,16 +393,13 @@ def compute_success_kpi_for_dashboard(
         success_target = SUCCESS_KPI_INCREASE_TARGET
         success_pct = round(min(100, (success_current / success_target) * 100)) if success_target else 0
 
-        # Details for modals (week-scoped): keep record-level rows (duplicates allowed).
-        poc_details = {
-            "referenceNumbers": [str(row.get("reference_no") or "") for row in poc_rows_w],
-            "companies": [companies_map.get(row.get("company_id"), "") for row in poc_rows_w],
-            "messageOwner": [row.get("message_owner") for row in poc_rows_w],
-            "dates": [str(row.get("created_at") or "") for row in poc_rows_w],
-            "responses": [row.get("response") or "" for row in poc_rows_w],
-            "contacts": [row.get("contact") or "" for row in poc_rows_w],
-        }
+        if includes_poc:
+            pct_values = [poc_pct, train_pct, fu_pct, success_pct]
+        else:
+            pct_values = [train_pct, fu_pct, success_pct]
+        overall_pct = round(sum(pct_values) / len(pct_values), 2) if pct_values else 0
 
+        # Details for modals (week-scoped): keep record-level rows (duplicates allowed).
         train_companies: list[str] = []
         train_call_poc: list[str] = []
         train_message_poc: list[str] = []
@@ -479,9 +504,6 @@ def compute_success_kpi_for_dashboard(
             "features": [[f] for f in succ_features],
         }
 
-        pct_values = [poc_pct, train_pct, fu_pct, success_pct]
-        overall_pct = round(sum(pct_values) / len(pct_values), 2) if pct_values else 0
-
         # Weekly graph: KPI weeks (full Mon–Sun; merged across month boundaries where applicable)
         max_wm = kpi_max_week_index_in_month(y, month_num)
         for w in range(1, max_wm + 1):
@@ -490,18 +512,21 @@ def compute_success_kpi_for_dashboard(
                 weekly_success_pct.append(0)
                 continue
             wrs, wre = rng
-            poc_w_rows = [
-                row
-                for row in pm_rows
-                if _in_range(_parse_iso_to_date(row.get("created_at")), wrs, wre)
-            ]
-            poc_w_keys = {
-                _company_key(row.get("company_id"), companies_map.get(row.get("company_id"), ""))
-                for row in poc_w_rows
-            }
-            poc_w_keys.discard(None)
-            poc_w = len(poc_w_keys)
-            poc_pct_w = min(100, (poc_w / SUCCESS_KPI_POC_TARGET) * 100) if SUCCESS_KPI_POC_TARGET else 0
+            week_includes_poc = _success_kpi_includes_poc(wre)
+            poc_pct_w = 0.0
+            if week_includes_poc:
+                poc_w_rows = [
+                    row
+                    for row in pm_rows
+                    if _in_range(_parse_iso_to_date(row.get("created_at")), wrs, wre)
+                ]
+                poc_w_keys = {
+                    _company_key(row.get("company_id"), companies_map.get(row.get("company_id"), ""))
+                    for row in poc_w_rows
+                }
+                poc_w_keys.discard(None)
+                poc_w = len(poc_w_keys)
+                poc_pct_w = min(100, (poc_w / SUCCESS_KPI_POC_TARGET) * 100) if SUCCESS_KPI_POC_TARGET else 0
             train_w = []
             for t in trainings:
                 d = _parse_iso_to_date(t.get("training_schedule_date") or t.get("created_at"))
@@ -568,7 +593,11 @@ def compute_success_kpi_for_dashboard(
                 if k:
                     inc_w_keys.add(k)
             success_inc_pct_w = min(100, (len(inc_w_keys) / SUCCESS_KPI_INCREASE_TARGET) * 100) if SUCCESS_KPI_INCREASE_TARGET else 0
-            overall_w = round((poc_pct_w + train_pct_w + fu_pct_w + success_inc_pct_w) / 4, 2)
+            if week_includes_poc:
+                week_pct_parts = [poc_pct_w, train_pct_w, fu_pct_w, success_inc_pct_w]
+            else:
+                week_pct_parts = [train_pct_w, fu_pct_w, success_inc_pct_w]
+            overall_w = round(sum(week_pct_parts) / len(week_pct_parts), 2) if week_pct_parts else 0
             weekly_success_pct.append(overall_w)
 
         success_kpi = {
@@ -599,6 +628,7 @@ def compute_success_kpi_for_dashboard(
             "overallPercentage": overall_pct,
             "meta": {
                 "weekLabel": _format_dashboard_week_label(week_start, week_end),
+                "pocIncluded": includes_poc,
                 "dashboardKpiSnapshot": dashboard_kpi_snapshot,
                 "targets": {
                     "poc": SUCCESS_KPI_POC_TARGET,

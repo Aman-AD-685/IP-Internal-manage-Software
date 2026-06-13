@@ -50,6 +50,8 @@ _EXEMPT_PATHS = {
     "/api/health/db",
     "/health/supabase",
     "/api/health/supabase",
+    "/app/release",
+    "/api/app/release",
     "/docs",
     "/openapi.json",
     "/redoc",
