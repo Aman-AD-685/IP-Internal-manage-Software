@@ -8,7 +8,7 @@ import { authApi } from '../api/auth'
 import type { User } from '../types/auth'
 import { normalizeUserSectionPermissions } from '../utils/helpers'
 import { readStoredAuthSession } from '../utils/authSession'
-import { markAuthBrowserSessionActive } from '../utils/authBrowserSession'
+import { markAuthBrowserSessionActive, syncAuthMirrorToSession } from '../utils/authBrowserSession'
 import { scheduleWhenIdle } from '../utils/warmupAfterLogin'
 
 /** Refresh access token every 50 min so session does not expire until user logs out (JWT often expires in 1 hr). */
@@ -170,12 +170,20 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     })
   }, [])
 
-  // Sync auth when another tab in the same session logs in or out (sessionStorage).
+  // Sync auth when another tab in the same browser logs in, refreshes token, or logs out.
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
-      if (e.storageArea !== sessionStorage) return
-      if (e.key !== STORAGE_KEYS.AUTH_TOKEN && e.key !== STORAGE_KEYS.USER) return
+      if (e.storageArea !== window.localStorage) return
+      if (
+        e.key !== STORAGE_KEYS.AUTH_TOKEN &&
+        e.key !== STORAGE_KEYS.USER &&
+        e.key !== STORAGE_KEYS.REFRESH_TOKEN &&
+        e.key !== 'fms_browser_session'
+      ) {
+        return
+      }
 
+      syncAuthMirrorToSession()
       const nextToken = storage.getToken()
       const nextUser = storage.getUser()
       if (!nextToken || !nextUser) {
