@@ -289,6 +289,16 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
             <Descriptions.Item label="Reference">
               <PriorityColoredReference referenceNo={ticket.reference_no} priority={ticket.priority} />
             </Descriptions.Item>
+            {ticket.source_reference_no && (
+              <Descriptions.Item label="Originally logged as">
+                <Space>
+                  <Text>{ticket.source_reference_no}</Text>
+                  <Tag color={ticket.source_type === 'bug' ? 'red' : 'green'}>
+                    {ticket.source_type === 'bug' ? 'Bug' : 'Chore'}
+                  </Tag>
+                </Space>
+              </Descriptions.Item>
+            )}
             <Descriptions.Item label="Company">{ticket.company_name || '-'}</Descriptions.Item>
             <Descriptions.Item label="User Name">{ticket.user_name || '-'}</Descriptions.Item>
             <Descriptions.Item label="Page">{ticket.page_name || '-'}</Descriptions.Item>

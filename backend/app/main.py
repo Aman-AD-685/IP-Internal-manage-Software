@@ -1493,6 +1493,16 @@ class UpdateTicketRequest(BaseModel):
     repeat_of_ticket_id: str | None = None
 
 
+class PromoteToFeatureRequest(BaseModel):
+    why_feature: str
+
+    @model_validator(mode="after")
+    def require_why_feature(self):
+        if not (self.why_feature or "").strip():
+            raise ValueError("why_feature is required when shifting to Feature")
+        return self
+
+
 class CreateTicketResponseRequest(BaseModel):
     response_text: str
 
@@ -1806,8 +1816,36 @@ _TICKET_LIST_SELECT = (
     "planned_3,status_3,actual_3,planned_4,status_4,actual_4,quality_solution,"
     "quality_solution_submitted_by,quality_solution_submitted_at,staging_planned,"
     "staging_review_actual,staging_review_status,live_planned,live_actual,live_status,"
-    "live_review_planned,live_review_actual,live_review_status,attachment_url,repeat_of_ticket_id"
+    "live_review_planned,live_review_actual,live_review_status,attachment_url,repeat_of_ticket_id,"
+    "source_reference_no,source_type,promoted_to_feature_at,promoted_by"
 )
+
+
+def _next_ex_ticket_reference_no(ticket_type: str) -> str:
+    """Next EX-CH / EX-BU / EX-FE reference (matches generate_ticket_reference trigger)."""
+    prefix_map = {"chore": "EX-CH", "bug": "EX-BU", "feature": "EX-FE"}
+    prefix = prefix_map.get(ticket_type)
+    if not prefix:
+        raise ValueError(f"Invalid ticket type for reference: {ticket_type}")
+    max_num = 0
+    try:
+        r = (
+            supabase.table("tickets")
+            .select("reference_no")
+            .eq("type", ticket_type)
+            .like("reference_no", f"{prefix}-%")
+            .execute()
+        )
+        for row in r.data or []:
+            ref = (row.get("reference_no") or "").strip()
+            if not ref.startswith(f"{prefix}-"):
+                continue
+            suffix = ref[len(prefix) + 1 :]
+            if suffix.isdigit():
+                max_num = max(max_num, int(suffix))
+    except Exception as e:
+        _log(f"next_ex_ticket_reference_no: {e}")
+    return f"{prefix}-{max_num + 1:04d}"
 
 
 def _supabase_fetch_all_rows(build_query, *, page_size: int = 1000, max_rows: int = 20000) -> list[dict]:
@@ -2223,12 +2261,13 @@ def list_tickets(
             q = q.or_(
                 f"title.ilike.%{safe}%,description.ilike.%{safe}%,user_name.ilike.%{safe}%,"
                 f"submitted_by.ilike.%{safe}%,customer_questions.ilike.%{safe}%,reference_no.ilike.%{safe}%,"
-                f"company_name.ilike.%{safe}%,quality_of_response.ilike.%{safe}%,quality_solution.ilike.%{safe}%,why_feature.ilike.%{safe}%"
+                f"company_name.ilike.%{safe}%,quality_of_response.ilike.%{safe}%,quality_solution.ilike.%{safe}%,why_feature.ilike.%{safe}%,"
+                f"source_reference_no.ilike.%{safe}%"
             )
     if reference_filter and reference_filter.strip():
         safe_ref = _sanitize_ilike_input(reference_filter, max_len=80)
         if safe_ref:
-            q = q.ilike("reference_no", f"%{safe_ref}%")
+            q = q.or_(f"reference_no.ilike.%{safe_ref}%,source_reference_no.ilike.%{safe_ref}%")
     order_col = sort_by if sort_by in (
         "created_at",
         "updated_at",
@@ -2531,6 +2570,81 @@ def mark_ticket_staging(ticket_id: str, auth: dict = Depends(get_current_user)):
     _invalidate_ttl_cache_key_prefix("tickets:list:")
     invalidate_dashboard_read_caches()
     return out.data[0] if out.data else {}
+
+
+@api_router.post("/tickets/{ticket_id}/promote-to-feature")
+def promote_ticket_to_feature(
+    ticket_id: str,
+    payload: PromoteToFeatureRequest,
+    auth: dict = Depends(get_current_user),
+):
+    """Shift a Chores/Bug ticket to Feature: new EX-FE ref, store original CH/BU ref. All users allowed."""
+    r = (
+        supabase.table("tickets")
+        .select("id, type, reference_no, staging_planned, status_2, source_reference_no")
+        .eq("id", ticket_id)
+        .single()
+        .execute()
+    )
+    if not r.data:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    row = r.data
+    ticket_type = (row.get("type") or "").strip().lower()
+    if ticket_type not in ("chore", "bug"):
+        raise HTTPException(status_code=400, detail="Only Chores or Bug tickets can be shifted to Feature")
+    if row.get("source_reference_no"):
+        raise HTTPException(status_code=400, detail="This ticket was already shifted to Feature")
+    if row.get("staging_planned") or (row.get("status_2") or "").strip().lower() == "staging":
+        raise HTTPException(
+            status_code=400,
+            detail="Tickets in Staging cannot be shifted to Feature. Move back to Chores & Bugs first.",
+        )
+
+    old_ref = (row.get("reference_no") or "").strip()
+    if not old_ref:
+        raise HTTPException(status_code=400, detail="Ticket has no reference number")
+
+    new_ref = _next_ex_ticket_reference_no("feature")
+    now = datetime.utcnow().isoformat()
+    why = payload.why_feature.strip()
+    patch = {
+        "source_reference_no": old_ref,
+        "source_type": ticket_type,
+        "promoted_to_feature_at": now,
+        "promoted_by": auth["id"],
+        "reference_no": new_ref,
+        "type": "feature",
+        "approval_status": None,
+        "approval_actual_at": None,
+        "unapproval_actual_at": None,
+        "approved_by": None,
+        "approval_source": None,
+        "why_feature": why,
+        "updated_at": now,
+    }
+    out = supabase.table("tickets").update(patch).eq("id", ticket_id).execute()
+    if not out.data:
+        raise HTTPException(status_code=500, detail="Could not shift ticket to Feature")
+
+    try:
+        supabase.table("ticket_history").insert({
+            "ticket_id": ticket_id,
+            "changed_by": auth["id"],
+            "field_name": "promoted_to_feature",
+            "old_value": f"{ticket_type}:{old_ref}",
+            "new_value": f"feature:{new_ref}",
+            "change_type": "promoted_to_feature",
+        }).execute()
+    except Exception:
+        pass
+
+    global _REF_NO_TO_COMPANY_LOADED, _COMPANIES_BY_NAME_LOADED
+    _REF_NO_TO_COMPANY_LOADED = False
+    _COMPANIES_BY_NAME_LOADED = False
+    invalidate_dashboard_read_caches()
+    _invalidate_ttl_cache_key_prefix("tickets:list:")
+    rows = _enrich_tickets_with_lookups([out.data[0]])
+    return rows[0] if rows else out.data[0]
 
 
 @api_router.post("/tickets/{ticket_id}/staging-back")
