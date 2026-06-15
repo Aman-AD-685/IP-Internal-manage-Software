@@ -117,3 +117,25 @@ def cron_email_skip_response(reason: str, *, module: str = "email") -> dict[str,
         "reason": reason,
         "message": msg,
     }
+
+
+def get_cron_working_day_status(
+    *,
+    force: bool = False,
+    on_date: date | None = None,
+    tz_name: str = DEFAULT_EMAIL_CRON_TZ,
+) -> dict[str, Any]:
+    """Admin/cron helper: whether automated emails should run today (IST by default)."""
+    d = on_date or today_for_email_cron(tz_name)
+    holidays = load_holidays_map(d.year, d.year - 1, d.year + 1)
+    skip, reason = should_skip_cron_emails(force=force, on_date=d, tz_name=tz_name)
+    return {
+        "date": d.isoformat(),
+        "timezone": tz_name,
+        "weekday": d.strftime("%A"),
+        "is_sunday": d.weekday() == 6,
+        "holiday_name": holidays.get(d),
+        "skip_cron_emails": skip,
+        "skip_reason": reason,
+        "force_override": force,
+    }

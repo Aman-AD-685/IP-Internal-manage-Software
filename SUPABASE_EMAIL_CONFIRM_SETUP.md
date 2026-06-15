@@ -71,12 +71,12 @@ On **Render**: Add `FRONTEND_URL` in your service's Environment variables.
 
 ### Reset emails go to spam
 
-1. **Supabase → Project Settings → Auth → SMTP** — use **Custom SMTP** (Postmark recommended; same as Render `POSTMARK_*` env).
-2. **Verify sender domain** in Postmark (SPF + DKIM). Use a branded From, e.g. `Industry Prime FMS <noreply@yourdomain.com>` — not a personal name only.
-3. **Supabase → Authentication → Email Templates → Reset password** — edit subject/body:
-   - Subject: `Reset your Industry Prime password`
-   - Keep `{{ .ConfirmationURL }}` as the button/link.
-4. Ask users to check **Spam/Junk** and mark as “Not spam” once.
+1. **Production uses branded mail from the API** when Postmark is configured (`POSTMARK_SERVER_TOKEN` + verified `POSTMARK_FROM_EMAIL`). The backend builds a clean transactional template and sends via Postmark instead of Supabase’s default “Reset Password” template.
+2. **Supabase → Project Settings → Auth → SMTP** — still configure Custom SMTP as fallback, or disable Supabase-only sends once Postmark works.
+3. **Verify sender domain** in Postmark (SPF + DKIM). Use a branded From, e.g. `Industry Prime FMS <noreply@yourdomain.com>` — not a personal Gmail address.
+4. **Supabase → Authentication → Email Templates → Reset password** — only needed if Postmark is not configured (fallback). Subject: `Industry Prime FMS — password reset`; keep `{{ .ConfirmationURL }}` as the link.
+5. Set `PASSWORD_RESET_CUSTOM_EMAIL=0` on Render only if you want to force Supabase’s built-in email again.
+6. Ask users to check **Spam/Junk** once and mark as “Not spam”.
 
 ---
 

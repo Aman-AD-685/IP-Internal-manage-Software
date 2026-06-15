@@ -1105,8 +1105,9 @@ def forgot_password_lookup(payload: ForgotPasswordLookupRequest, request: Reques
 
     redirect_to = f"{get_frontend_base()}/reset-password"
     try:
-        # gotrue Python expects snake_case "redirect_to" (not redirectTo).
-        supabase_auth.auth.reset_password_for_email(email, {"redirect_to": redirect_to})
+        from app.password_reset_email import send_password_reset_email
+
+        send_password_reset_email(email, redirect_to)
         _log(f"forgot-password: reset email requested redirect_to={redirect_to}")
     except Exception as e:
         # Avoid leaking existence via error messages. Retry after transient issues.
@@ -14228,11 +14229,13 @@ async def _run_checklist_reminders_impl(*, force_resend: bool = False) -> dict:
         from app.checklist_utils import get_occurrence_dates
         from app.email_working_day import cron_email_skip_response, should_skip_cron_emails
 
+        from app.email_working_day import today_for_email_cron
+
         skip, skip_reason = should_skip_cron_emails(force=force_resend)
         if skip:
             _log(f"Checklist reminder skipped: {skip_reason}")
             return cron_email_skip_response(skip_reason, module="checklist_daily")
-        today = date.today()
+        today = today_for_email_cron()
         try:
             q = supabase.table("checklist_tasks").select("*")
             if _checklist_na_supported():
@@ -14526,11 +14529,13 @@ async def _run_delegation_reminders_impl(*, force_resend: bool = False) -> dict:
     try:
         from app.email_working_day import cron_email_skip_response, should_skip_cron_emails
 
+        from app.email_working_day import today_for_email_cron
+
         skip, skip_reason = should_skip_cron_emails(force=force_resend)
         if skip:
             _log(f"Delegation reminder skipped: {skip_reason}")
             return cron_email_skip_response(skip_reason, module="delegation_daily")
-        today = date.today()
+        today = today_for_email_cron()
         del_r = supabase.table("delegation_tasks").select("id, title, assignee_id, due_date").in_("status", ["pending", "in_progress"]).lte("due_date", today.isoformat()).execute()
         tasks = del_r.data or []
         assignee_ids = list({str(t.get("assignee_id", "")) for t in tasks if t.get("assignee_id")})
@@ -14760,11 +14765,13 @@ async def _run_pending_digest_impl(*, force_resend: bool = False) -> dict:
         from app.email_working_day import cron_email_skip_response, should_skip_cron_emails
         from app.reminder_utils import get_chores_bugs_stage, get_staging_feature_stage, is_chores_bug_pending, is_feature_pending
 
+        from app.email_working_day import today_for_email_cron
+
         skip, skip_reason = should_skip_cron_emails(force=force_resend)
         if skip:
             _log(f"Pending digest skipped: {skip_reason}")
             return cron_email_skip_response(skip_reason, module="pending_digest")
-        today = date.today()
+        today = today_for_email_cron()
         level12_ids = _get_level1_level2_user_ids()
         if not level12_ids:
             return {
