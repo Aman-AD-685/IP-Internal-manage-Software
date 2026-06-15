@@ -100,7 +100,7 @@ function AppTitle() {
   const { pathname } = useLocation()
   useEffect(() => {
     const titles: Record<string, string> = {
-      [ROUTES.LOGIN]: "Login — Industry Prime FMS",
+      [ROUTES.LOGIN]: "Login — Industryprime",
       [ROUTES.FORGOT_PASSWORD]: "Forgot password",
       [ROUTES.RESET_PASSWORD]: "Reset password",
       [ROUTES.REGISTER]: "Register — Industry Prime",
