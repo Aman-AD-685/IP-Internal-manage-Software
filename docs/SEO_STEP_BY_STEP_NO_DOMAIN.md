@@ -9,7 +9,7 @@ Stack: **Vite + React (SPA)** — not Next.js. Google mostly sees **`index.html`
 
 | Goal | Realistic? |
 |------|------------|
-| Branded search: **industryprime**, **Industry Prime FMS** | Yes (with GSC + README + backlinks) |
+| Branded search: **industryprime**, **Industryprime** | Yes (with GSC + README + backlinks) |
 | Generic: “ticket management software”, “manufacturing ERP” | Hard (competitors, thin public pages, login wall) |
 | Indexing **dashboard / tickets** URLs | No — same SPA shell; content loads after login + JS |
 
@@ -157,7 +157,7 @@ SEO needs fast API (Core Web Vitals):
 | GitHub README (done) | Ranks for repo name + brand |
 | LinkedIn / company site link to Vercel URL | Backlinks |
 | Product Hunt / DEV.to post | Brand + link |
-| YouTube / docs with same name “Industry Prime FMS” | Entity match |
+| YouTube / docs with same name “Industryprime” | Entity match |
 | Keep site **public** login page (no sitewide login wall for `/`) | Crawlers see meta |
 
 **Do not** expect page 1 for “CRM software” without public marketing pages and backlinks.

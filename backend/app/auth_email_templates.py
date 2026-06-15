@@ -5,7 +5,7 @@ import html
 from urllib.parse import urlparse
 
 RESET_ACCENT = "#0284c7"
-PRODUCT_NAME = "Industry Prime FMS"
+PRODUCT_NAME = "Industryprime"
 
 
 def _esc(s: str | None) -> str:

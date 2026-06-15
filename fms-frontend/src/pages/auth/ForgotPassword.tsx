@@ -44,7 +44,7 @@ export const ForgotPassword = () => {
           Reset password
         </h1>
         <Text style={{ color: colors.lightBlue, display: 'block', textAlign: 'center', marginBottom: 28 }}>
-          Enter your account email. We will send a secure reset link from Industry Prime FMS.
+          Enter your account email. We will send a secure reset link from Industryprime.
           The email may take a minute — check inbox and junk folder. Use the link once within 1 hour.
         </Text>
 
@@ -53,7 +53,7 @@ export const ForgotPassword = () => {
             type="success"
             showIcon
             message="Check your email"
-            description="Look for an email from Industry Prime FMS with subject “password reset”. Open the link once, then set your new password right away."
+            description="Look for an email from Industryprime with subject “password reset”. Open the link once, then set your new password right away."
             style={{ marginBottom: 24 }}
           />
         )}

@@ -1,6 +1,6 @@
 # Industry Prime — IP Internal Management Software (FMS)
 
-**Industry Prime** (search: **industryprime**, **Industry Prime FMS**, **IP Internal Management**) is a cloud internal-operations platform: client onboarding, raised invoices and payments, payment-ageing reporting, KPI dashboards, training workflows, support tickets, and role-based access. This repository powers the **IP Internal Management** web app used by Industry Prime teams.
+**Industryprime** (search: **industryprime**, **IP Internal Management**) is a cloud internal-operations platform: client onboarding, raised invoices and payments, payment-ageing reporting, KPI dashboards, training workflows, support tickets, and role-based access. This repository powers the **IP Internal Management** web app used by Industry Prime teams.
 
 | What searchers look for | What this repo is |
 |-------------------------|-------------------|
