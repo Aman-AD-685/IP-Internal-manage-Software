@@ -10,6 +10,7 @@ CRON_JOB_KEYS = (
     "feature_approval",
     "checklist_daily",
     "delegation_daily",
+    "pending_digest",
     "escalation_pending",
     "escalation_critical",
     "escalation_stages",
@@ -31,6 +32,11 @@ async def _run_job(job_key: str, *, force: bool) -> dict[str, Any]:
         from app.main import _run_delegation_reminders_impl
 
         return await _run_delegation_reminders_impl(force_resend=force)
+
+    if job_key == "pending_digest":
+        from app.main import _run_pending_digest_impl
+
+        return await _run_pending_digest_impl(force_resend=force)
 
     if job_key == "escalation_pending":
         from app.escalation_email_service import run_escalation_batch
@@ -78,10 +84,39 @@ def _summarize_job_result(job_key: str, result: dict[str, Any]) -> dict[str, Any
     }
 
 
+def _skip_all_jobs_response(reason: str, keys: list[str]) -> dict[str, Any]:
+    from app.email_working_day import cron_email_skip_response
+
+    base = cron_email_skip_response(reason, module="all_cron_emails")
+    base["jobs"] = [
+        {
+            "job_key": key,
+            "ran": False,
+            "email_sent": False,
+            "reason": reason,
+        }
+        for key in keys
+    ]
+    base["any_email_sent"] = False
+    return base
+
+
 async def run_all_cron_emails(*, force: bool = False, job_key: str | None = None) -> dict[str, Any]:
     keys = [job_key] if job_key else list(CRON_JOB_KEYS)
     if job_key and job_key not in CRON_JOB_KEYS:
         return {"ok": False, "error": f"Unknown job_key: {job_key}"}
+
+    if not force:
+        from app.email_working_day import get_cron_working_day_status
+
+        day_status = get_cron_working_day_status(force=False)
+        if day_status.get("skip_cron_emails") and day_status.get("skip_reason"):
+            _log.info(
+                "All cron emails skipped: %s (%s)",
+                day_status.get("skip_reason"),
+                day_status.get("date"),
+            )
+            return _skip_all_jobs_response(str(day_status["skip_reason"]), keys)
 
     results: list[dict[str, Any]] = []
     for key in keys:

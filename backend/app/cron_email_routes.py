@@ -116,3 +116,22 @@ async def scheduler_tick_legacy(
 @cron_email_router.get("/cron/job-keys")
 def cron_job_keys_list():
     return {"job_keys": list(CRON_JOB_KEYS)}
+
+
+@cron_email_router.get("/cron/working-day")
+def cron_working_day_check(
+    request: Request,
+    force: bool = False,
+    auth: dict | None = Depends(get_current_user_optional),
+):
+    """
+    Check if today (Asia/Kolkata) is Sunday or a checklist holiday — no cron emails on those days.
+    Cron secret or Admin only.
+    """
+    is_cron = _cron_authorized(request)
+    is_admin = bool(auth and _role(auth["id"]) in ("admin", "master_admin"))
+    if not is_cron and not is_admin:
+        raise HTTPException(status_code=401, detail="Use X-Cron-Secret or sign in as Admin.")
+    from app.email_working_day import get_cron_working_day_status
+
+    return get_cron_working_day_status(force=force)
