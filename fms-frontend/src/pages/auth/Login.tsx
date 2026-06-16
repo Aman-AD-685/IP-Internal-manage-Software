@@ -11,6 +11,7 @@ import { getPostLoginPath, getRedirectFromSearch } from '../../utils/authRedirec
 import { warmupAfterLogin } from '../../utils/warmupAfterLogin'
 import { useAuth } from '../../hooks/useAuth'
 import { API_BASE_URL } from '../../api/axios'
+import { dispatchSystemLockChanged, writeCachedSystemLockStatus } from '../../api/systemLock'
 import { getLocalUvicornStartCommand } from '../../utils/localBackend'
 import type { LoginRequest } from '../../types/auth'
 
@@ -123,6 +124,10 @@ export const Login = () => {
             return
           }
           login(access_token, user, refresh_token ?? undefined)
+          if (user.role !== 'master_admin' && response.data.system_lock?.is_locked) {
+            writeCachedSystemLockStatus(response.data.system_lock)
+            dispatchSystemLockChanged(response.data.system_lock)
+          }
           const target = getPostLoginPath(location.search, user)
           warmupAfterLogin(target)
           navigate(target, { replace: true })

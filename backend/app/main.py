@@ -218,6 +218,7 @@ from app.approval_email_pages import approval_public_router
 from app.escalation_email_routes import escalation_email_router
 from app.improvement_suggestions_routes import improvement_router
 from app.soft_suggestions_routes import soft_suggestions_router
+from app.system_lock_routes import system_lock_router
 
 app.include_router(feature_approval_reminder_router)
 app.include_router(feature_approval_reminder_router, prefix="/api")
@@ -231,6 +232,8 @@ app.include_router(improvement_router)
 app.include_router(improvement_router, prefix="/api")
 app.include_router(soft_suggestions_router)
 app.include_router(soft_suggestions_router, prefix="/api")
+app.include_router(system_lock_router)
+app.include_router(system_lock_router, prefix="/api")
 
 
 @app.on_event("startup")
@@ -324,6 +327,11 @@ async def log_requests(request: Request, call_next):
     limited = rate_limit_response(request)
     if limited is not None:
         return limited
+    from app.system_lock import check_request_system_lock
+
+    locked = await check_request_system_lock(request)
+    if locked is not None:
+        return locked
     _log(f"--> {request.method} {request.url.path}")
     start = time.perf_counter()
     try:
@@ -449,6 +457,7 @@ class LoginResponse(BaseModel):
     refresh_token: str | None
     user: dict
     requires_otp: bool = False
+    system_lock: dict | None = None
 
 
 class RefreshRequest(BaseModel):
@@ -1021,11 +1030,20 @@ def login(payload: LoginRequest):
             "section_permissions": section_permissions,
         }
 
+        system_lock_payload = None
+        if frontend_role != "master_admin":
+            from app.system_lock import get_system_lock_state
+
+            lock_state = get_system_lock_state()
+            if lock_state.get("is_locked"):
+                system_lock_payload = lock_state
+
         return LoginResponse(
             access_token=result.session.access_token,
             refresh_token=result.session.refresh_token,
             user=user,
             requires_otp=False,
+            system_lock=system_lock_payload,
         )
     except HTTPException:
         raise

@@ -11,6 +11,7 @@ import { normalizeUserSectionPermissions } from '../utils/helpers'
 import { readStoredAuthSession } from '../utils/authSession'
 import { markAuthBrowserSessionActive, syncAuthMirrorToSession } from '../utils/authBrowserSession'
 import { scheduleWhenIdle } from '../utils/warmupAfterLogin'
+import { writeCachedSystemLockStatus } from '../api/systemLock'
 
 /** Refresh access token every 50 min so session does not expire until user logs out (JWT often expires in 1 hr). */
 const PROACTIVE_REFRESH_INTERVAL_MS = 50 * 60 * 1000
@@ -114,6 +115,29 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           storage.clear()
           setToken(null)
           setUser(null)
+          return
+        }
+
+        if (code === '423') {
+          const lockReason = (response.error as { lockReason?: string })?.lockReason
+          const lockStatus = {
+            is_locked: true,
+            reason: lockReason || null,
+            locked_by: null,
+            locked_by_name: null,
+            locked_at: null,
+            unlocked_at: null,
+            updated_at: null,
+          }
+          writeCachedSystemLockStatus(lockStatus)
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('fms:system-lock-changed', {
+                detail: lockStatus,
+              })
+            )
+          }
+          setIsLoading(false)
           return
         }
 

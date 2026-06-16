@@ -50,6 +50,7 @@ export interface LoginResponse {
   refresh_token?: string
   user: User
   requires_otp?: boolean
+  system_lock?: import('../api/systemLock').SystemLockStatus | null
 }
 
 export interface OTPVerifyRequest {
