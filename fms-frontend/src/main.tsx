@@ -20,9 +20,10 @@ import './styles/app-pages.css'
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 60_000,
-      gcTime: 300_000,
+      staleTime: 120_000,
+      gcTime: 600_000,
       refetchOnWindowFocus: false,
+      refetchOnMount: false,
       retry: 1,
     },
   },

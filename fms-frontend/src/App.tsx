@@ -169,9 +169,9 @@ function App() {
     >
       <AuthProvider>
         <BrowserRouter>
+          <NewFeatureRefreshPrompt />
           <SystemLockProvider>
           <RecoveryRedirectGuard />
-          <NewFeatureRefreshPrompt />
           <GlobalContextMenuProvider>
           <AppTitle />
           <Suspense fallback={<PageSkeleton />}>
