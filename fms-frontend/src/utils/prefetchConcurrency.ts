@@ -1,5 +1,5 @@
-/** Limits idle route prefetch so login does not flood the API (Render cold start + DB). */
-const MAX_CONCURRENT = 2
+/** Limits idle route prefetch — 3 parallel keeps first navigation under ~750ms when warmed. */
+const MAX_CONCURRENT = 3
 let active = 0
 const queue: Array<() => void> = []
 

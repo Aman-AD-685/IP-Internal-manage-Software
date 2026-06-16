@@ -19,7 +19,7 @@ interface ProtectedRouteProps {
 
 export const ProtectedRoute = ({ children, requiredRole, sectionKeys, emailAllowlist }: ProtectedRouteProps) => {
   const { isAuthenticated, isLoading, user } = useAuth()
-  const { isBlocked, lockReady } = useSystemLock()
+  const { isBlocked } = useSystemLock()
   const location = useLocation()
 
   if (isLoading) {
@@ -29,10 +29,6 @@ export const ProtectedRoute = ({ children, requiredRole, sectionKeys, emailAllow
   if (!isAuthenticated) {
     const returnPath = location.pathname + location.search + location.hash
     return <Navigate to={buildLoginUrl(returnPath)} replace />
-  }
-
-  if (!lockReady) {
-    return <LoadingSpinner fullPage />
   }
 
   if (isBlocked) {

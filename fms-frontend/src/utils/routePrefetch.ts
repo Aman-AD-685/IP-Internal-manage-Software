@@ -14,6 +14,7 @@ import { getDefaultPreviousWeekFilter } from '../pages/Dashboard/kpiWeekUtils'
 import { supportDashboardApi } from '../api/supportDashboard'
 import { apiClient } from '../api/axios'
 import { runPrefetchLimited } from './prefetchConcurrency'
+import { prefetchRouteChunk } from './routeChunkPrefetch'
 
 const inFlight = new Set<string>()
 const prefetched = new Set<string>()
@@ -21,12 +22,11 @@ let idleBatchStarted = false
 let refreshTimer: number | null = null
 let trackedRouteKeys: string[] = []
 const TEN_MIN_MS = 20 * 60 * 1000
-/** Only warm a few routes right after login — avoids 10+ parallel API calls. */
-/** Disabled — bootstrap on dashboard mount is enough; avoids competing with first paint. */
-const IMMEDIATE_WARM_COUNT = 0
-const IMMEDIATE_STEP_MS = 500
-const REFRESH_BATCH_SIZE = 2
-const IDLE_STAGGER_MS = 400
+/** Warm top routes right after login / session restore for sub-750ms first navigation. */
+const IMMEDIATE_WARM_COUNT = 6
+const IMMEDIATE_STEP_MS = 60
+const REFRESH_BATCH_SIZE = 3
+const IDLE_STAGGER_MS = 80
 let refreshCursor = 0
 
 function fire(key: string, run: () => Promise<unknown>) {
@@ -36,6 +36,7 @@ function fire(key: string, run: () => Promise<unknown>) {
 }
 
 export function prefetchRouteData(routeKey: string): void {
+  prefetchRouteChunk(routeKey)
   const [path] = routeKey.split('?')
   const q = routeKey.includes('?') ? routeKey.slice(routeKey.indexOf('?') + 1) : ''
 
@@ -237,10 +238,10 @@ function scheduleIdle(task: () => void) {
     cancelIdleCallback?: (id: number) => void
   }
   if (typeof w.requestIdleCallback === 'function') {
-    w.requestIdleCallback(() => task(), { timeout: 1500 })
+    w.requestIdleCallback(() => task(), { timeout: 400 })
     return
   }
-  window.setTimeout(task, 300)
+  window.setTimeout(task, 80)
 }
 
 function runImmediateWarmup(routeKeys: string[]) {

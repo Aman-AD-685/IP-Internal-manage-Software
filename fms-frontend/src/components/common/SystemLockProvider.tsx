@@ -24,8 +24,6 @@ import { useAuth } from '../../hooks/useAuth'
 
 import { useRole } from '../../hooks/useRole'
 
-import { LoadingSpinner } from '../common/LoadingSpinner'
-
 import { ROLES } from '../../utils/constants'
 
 import {
@@ -254,7 +252,7 @@ export function SystemLockProvider({ children }: { children: ReactNode }) {
 
   const [status, setStatus] = useState<SystemLockStatus>(() => initialCache ?? emptyStatus)
 
-  const [lockReady, setLockReady] = useState(() => initialCache !== null)
+  const [lockReady, setLockReady] = useState(true)
 
   const [refreshing, setRefreshing] = useState(false)
 
@@ -372,10 +370,8 @@ export function SystemLockProvider({ children }: { children: ReactNode }) {
 
     const cached = readCachedSystemLockStatus()
 
-    if (!cached?.is_locked) {
-
-      setLockReady(false)
-
+    if (cached?.is_locked) {
+      applyStatus(cached, setStatus, wasBlockedRef)
     }
 
     void refresh()
@@ -459,14 +455,8 @@ export function SystemLockProvider({ children }: { children: ReactNode }) {
 
 
   const isBlocked = Boolean(
-
     isAuthenticated && user?.role !== ROLES.MASTER_ADMIN && status.is_locked
-
   )
-
-  const holdUI = Boolean(isAuthenticated && !isMasterAdmin && !lockReady && !status.is_locked)
-
-
 
   const value = useMemo(
 
@@ -483,25 +473,13 @@ export function SystemLockProvider({ children }: { children: ReactNode }) {
     <SystemLockContext.Provider value={value}>
 
       {isBlocked ? (
-
         <SystemLockScreen
-
           reason={status.reason}
-
           onRefresh={() => void refresh()}
-
           refreshing={refreshing}
-
         />
-
-      ) : holdUI ? (
-
-        <LoadingSpinner fullPage />
-
       ) : (
-
         children
-
       )}
 
     </SystemLockContext.Provider>

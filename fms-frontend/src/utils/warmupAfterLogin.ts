@@ -1,11 +1,13 @@
 import { dashboardApi } from '../api/dashboard'
 import { DASHBOARD_KPI_NAMES, prefetchDashboardKpiPerson, MONTHS } from '../api/dashboardKpi'
 import { getDefaultPreviousWeekFilter } from '../pages/Dashboard/kpiWeekUtils'
-import { prefetchRouteData } from './routePrefetch'
+import { prefetchRouteData, startIdleRoutePrefetch } from './routePrefetch'
 import { ROUTES } from './constants'
+import type { User } from '../types/auth'
+import { getDefaultLandingRoute } from './helpers'
 
-/** Defer work until after first paint (memory: do not compete with bootstrap). */
-export function scheduleAfterFirstPaint(fn: () => void, delayMs = 800): () => void {
+/** Defer work until after first paint without blocking sub-750ms navigation. */
+export function scheduleAfterFirstPaint(fn: () => void, delayMs = 150): () => void {
   const id = window.setTimeout(fn, delayMs)
   return () => window.clearTimeout(id)
 }
@@ -51,4 +53,22 @@ export function warmupAfterLogin(targetPath: string): void {
       prefetchDashboardKpiPerson(match, filters)
     }
   }
+}
+
+/** Warm default routes when user already has a session (reload / new tab). */
+export function warmupRestoredSession(user: User): void {
+  const landing = getDefaultLandingRoute(user)
+  warmupAfterLogin(landing)
+  scheduleAfterFirstPaint(() => {
+    const keys = [
+      landing,
+      ROUTES.DASHBOARD,
+      ROUTES.SUPPORT_DASHBOARD,
+      `${ROUTES.TICKETS}?section=chores-bugs`,
+      ROUTES.STAGING,
+      ROUTES.CHECKLIST,
+      ROUTES.DELEGATION,
+    ]
+    startIdleRoutePrefetch(keys)
+  }, 200)
 }

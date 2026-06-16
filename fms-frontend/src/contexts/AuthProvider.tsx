@@ -10,7 +10,7 @@ import type { User } from '../types/auth'
 import { normalizeUserSectionPermissions } from '../utils/helpers'
 import { readStoredAuthSession } from '../utils/authSession'
 import { markAuthBrowserSessionActive, syncAuthMirrorToSession } from '../utils/authBrowserSession'
-import { scheduleWhenIdle } from '../utils/warmupAfterLogin'
+import { scheduleWhenIdle, warmupRestoredSession } from '../utils/warmupAfterLogin'
 import { writeCachedSystemLockStatus } from '../api/systemLock'
 
 /** Refresh access token every 50 min so session does not expire until user logs out (JWT often expires in 1 hr). */
@@ -90,6 +90,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
             storage.setUser(merged)
             const currentToken = storage.getToken()
             if (currentToken) setToken(currentToken)
+            dispatchAppReleaseCheck()
           }
           return
         }
@@ -189,6 +190,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     setToken(storedToken)
     setUser(normalizeUserSectionPermissions(storedUser))
     setIsLoading(false)
+    dispatchAppReleaseCheck()
+    warmupRestoredSession(normalizeUserSectionPermissions(storedUser))
 
     return scheduleWhenIdle(() => {
       void validateSession()
@@ -219,6 +222,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       }
       setToken(nextToken)
       setUser(normalizeUserSectionPermissions(nextUser))
+      dispatchAppReleaseCheck()
     }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
