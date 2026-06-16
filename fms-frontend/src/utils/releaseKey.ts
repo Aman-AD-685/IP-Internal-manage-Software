@@ -16,6 +16,16 @@ export function releaseKeysMatch(clientKey: string, serverKey: string): boolean 
 
 export const APP_RELEASE_CHECK_EVENT = 'fms:check-app-release'
 
+export function dispatchAppReleaseChanged(release?: {
+  release_key: string
+  title: string
+  message: string
+  is_active: boolean
+}): void {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent(APP_RELEASE_CHECK_EVENT, { detail: release }))
+}
+
 export function dispatchAppReleaseCheck(): void {
   if (typeof window === 'undefined') return
   window.dispatchEvent(new CustomEvent(APP_RELEASE_CHECK_EVENT))

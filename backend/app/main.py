@@ -219,6 +219,7 @@ from app.escalation_email_routes import escalation_email_router
 from app.improvement_suggestions_routes import improvement_router
 from app.soft_suggestions_routes import soft_suggestions_router
 from app.system_lock_routes import system_lock_router
+from app.ws_routes import ws_router
 
 app.include_router(feature_approval_reminder_router)
 app.include_router(feature_approval_reminder_router, prefix="/api")
@@ -234,6 +235,17 @@ app.include_router(soft_suggestions_router)
 app.include_router(soft_suggestions_router, prefix="/api")
 app.include_router(system_lock_router)
 app.include_router(system_lock_router, prefix="/api")
+app.include_router(ws_router)
+app.include_router(ws_router, prefix="/api")
+
+
+@app.on_event("startup")
+async def _bind_ws_event_loop():
+    import asyncio
+
+    from app.ws_hub import bind_event_loop
+
+    bind_event_loop(asyncio.get_running_loop())
 
 
 @app.on_event("startup")
@@ -530,6 +542,11 @@ def health():
 
 _APP_RELEASE_CACHE: dict = {"ts": 0.0, "payload": None}
 _APP_RELEASE_CACHE_TTL_SEC = 10
+
+
+def invalidate_app_release_cache() -> None:
+    _APP_RELEASE_CACHE["ts"] = 0.0
+    _APP_RELEASE_CACHE["payload"] = None
 
 
 def _get_app_release_broadcast() -> dict:

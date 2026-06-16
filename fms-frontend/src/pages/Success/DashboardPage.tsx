@@ -116,7 +116,7 @@ export function DashboardPage() {
   )
 
   return (
-    <div className="su-dash-page">
+    <div className="su-dash-page industrial-page industrial-dashboard">
       <div className="su-dash-toolbar">
         <div className="su-dash-toolbar__month">
           <span className="su-dash-toolbar__label">Month</span>

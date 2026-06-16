@@ -17,11 +17,12 @@ export function DashboardTrendCharts({ trendPoints }: { trendPoints: TrendPoint[
     <Row gutter={[20, 20]}>
       <Col xs={24} lg={12}>
         <Card
-          title={<span style={{ color: '#1e293b', fontWeight: 600, letterSpacing: 0.5 }}>Response Delay Trend</span>}
+          className="industrial-chart-card"
+          title={<span style={{ color: '#0F172A', fontWeight: 600, letterSpacing: 0.5 }}>Response Delay Trend</span>}
           style={{
-            borderRadius: 8,
-            border: '1px solid rgba(0, 0, 0, 0.06)',
-            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04)',
+            borderRadius: 12,
+            border: '1px solid #E5E7EB',
+            boxShadow: '0 10px 30px rgba(2, 6, 23, 0.08)',
             background: '#ffffff',
           }}
           bodyStyle={{ padding: '12px 16px 16px', minHeight: 280 }}
@@ -45,9 +46,9 @@ export function DashboardTrendCharts({ trendPoints }: { trendPoints: TrendPoint[
                     type="monotone"
                     dataKey="response_delay"
                     name="Response delay"
-                    stroke="#3b82f6"
+                    stroke="#60A5FA"
                     strokeWidth={2}
-                    dot={{ r: 3, fill: '#3b82f6' }}
+                    dot={{ r: 3, fill: '#60A5FA' }}
                     activeDot={{ r: 5 }}
                   />
                 </LineChart>
@@ -62,11 +63,12 @@ export function DashboardTrendCharts({ trendPoints }: { trendPoints: TrendPoint[
       </Col>
       <Col xs={24} lg={12}>
         <Card
-          title={<span style={{ color: '#1e293b', fontWeight: 600, letterSpacing: 0.5 }}>Completion Delay Trend</span>}
+          className="industrial-chart-card"
+          title={<span style={{ color: '#0F172A', fontWeight: 600, letterSpacing: 0.5 }}>Completion Delay Trend</span>}
           style={{
-            borderRadius: 8,
-            border: '1px solid rgba(0, 0, 0, 0.06)',
-            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04)',
+            borderRadius: 12,
+            border: '1px solid #E5E7EB',
+            boxShadow: '0 10px 30px rgba(2, 6, 23, 0.08)',
             background: '#ffffff',
           }}
           bodyStyle={{ padding: '12px 16px 16px', minHeight: 280 }}
@@ -90,9 +92,9 @@ export function DashboardTrendCharts({ trendPoints }: { trendPoints: TrendPoint[
                     type="monotone"
                     dataKey="completion_delay"
                     name="Completion delay"
-                    stroke="#d97706"
+                    stroke="#F59E0B"
                     strokeWidth={2}
-                    dot={{ r: 3, fill: '#d97706' }}
+                    dot={{ r: 3, fill: '#F59E0B' }}
                     activeDot={{ r: 5 }}
                   />
                 </LineChart>

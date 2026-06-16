@@ -881,11 +881,11 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                     size="small"
                     title="Checklist (Monthly %)"
                     className="kpi-summary-card kpi-summary-card--checklist kpi-summary-card--clickable"
-                    style={{ borderTop: '3px solid #4A6BFF', cursor: 'pointer' }}
+                    style={{ borderTop: '3px solid #60A5FA', cursor: 'pointer' }}
                     onClick={() => setGraphModal('checklist')}
                   >
                     <Space direction="vertical" align="center">
-                      <Progress type="circle" percent={monthly.checklist ?? 0} size={80} strokeColor="#4A6BFF" />
+                      <Progress type="circle" percent={monthly.checklist ?? 0} size={80} strokeColor="#60A5FA" />
                       <div
                         className="kpi-performance-pill"
                         style={getPerformanceLevel(monthly.checklist)}

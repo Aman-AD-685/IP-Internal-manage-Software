@@ -642,7 +642,7 @@ export const Dashboard = () => {
         onClick={clickable ? () => loadDetail(card.metricKey, card.title) : undefined}
         style={{
           width: '100%',
-          borderRadius: 8,
+          borderRadius: 12,
           border: cardStyle.border,
           borderLeft: cardStyle.borderLeft,
           background: cardStyle.background,
@@ -727,7 +727,7 @@ export const Dashboard = () => {
       </Title>
       <Card
         style={{
-          borderRadius: 8,
+          borderRadius: 12,
           border: '1px solid rgba(0, 0, 0, 0.06)',
           boxShadow: '0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04)',
           background: '#ffffff',

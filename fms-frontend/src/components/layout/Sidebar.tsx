@@ -1,5 +1,4 @@
 import { Menu, Drawer, Button, message } from 'antd'
-import { CloseOutlined } from '@ant-design/icons'
 import {
   DashboardOutlined,
   FileTextOutlined,
@@ -466,7 +465,6 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
         width: '100%',
       }}
     >
-      <Button type="text" icon={<CloseOutlined />} onClick={onClose} aria-label="Close menu" />
       <ContextMenuTarget openHref={softSuggHref} openLabel="IP Suggestion">
         <Button size="small" type="default" onClick={openSoftSugg}>
           IP Suggestion
@@ -483,15 +481,16 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
   return (
     <>
       <Drawer
+        className="industrial-sidebar-drawer"
         title={drawerHeader}
         closable={false}
         placement="left"
         open={open}
         onClose={onClose}
         width={260}
-        styles={{ body: { padding: 0 } }}
+        styles={{ body: { padding: 0, background: '#EEF1F6', color: '#0F172A' } }}
       >
-        <div {...sidebarContextMenu} style={{ minHeight: '100%' }}>
+        <div {...sidebarContextMenu} style={{ minHeight: '100%', color: '#475569' }}>
           {menuContent}
         </div>
       </Drawer>

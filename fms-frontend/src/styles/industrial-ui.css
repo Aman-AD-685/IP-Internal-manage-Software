@@ -1,0 +1,324 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Industryprime FMS — Industrial UI (visual-only, no layout/logic changes)
+   Palette: #60A5FA light blue · #F59E0B CTA · #F5F7FB bg · #EEF1F6 sidebar
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --fms-primary: #60a5fa;
+  --fms-primary-light: #fde7c8;
+  --fms-accent: #f59e0b;
+  --fms-accent-hover: #d97706;
+  --fms-bg: #f5f7fb;
+  --fms-surface: #ffffff;
+  --fms-sidebar: #eef1f6;
+  --fms-sidebar-border: #e2e8f0;
+  --fms-text: #0f172a;
+  --fms-muted: #64748b;
+  --fms-border: #e5e7eb;
+  --fms-table-head: #f8fafc;
+  --fms-radius-card: 12px;
+  --fms-radius-ctrl: 10px;
+  --fms-shadow-card: 0 1px 3px rgba(15, 23, 42, 0.06), 0 4px 16px rgba(15, 23, 42, 0.04);
+}
+
+/* ── Sidebar drawer ─────────────────────────────────────────────────────── */
+.industrial-sidebar-drawer .ant-drawer-header {
+  background: var(--fms-sidebar) !important;
+  color: var(--fms-text) !important;
+  border-bottom: 1px solid var(--fms-sidebar-border) !important;
+}
+
+.industrial-sidebar-drawer .ant-drawer-body {
+  background: var(--fms-sidebar) !important;
+}
+
+.industrial-sidebar-drawer .ant-drawer-title {
+  color: var(--fms-text) !important;
+}
+
+.industrial-sidebar-drawer .ant-drawer-header .ant-btn-text {
+  color: var(--fms-muted) !important;
+}
+
+.industrial-sidebar-drawer .ant-drawer-header .ant-btn-text:hover {
+  color: var(--fms-text) !important;
+  background: rgba(15, 23, 42, 0.06) !important;
+}
+
+.industrial-sidebar-drawer .ant-menu {
+  background: transparent !important;
+  color: var(--fms-muted) !important;
+  border-inline-end: 0 !important;
+}
+
+.industrial-sidebar-drawer .ant-menu-item,
+.industrial-sidebar-drawer .ant-menu-submenu-title {
+  color: #475569 !important;
+  border-radius: 8px !important;
+  margin-inline: 8px !important;
+  width: calc(100% - 16px) !important;
+}
+
+.industrial-sidebar-drawer .ant-menu-item:hover,
+.industrial-sidebar-drawer .ant-menu-submenu-title:hover {
+  color: var(--fms-text) !important;
+  background: rgba(15, 23, 42, 0.06) !important;
+}
+
+.industrial-sidebar-drawer .ant-menu-item-selected {
+  background: var(--fms-primary-light) !important;
+  color: #0f172a !important;
+}
+
+.industrial-sidebar-drawer .ant-menu-submenu-selected > .ant-menu-submenu-title {
+  color: #c2410c !important;
+}
+
+.industrial-sidebar-drawer .ant-menu-item-selected .anticon,
+.industrial-sidebar-drawer .ant-menu-submenu-selected > .ant-menu-submenu-title .anticon {
+  color: #0f172a !important;
+}
+
+.industrial-sidebar-drawer .ant-menu-submenu-arrow {
+  color: #94a3b8 !important;
+}
+
+.industrial-sidebar-drawer .ant-menu-sub.ant-menu-inline {
+  background: #e5e9ef !important;
+}
+
+/* ── App header ───────────────────────────────────────────────────────────── */
+.app-header {
+  background: var(--fms-surface) !important;
+  border-bottom: 2px solid var(--fms-primary) !important;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06) !important;
+}
+
+.app-header .ant-btn-text .anticon {
+  color: var(--fms-primary) !important;
+}
+
+.app-header .ant-typography-strong {
+  color: var(--fms-primary) !important;
+}
+
+.app-header .ant-avatar {
+  background: var(--fms-primary) !important;
+}
+
+.fms-link-text {
+  color: var(--fms-primary) !important;
+}
+
+/* ── Main content area (all pages) ──────────────────────────────────────── */
+.app-content {
+  color: var(--fms-text);
+}
+
+.app-content .ant-card {
+  border: 1px solid var(--fms-border) !important;
+  border-radius: var(--fms-radius-card) !important;
+  box-shadow: var(--fms-shadow-card) !important;
+}
+
+.app-content .ant-card-head {
+  border-bottom: 1px solid var(--fms-border) !important;
+  min-height: 48px;
+}
+
+.app-content .ant-card-head-title {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--fms-text);
+}
+
+/* Tables */
+.app-content .ant-table-wrapper .ant-table {
+  border-radius: var(--fms-radius-ctrl);
+}
+
+.app-content .ant-table-thead > tr > th {
+  background: var(--fms-table-head) !important;
+  color: var(--fms-text) !important;
+  font-weight: 600 !important;
+  font-size: 12px !important;
+  border-bottom: 1px solid var(--fms-border) !important;
+}
+
+.app-content .ant-table-tbody > tr > td {
+  border-bottom: 1px solid #f1f5f9 !important;
+}
+
+.app-content .ant-table-tbody > tr:hover > td {
+  background: #f8fafc !important;
+}
+
+/* Forms — all inputs inside app pages */
+.app-content .ant-input,
+.app-content .ant-input-affix-wrapper,
+.app-content .ant-input-number,
+.app-content .ant-picker,
+.app-content .ant-select-selector {
+  border-radius: var(--fms-radius-ctrl) !important;
+  border-color: var(--fms-border) !important;
+}
+
+.app-content .ant-input:focus,
+.app-content .ant-input-affix-wrapper-focused,
+.app-content .ant-picker-focused,
+.app-content .ant-select-focused .ant-select-selector {
+  border-color: var(--fms-primary) !important;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2) !important;
+}
+
+.app-content .ant-form-item-label > label {
+  font-weight: 500;
+  color: var(--fms-text) !important;
+}
+
+/* Primary CTA buttons (orange) */
+.app-content .ant-btn-primary:not(.ant-btn-dangerous):not(.ant-btn-link),
+.app-header .ant-btn-primary.submit-btn {
+  background: var(--fms-accent) !important;
+  border-color: var(--fms-accent) !important;
+  color: var(--fms-text) !important;
+  font-weight: 600 !important;
+}
+
+.app-content .ant-btn-primary:not(.ant-btn-dangerous):not(.ant-btn-link):hover,
+.app-header .ant-btn-primary.submit-btn:hover {
+  background: var(--fms-accent-hover) !important;
+  border-color: var(--fms-accent-hover) !important;
+  color: var(--fms-text) !important;
+}
+
+/* Default / secondary buttons */
+.app-content .ant-btn-default {
+  border-color: var(--fms-border);
+  border-radius: var(--fms-radius-ctrl);
+}
+
+/* Tabs (Checklist, Settings, etc.) */
+.app-content .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--fms-primary) !important;
+  font-weight: 600;
+}
+
+.app-content .ant-tabs-ink-bar {
+  background: var(--fms-primary) !important;
+}
+
+/* Alerts & tags */
+.app-content .ant-alert {
+  border-radius: var(--fms-radius-ctrl);
+}
+
+/* Modals & drawers (forms inside) */
+.ant-modal-content,
+.ant-drawer-content {
+  border-radius: var(--fms-radius-card) !important;
+}
+
+.ant-modal .ant-input,
+.ant-modal .ant-input-affix-wrapper,
+.ant-modal .ant-select-selector,
+.ant-modal .ant-picker,
+.ant-drawer .ant-input,
+.ant-drawer .ant-input-affix-wrapper,
+.ant-drawer .ant-select-selector,
+.ant-drawer .ant-picker {
+  border-radius: var(--fms-radius-ctrl) !important;
+}
+
+.ant-modal .ant-btn-primary:not(.ant-btn-dangerous),
+.ant-drawer .ant-btn-primary:not(.ant-btn-dangerous) {
+  background: var(--fms-accent) !important;
+  border-color: var(--fms-accent) !important;
+  color: var(--fms-text) !important;
+}
+
+/* ── Dashboard KPI page ───────────────────────────────────────────────────── */
+.dashboard-kpi-page--futuristic {
+  --kpi-glow: #60a5fa;
+}
+
+.dashboard-kpi-page--futuristic .kpi-futuristic-btn-primary {
+  background: var(--fms-accent) !important;
+  border-color: var(--fms-accent) !important;
+  color: var(--fms-text) !important;
+}
+
+.dashboard-kpi-page--futuristic .kpi-futuristic-btn-primary:hover {
+  background: var(--fms-accent-hover) !important;
+  border-color: var(--fms-accent-hover) !important;
+}
+
+/* ── Support dashboard header band ───────────────────────────────────────── */
+.app-content .support-dashboard-shell .ant-card {
+  overflow: hidden;
+}
+
+/* ── New feature release bar (bottom) ───────────────────────────────────── */
+.fms-release-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10050;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 16px 32px;
+  background: #0b1220;
+  color: #ffffff;
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.35);
+}
+
+.fms-release-bar__text {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.fms-release-bar__title {
+  color: #ffffff !important;
+  display: block;
+  font-size: 15px;
+}
+
+.fms-release-bar__message {
+  color: rgba(255, 255, 255, 0.72) !important;
+  font-size: 13px;
+  display: block;
+  margin-top: 2px;
+}
+
+.fms-release-bar__btn {
+  background: var(--fms-accent) !important;
+  border-color: var(--fms-accent) !important;
+  color: var(--fms-text) !important;
+  font-weight: 600 !important;
+  border-radius: var(--fms-radius-ctrl) !important;
+  flex-shrink: 0;
+}
+
+.fms-release-bar__btn:hover {
+  background: var(--fms-accent-hover) !important;
+  border-color: var(--fms-accent-hover) !important;
+  color: var(--fms-text) !important;
+}
+
+body.fms-release-bar-visible {
+  padding-bottom: 76px;
+}
+
+@media (max-width: 767px) {
+  .fms-release-bar {
+    padding: 12px 16px;
+  }
+
+  body.fms-release-bar-visible {
+    padding-bottom: 88px;
+  }
+}

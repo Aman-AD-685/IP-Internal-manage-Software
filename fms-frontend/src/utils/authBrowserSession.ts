@@ -4,6 +4,11 @@ import { STORAGE_KEYS } from './constants'
 const RELOAD_BACKUP_KEY = 'fms_auth_reload_backup'
 const BROWSER_SESSION_KEY = 'fms_browser_session'
 const TAB_COUNT_KEY = 'fms_tab_count'
+const HEARTBEAT_KEY = 'fms_session_heartbeat'
+
+const HEARTBEAT_INTERVAL_MS = 3_000
+/** Production: if no tab pinged recently, treat browser as closed and clear auth. */
+const HEARTBEAT_STALE_MS = import.meta.env.PROD ? 12_000 : 120_000
 
 const AUTH_KEYS = [STORAGE_KEYS.AUTH_TOKEN, STORAGE_KEYS.REFRESH_TOKEN, STORAGE_KEYS.USER] as const
 
@@ -46,6 +51,22 @@ function isReloadNavigation(): boolean {
   } catch {
     return false
   }
+}
+
+function touchHeartbeat(): void {
+  getLocal()?.setItem(HEARTBEAT_KEY, String(Date.now()))
+}
+
+function clearHeartbeat(): void {
+  getLocal()?.removeItem(HEARTBEAT_KEY)
+}
+
+function isHeartbeatFresh(): boolean {
+  const raw = getLocal()?.getItem(HEARTBEAT_KEY)
+  if (!raw) return false
+  const ts = parseInt(raw, 10)
+  if (!Number.isFinite(ts)) return false
+  return Date.now() - ts < HEARTBEAT_STALE_MS
 }
 
 function readReloadBackup(): ReloadBackup | null {
@@ -108,6 +129,7 @@ function restoreReloadBackup(): boolean {
     session.setItem(BROWSER_SESSION_KEY, backup.browser_session)
     local?.setItem(BROWSER_SESSION_KEY, backup.browser_session)
   }
+  touchHeartbeat()
   return true
 }
 
@@ -125,6 +147,31 @@ function clearStaleMirroredAuth(): void {
   if (!local) return
   if (!local.getItem(BROWSER_SESSION_KEY)) {
     clearMirroredAuthInLocal()
+    clearHeartbeat()
+  }
+}
+
+/**
+ * Production: if auth exists but no tab has heartbeat recently, browser was closed — wipe session.
+ * Also clears mirror when session markers were removed on last tab close.
+ */
+function clearStaleSessionAfterBrowserClose(): void {
+  const local = getLocal()
+  if (!local) return
+
+  const hasLocalAuth = !!local.getItem(STORAGE_KEYS.AUTH_TOKEN)
+  if (!hasLocalAuth) return
+
+  if (import.meta.env.PROD && !isHeartbeatFresh()) {
+    clearAuthBrowserSessionMarkers()
+    clearAuthKeysInSession()
+    clearReloadBackup()
+    return
+  }
+
+  if (!local.getItem(BROWSER_SESSION_KEY)) {
+    clearMirroredAuthInLocal()
+    clearHeartbeat()
   }
 }
 
@@ -136,6 +183,12 @@ export function syncAuthMirrorToSession(): void {
 
   const marker = local.getItem(BROWSER_SESSION_KEY)
   if (!marker) {
+    clearAuthKeysInSession()
+    session.removeItem(BROWSER_SESSION_KEY)
+    return
+  }
+
+  if (import.meta.env.PROD && !isHeartbeatFresh()) {
     clearAuthKeysInSession()
     session.removeItem(BROWSER_SESSION_KEY)
     return
@@ -158,6 +211,11 @@ function hydrateAuthFromActiveBrowserSession(): void {
   const local = getLocal()
   if (!local?.getItem(BROWSER_SESSION_KEY)) return
 
+  if (import.meta.env.PROD && !isHeartbeatFresh()) {
+    clearAuthBrowserSessionMarkers()
+    return
+  }
+
   const tabCount = parseInt(local.getItem(TAB_COUNT_KEY) || '0', 10) || 0
   if (tabCount < 1) return
 
@@ -175,14 +233,17 @@ function clearStaleAuthAfterBrowserClose(): void {
 
   if (!hasToken) {
     clearReloadBackup()
+    if (local?.getItem(STORAGE_KEYS.AUTH_TOKEN) && import.meta.env.PROD && !isHeartbeatFresh()) {
+      clearAuthBrowserSessionMarkers()
+    }
     return
   }
 
-  // Another tab in the same browser run keeps local marker in sync; after all tabs close it is removed.
   if (!localMarker || !sessionMarker || localMarker !== sessionMarker) {
     clearAuthKeysInSession()
     clearReloadBackup()
     clearMirroredAuthInLocal()
+    clearHeartbeat()
   }
 }
 
@@ -201,15 +262,10 @@ function decrementOpenTabCount(): void {
   if (next === 0) {
     local.removeItem(BROWSER_SESSION_KEY)
     clearMirroredAuthInLocal()
+    clearHeartbeat()
   }
 }
 
-let handlersInstalled = false
-
-/**
- * Call once before React mounts. Ensures closing the browser (all tabs) ends the session;
- * F5 / reload in the same tab keeps the user signed in.
- */
 /** Existing tab after deploy: push session auth into local mirror if missing. */
 function ensureAuthMirroredToLocal(): void {
   const session = getSession()
@@ -227,8 +283,48 @@ function ensureAuthMirroredToLocal(): void {
   }
 }
 
+let handlersInstalled = false
+let heartbeatTimer: number | null = null
+
+function hasSignedInStorage(): boolean {
+  return !!(
+    getSession()?.getItem(STORAGE_KEYS.AUTH_TOKEN) || getLocal()?.getItem(STORAGE_KEYS.AUTH_TOKEN)
+  )
+}
+
+function startAuthSessionHeartbeatIfSignedIn(): void {
+  if (!hasSignedInStorage()) {
+    stopAuthSessionHeartbeat()
+    return
+  }
+  if (heartbeatTimer != null) return
+  touchHeartbeat()
+  heartbeatTimer = window.setInterval(() => {
+    if (hasSignedInStorage()) {
+      touchHeartbeat()
+    } else {
+      stopAuthSessionHeartbeat()
+    }
+  }, HEARTBEAT_INTERVAL_MS)
+}
+
+function stopAuthSessionHeartbeat(): void {
+  if (heartbeatTimer != null) {
+    window.clearInterval(heartbeatTimer)
+    heartbeatTimer = null
+  }
+}
+
+/**
+ * Call once before React mounts. Ensures closing the browser (all tabs) ends the session;
+ * F5 / reload in the same tab keeps the user signed in.
+ */
 export function bootstrapAuthBrowserSession(): void {
   if (typeof window === 'undefined') return
+
+  if (!isReloadNavigation()) {
+    clearStaleSessionAfterBrowserClose()
+  }
 
   bumpOpenTabCount()
   clearStaleMirroredAuth()
@@ -236,12 +332,14 @@ export function bootstrapAuthBrowserSession(): void {
   if (isReloadNavigation()) {
     restoreReloadBackup()
     ensureAuthMirroredToLocal()
+    startAuthSessionHeartbeatIfSignedIn()
     return
   }
 
   hydrateAuthFromActiveBrowserSession()
   ensureAuthMirroredToLocal()
   clearStaleAuthAfterBrowserClose()
+  startAuthSessionHeartbeatIfSignedIn()
 }
 
 /** Mark a new signed-in browser run (login / register / OTP). */
@@ -256,6 +354,8 @@ export function markAuthBrowserSessionActive(): void {
   if (count < 1) {
     local.setItem(TAB_COUNT_KEY, '1')
   }
+  touchHeartbeat()
+  startAuthSessionHeartbeatIfSignedIn()
 }
 
 export function clearAuthBrowserSessionMarkers(): void {
@@ -264,6 +364,8 @@ export function clearAuthBrowserSessionMarkers(): void {
   getLocal()?.setItem(TAB_COUNT_KEY, '0')
   clearMirroredAuthInLocal()
   clearReloadBackup()
+  clearHeartbeat()
+  stopAuthSessionHeartbeat()
 }
 
 export function installAuthBrowserSessionHandlers(): void {
@@ -275,5 +377,11 @@ export function installAuthBrowserSessionHandlers(): void {
     writeReloadBackup()
     clearAuthKeysInSession()
     decrementOpenTabCount()
+  })
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && hasSignedInStorage()) {
+      touchHeartbeat()
+    }
   })
 }

@@ -5,6 +5,7 @@ import { buildLoginUrl } from "./utils/authRedirect"
 import { getDefaultLandingRoute } from "./utils/helpers"
 import { LoadingSpinner } from "./components/common/LoadingSpinner"
 import { ConfigProvider } from "antd"
+import { industrialTheme } from "./theme/industrialTheme"
 import { PageSkeleton } from "./components/common/skeletons"
 import { AuthProvider } from "./contexts/AuthProvider"
 import { readStoredAuthSession } from "./utils/authSession"
@@ -23,6 +24,7 @@ import { ConfirmationSuccess } from "./pages/auth/ConfirmationSuccess"
 import { ErrorBoundary } from "./components/common/ErrorBoundary"
 import { GlobalContextMenuProvider } from "./contextMenu"
 import { NewFeatureRefreshPrompt } from "./components/common/NewFeatureRefreshPrompt"
+import { FmsWebSocketProvider } from "./components/common/FmsWebSocketProvider"
 import { SystemLockProvider } from "./components/common/SystemLockProvider"
 
 const Dashboard = lazy(() => import("./pages/Dashboard").then((m) => ({ default: m.Dashboard })))
@@ -150,24 +152,9 @@ function AppTitle() {
 
 function App() {
   return (
-    <ConfigProvider
-      theme={{
-        token: {
-          colorPrimary: "#4A6BFF",
-          colorBgLayout: "#F5F7FB",
-          colorBgContainer: "#FFFFFF",
-          colorText: "#343A40",
-          colorTextSecondary: "#6C757D",
-          borderRadius: 8,
-        },
-        components: {
-          Card: {
-            borderRadiusLG: 8,
-          },
-        },
-      }}
-    >
+    <ConfigProvider theme={industrialTheme}>
       <AuthProvider>
+        <FmsWebSocketProvider>
         <BrowserRouter>
           <NewFeatureRefreshPrompt />
           <SystemLockProvider>
@@ -542,6 +529,7 @@ function App() {
           </GlobalContextMenuProvider>
           </SystemLockProvider>
         </BrowserRouter>
+        </FmsWebSocketProvider>
       </AuthProvider>
     </ConfigProvider>
   )
