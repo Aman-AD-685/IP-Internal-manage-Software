@@ -196,10 +196,21 @@ function SystemLockScreen({
           Please wait.
         </Paragraph>
 
-        <Button type="primary" icon={<ReloadOutlined />} onClick={onRefresh} loading={refreshing} block size="large">
-
+        <Button
+          type="primary"
+          icon={<ReloadOutlined />}
+          onClick={onRefresh}
+          loading={refreshing}
+          block
+          size="large"
+          style={{
+            background: '#f59e0b',
+            borderColor: '#f59e0b',
+            color: '#1e293b',
+            fontWeight: 600,
+          }}
+        >
           Refresh Status
-
         </Button>
 
       </div>

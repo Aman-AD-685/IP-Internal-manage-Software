@@ -49,6 +49,8 @@ _SYSTEM_LOCK_EXEMPT_PREFIXES = (
     "/api/system-lock/unlock",
     "/system-lock/audit",
     "/api/system-lock/audit",
+    "/ws",
+    "/api/ws",
     "/cron/",
     "/api/cron/",
     "/scheduler/",
@@ -246,7 +248,11 @@ def enable_system_lock(*, user_id: str, email: str, reason: str) -> dict[str, An
         }
     ).execute()
     invalidate_system_lock_cache()
-    return get_system_lock_state(force_refresh=True)
+    state = get_system_lock_state(force_refresh=True)
+    from app.ws_hub import broadcast_system_lock_changed
+
+    broadcast_system_lock_changed(state)
+    return state
 
 
 def disable_system_lock(*, user_id: str, email: str) -> dict[str, Any]:
@@ -271,7 +277,11 @@ def disable_system_lock(*, user_id: str, email: str) -> dict[str, Any]:
         }
     ).execute()
     invalidate_system_lock_cache()
-    return get_system_lock_state(force_refresh=True)
+    state = get_system_lock_state(force_refresh=True)
+    from app.ws_hub import broadcast_system_lock_changed
+
+    broadcast_system_lock_changed(state)
+    return state
 
 
 def list_system_lock_audit(*, limit: int = 50) -> list[dict[str, Any]]:

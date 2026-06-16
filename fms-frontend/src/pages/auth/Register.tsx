@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react"
 import { Form, Input, Button, Typography, message } from "antd"
 import { UserOutlined, MailOutlined, LockOutlined } from "@ant-design/icons"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, Link } from "react-router-dom"
 import { authApi } from "../../api/auth"
 import { validateEmail } from "../../utils/validation"
 import { getPasswordStrength } from "../../utils/passwordStrength"
@@ -10,13 +10,6 @@ import { ROUTES } from "../../utils/constants"
 import type { RegisterRequest } from "../../types/auth"
 
 const { Text } = Typography
-
-const colors = {
-  darkBlue: '#1e3a5f',
-  lightBlue: '#7eb8da',
-  white: '#ffffff',
-  accent: '#f59e0b',
-}
 
 export const Register = () => {
   const [form] = Form.useForm()
@@ -72,23 +65,19 @@ export const Register = () => {
 
   if (success) {
     return (
-      <AuthLayout>
-        <div style={{ width: '100%', maxWidth: 750, textAlign: 'center' }}>
-          <h1 style={{ color: colors.white, fontSize: 36, marginBottom: 20 }}>Registration Successful</h1>
-          <Text style={{ color: colors.lightBlue, display: 'block', marginBottom: 8 }}>
-            Check your email for a confirmation link.
+      <AuthLayout variant="register">
+        <div className="auth-card auth-success-panel">
+          <h1 className="auth-title">Registration successful</h1>
+          <Text className="auth-success-text">Check your email for a confirmation link.</Text>
+          <Text className="auth-success-text">
+            Click the link to activate your account, then sign in.
           </Text>
-          <Text style={{ color: 'rgba(255,255,255,0.8)', display: 'block', marginBottom: 24 }}>
-            Click the link to activate your account, then log in.
-          </Text>
-          <Text style={{ color: 'rgba(255,255,255,0.7)', display: 'block', marginBottom: 24 }}>
-            Redirecting to login in 5 seconds…
-          </Text>
+          <Text className="auth-success-muted">Redirecting to sign in in 5 seconds…</Text>
           {registeredEmail && (
             <Button
               type="link"
               loading={resendLoading}
-              style={{ color: colors.lightBlue }}
+              style={{ color: '#60a5fa', padding: 0 }}
               onClick={async () => {
                 setResendLoading(true)
                 try {
@@ -104,6 +93,9 @@ export const Register = () => {
               Didn't receive the email? Resend
             </Button>
           )}
+          <Link to={ROUTES.LOGIN} className="auth-footer-link">
+            Back to Sign in
+          </Link>
         </div>
       </AuthLayout>
     )
@@ -111,10 +103,9 @@ export const Register = () => {
 
   return (
     <AuthLayout variant="register">
-      <div style={{ width: '100%', maxWidth: 750 }}>
-        <h1 style={{ color: colors.white, fontSize: 48, fontWeight: 700, marginBottom: 48, textAlign: 'center' }}>
-          Welcome!
-        </h1>
+      <div className="auth-card auth-card--wide">
+        <h1 className="auth-title">Sign up</h1>
+        <p className="auth-subtitle">Create your Industryprime FMS account</p>
 
         <Form
           form={form}
@@ -126,28 +117,16 @@ export const Register = () => {
         >
           <Form.Item
             name="full_name"
-            style={{ marginBottom: 24 }}
             rules={[
               { required: true, message: "Please enter your name" },
               { min: 2, message: "Minimum 2 characters" },
             ]}
           >
-            <Input
-              prefix={<UserOutlined style={{ color: colors.lightBlue, marginRight: 8, fontSize: 20 }} />}
-              placeholder="Your name"
-              size="large"
-              style={{
-                borderRadius: 15,
-                padding: '16px 20px',
-                background: colors.white,
-                fontSize: 18,
-              }}
-            />
+            <Input prefix={<UserOutlined />} placeholder="Your name" size="large" />
           </Form.Item>
 
           <Form.Item
             name="email"
-            style={{ marginBottom: 24 }}
             rules={[
               { required: true, message: "Please enter your email" },
               {
@@ -158,22 +137,11 @@ export const Register = () => {
               },
             ]}
           >
-            <Input
-              prefix={<MailOutlined style={{ color: colors.lightBlue, marginRight: 8, fontSize: 20 }} />}
-              placeholder="Your e-mail"
-              size="large"
-              style={{
-                borderRadius: 15,
-                padding: '16px 20px',
-                background: colors.white,
-                fontSize: 18,
-              }}
-            />
+            <Input prefix={<MailOutlined />} placeholder="Your e-mail" size="large" />
           </Form.Item>
 
           <Form.Item
             name="password"
-            style={{ marginBottom: 24 }}
             rules={[
               { required: true, message: "Please create a password" },
               {
@@ -189,17 +157,7 @@ export const Register = () => {
               },
             ]}
           >
-            <Input.Password
-              prefix={<LockOutlined style={{ color: colors.lightBlue, marginRight: 8, fontSize: 20 }} />}
-              placeholder="Create password"
-              size="large"
-              style={{
-                borderRadius: 15,
-                padding: '16px 20px',
-                background: colors.white,
-                fontSize: 18,
-              }}
-            />
+            <Input.Password prefix={<LockOutlined />} placeholder="Create password" size="large" />
           </Form.Item>
 
           <Form.Item noStyle dependencies={['password']}>
@@ -207,23 +165,14 @@ export const Register = () => {
               const pwd = form.getFieldValue('password') || ''
               const s = getPasswordStrength(pwd)
               return pwd ? (
-                <div style={{ marginBottom: 24 }}>
-                  <Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: 14, display: 'block', marginBottom: 8 }}>
-                    Password strength
-                  </Text>
-                  <div
-                    style={{
-                      height: 6,
-                      background: 'rgba(255,255,255,0.2)',
-                      borderRadius: 3,
-                      overflow: 'hidden',
-                    }}
-                  >
+                <div style={{ marginBottom: 18 }}>
+                  <span className="auth-strength-label">Password strength</span>
+                  <div className="auth-strength-track">
                     <div
                       style={{
                         height: '100%',
                         width: `${s * 33.33}%`,
-                        background: s <= 1 ? '#ef4444' : s <= 2 ? colors.accent : '#22c55e',
+                        background: s <= 1 ? '#ef4444' : s <= 2 ? '#f59e0b' : '#22c55e',
                         borderRadius: 3,
                         transition: 'width 0.2s',
                       }}
@@ -234,40 +183,21 @@ export const Register = () => {
             }}
           </Form.Item>
 
-          <Form.Item style={{ marginBottom: 20 }}>
+          <Form.Item style={{ marginBottom: 12 }}>
             <Button
               type="primary"
               htmlType="submit"
               block
               size="large"
               loading={loading}
-              style={{
-                background: colors.accent,
-                borderColor: colors.accent,
-                borderRadius: 15,
-                height: 56,
-                fontWeight: 600,
-                fontSize: 18,
-              }}
+              className="auth-btn-primary"
             >
-              Create account
+              Sign Up
             </Button>
           </Form.Item>
 
           <Form.Item style={{ marginBottom: 0 }}>
-            <Button
-              block
-              size="large"
-              onClick={() => navigate(ROUTES.LOGIN)}
-              style={{
-                borderRadius: 15,
-                height: 56,
-                fontSize: 18,
-                border: `2px solid ${colors.white}`,
-                color: colors.white,
-                background: 'transparent',
-              }}
-            >
+            <Button block size="large" className="auth-btn-secondary" onClick={() => navigate(ROUTES.LOGIN)}>
               Sign in
             </Button>
           </Form.Item>

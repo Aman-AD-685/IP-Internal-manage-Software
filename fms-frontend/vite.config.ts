@@ -92,6 +92,7 @@ export default defineConfig(({ mode }) => {
         '/api': {
           target,
           changeOrigin: true,
+          ws: true,
           /** Slow /tickets enrichment (many lookups); avoid premature proxy read ECONNRESET on Windows. */
           timeout: 120_000,
           proxyTimeout: 120_000,

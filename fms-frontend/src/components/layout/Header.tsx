@@ -217,13 +217,10 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
     <AntHeader
       className="no-print app-header"
       style={{
-        background: '#fff',
         padding: '0 24px',
-        borderBottom: '2px solid #4A6BFF',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
         position: 'fixed',
         top: 0,
         right: 0,
@@ -238,7 +235,7 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
             type="text"
             icon={<MenuOutlined />}
             onClick={onMenuClick}
-            style={{ fontSize: 18, color: '#4A6BFF' }}
+            style={{ fontSize: 18 }}
             aria-label="Open menu"
           />
         )}
@@ -338,7 +335,7 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
                           cursor: 'pointer',
                         }}
                       >
-                        <Text strong style={{ color: '#4A6BFF' }}>
+                        <Text strong className="fms-link-text">
                           {item.reference_no || '—'}
                         </Text>
                         <div style={{ fontSize: 12, color: '#595959', marginTop: 4 }}>{item.remark_text}</div>
@@ -365,11 +362,11 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
         </Dropdown>
         <Space>
           <div style={{ textAlign: 'right' }}>
-            <Text strong style={{ display: 'block', color: '#4A6BFF' }}>{user?.full_name}</Text>
+            <Text strong style={{ display: 'block' }}>{user?.full_name}</Text>
           </div>
           <Dropdown menu={{ items: menuItems }} placement="bottomRight">
             <Avatar
-              style={{ backgroundColor: '#4A6BFF', cursor: 'pointer' }}
+              style={{ cursor: 'pointer' }}
               icon={user?.avatar_url ? undefined : <UserOutlined />}
               src={user?.avatar_url}
             >

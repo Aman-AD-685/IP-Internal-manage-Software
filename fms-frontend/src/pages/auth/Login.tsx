@@ -15,13 +15,6 @@ import { dispatchSystemLockChanged, writeCachedSystemLockStatus } from '../../ap
 import { getLocalUvicornStartCommand } from '../../utils/localBackend'
 import type { LoginRequest } from '../../types/auth'
 
-const colors = {
-  darkBlue: '#1e3a5f',
-  lightBlue: '#7eb8da',
-  white: '#ffffff',
-  accent: '#f59e0b',
-}
-
 /** User-facing copy for API / validation errors */
 const INVALID_CREDENTIALS_MSG = 'Please enter valid email / password.'
 
@@ -173,10 +166,9 @@ export const Login = () => {
 
   return (
     <AuthLayout variant="login">
-      <div style={{ width: '100%', maxWidth: 750 }}>
-        <h1 style={{ color: colors.white, fontSize: 48, fontWeight: 700, marginBottom: 48, textAlign: 'center' }}>
-          Welcome back!
-        </h1>
+      <div className="auth-card">
+        <h1 className="auth-title">Sign in</h1>
+        <p className="auth-subtitle">Welcome back to Industryprime FMS</p>
 
         {connectionError && (
           <Alert
@@ -249,80 +241,43 @@ export const Login = () => {
             ]}
           >
             <Input
-              prefix={<MailOutlined style={{ color: colors.lightBlue, marginRight: 8, fontSize: 20 }} />}
+              prefix={<MailOutlined />}
               placeholder="Your e-mail"
               size="large"
-              style={{
-                borderRadius: 15,
-                padding: '16px 20px',
-                background: colors.white,
-                fontSize: 18,
-              }}
             />
           </Form.Item>
 
           <Form.Item
             name="password"
-            style={{ marginBottom: 8 }}
+            style={{ marginBottom: 0 }}
             rules={[{ required: true, message: 'Please enter your password' }]}
           >
             <Input.Password
-              prefix={<LockOutlined style={{ color: colors.lightBlue, marginRight: 8, fontSize: 20 }} />}
+              prefix={<LockOutlined />}
               placeholder="Password"
               size="large"
-              style={{
-                borderRadius: 15,
-                padding: '16px 20px',
-                background: colors.white,
-                fontSize: 18,
-              }}
             />
           </Form.Item>
 
-          <div style={{ textAlign: 'right', marginBottom: 20 }}>
-            <Link
-              to={ROUTES.FORGOT_PASSWORD}
-              style={{ color: colors.lightBlue, fontSize: 15 }}
-            >
+          <div className="auth-form-actions">
+            <Button size="small" className="auth-btn-signup" onClick={() => navigate(ROUTES.REGISTER)}>
+              Sign Up
+            </Button>
+            <Link to={ROUTES.FORGOT_PASSWORD} className="auth-link-forgot">
               Forgot password?
             </Link>
           </div>
 
-          <Form.Item style={{ marginBottom: 20 }}>
+          <Form.Item style={{ marginBottom: 0 }}>
             <Button
               type="primary"
               htmlType="submit"
               block
               size="large"
               loading={loading}
-              style={{
-                background: colors.accent,
-                borderColor: colors.accent,
-                borderRadius: 15,
-                height: 56,
-                fontWeight: 600,
-                fontSize: 18,
-              }}
+              className="auth-btn-primary"
             >
               Sign in
-            </Button>
-          </Form.Item>
-
-          <Form.Item style={{ marginBottom: 0 }}>
-            <Button
-              block
-              size="large"
-              onClick={() => navigate(ROUTES.REGISTER)}
-              style={{
-                borderRadius: 15,
-                height: 56,
-                fontSize: 18,
-                border: `2px solid ${colors.white}`,
-                color: colors.white,
-                background: 'transparent',
-              }}
-            >
-              Create account
             </Button>
           </Form.Item>
         </Form>

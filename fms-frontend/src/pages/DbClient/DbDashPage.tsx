@@ -339,7 +339,7 @@ export function DbDashPage() {
   ]
 
   return (
-    <div className="db-dash-page">
+    <div className="db-dash-page industrial-page industrial-dashboard">
       <Card className="db-dash-main">
         <div className="db-dash-title-bar">
           <Title level={4} className="page-main-heading" style={{ margin: 0 }}>

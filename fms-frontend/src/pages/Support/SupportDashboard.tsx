@@ -183,6 +183,7 @@ export const SupportDashboard = () => {
   return (
     <SkeletonOverlay loading={loading && !data} minHeight={480}>
     <div
+      className="support-dashboard-shell"
       style={{
         maxWidth: 1400,
         margin: '0 auto',

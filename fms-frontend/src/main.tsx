@@ -16,6 +16,7 @@ import 'antd/dist/reset.css'
 import './styles/print.css'
 import './styles/responsive.css'
 import './styles/app-pages.css'
+import './styles/industrial-ui.css'
 
 const queryClient = new QueryClient({
   defaultOptions: {

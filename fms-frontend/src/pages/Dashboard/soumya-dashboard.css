@@ -3,7 +3,7 @@
   --sd-bg: #f8fafc;
   --sd-panel: #ffffff;
   --sd-border: #e2e8f0;
-  --sd-glow: #4a6bff;
+  --sd-glow: #60A5FA;
   --sd-accent: #6366f1;
   --sd-text: #334155;
   --sd-muted: #64748b;
@@ -185,13 +185,13 @@
 }
 
 .soumya-kpi-card--clickable:focus-visible {
-  outline: 2px solid #4a6bff;
+  outline: 2px solid #60A5FA;
   outline-offset: 2px;
 }
 
 .soumya-kpi-card__list-icon {
   float: right;
-  color: #4a6bff;
+  color: #60A5FA;
   font-size: 14px;
 }
 

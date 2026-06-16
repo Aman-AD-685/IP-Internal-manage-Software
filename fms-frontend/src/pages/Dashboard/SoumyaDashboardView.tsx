@@ -449,7 +449,7 @@ return (
       <div className="soumya-dash-hero">
         <div>
           <h2>
-            <ThunderboltOutlined style={{ marginRight: 8, color: '#4a6bff' }} />
+            <ThunderboltOutlined style={{ marginRight: 8, color: '#60A5FA' }} />
             Soumya Dashboard
           </h2>
           <p>
@@ -466,7 +466,7 @@ return (
             icon={<ReloadOutlined />}
             onClick={() => void fetchPage(true)}
             loading={loading}
-            style={{ color: '#4a6bff', marginTop: 8 }}
+            style={{ color: '#60A5FA', marginTop: 8 }}
           >
             Refresh
           </Button>

@@ -5,7 +5,7 @@
   --kpi-bg: #f4f6f9;
   --kpi-panel: #ffffff;
   --kpi-border: #e2e8f0;
-  --kpi-glow: #4a6bff;
+  --kpi-glow: #60A5FA;
   --kpi-accent: #475569;
   --kpi-text: #1e293b;
   --kpi-muted: #64748b;
@@ -58,7 +58,7 @@
 }
 
 .dashboard-kpi-page--futuristic .ant-btn-text:hover {
-  color: #4a6bff !important;
+  color: #60A5FA !important;
   background: #f1f5f9 !important;
 }
 
@@ -131,14 +131,16 @@
 }
 
 .kpi-futuristic-btn-primary {
-  background: #4a6bff !important;
-  border: 1px solid #3d5ce8 !important;
+  background: #f59e0b !important;
+  border: 1px solid #d97706 !important;
+  color: #1e293b !important;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08) !important;
 }
 
 .kpi-futuristic-btn-primary:hover {
-  background: #3d5ce8 !important;
-  box-shadow: 0 2px 6px rgba(74, 107, 255, 0.2) !important;
+  background: #d97706 !important;
+  border-color: #b45309 !important;
+  box-shadow: 0 2px 6px rgba(245, 158, 11, 0.25) !important;
 }
 
 @media (min-width: 576px) {
@@ -191,7 +193,7 @@
 }
 
 .dashboard-kpi-page--futuristic .dashboard-kpi-hero-icon .anticon {
-  color: #4a6bff;
+  color: #60A5FA;
 }
 
 .dashboard-kpi-hero-content {
@@ -212,7 +214,7 @@
 }
 
 .dashboard-kpi-hero-icon .anticon {
-  color: #4a6bff;
+  color: #60A5FA;
 }
 
 .dashboard-kpi-title {
@@ -337,7 +339,7 @@
   align-items: center;
   justify-content: center;
   font-size: 22px;
-  color: #4a6bff;
+  color: #60A5FA;
 }
 
 .kpi-card--akash {
@@ -528,7 +530,7 @@
 }
 
 .dashboard-kpi-page--futuristic .kpi-section-card--support-fms .ant-card-head-title .anticon {
-  color: #4a6bff !important;
+  color: #60A5FA !important;
 }
 
 .dashboard-kpi-page--futuristic .kpi-summary-card--checklist {
@@ -902,8 +904,8 @@
 }
 
 .kpi-header-trigger-btn:hover {
-  border-color: #4a6bff !important;
-  color: #4a6bff !important;
+  border-color: #60A5FA !important;
+  color: #60A5FA !important;
   background: #f8fafc !important;
 }
 
@@ -924,7 +926,7 @@
 
 .kpi-header-dropdown .ant-dropdown-menu-item:hover {
   background: #f1f5f9 !important;
-  color: #4a6bff !important;
+  color: #60A5FA !important;
 }
 
 .dashboard-kpi-select-dropdown.ant-select-dropdown {

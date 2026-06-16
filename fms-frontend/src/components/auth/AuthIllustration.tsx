@@ -1,5 +1,5 @@
-const darkBlue = '#1e3a5f'
-const lightBlue = '#7eb8da'
+const darkBlue = '#0b1220'
+const lightBlue = '#60a5fa'
 
 interface AuthIllustrationProps {
   variant: 'login' | 'register'

@@ -1,4 +1,4 @@
-import { API_BASE_URL } from './axios'
+import apiClient, { API_BASE_URL } from './axios'
 
 export interface AppReleaseBroadcast {
   release_key: string
@@ -33,5 +33,17 @@ export const appReleaseApi = {
       }
     }
     return null
+  },
+
+  /** Master Admin: push release state to all WebSocket clients (after bump_app_release in Supabase). */
+  notifyLive: async (): Promise<AppReleaseBroadcast | null> => {
+    try {
+      const res = await apiClient.post<{ success?: boolean; data?: AppReleaseBroadcast }>(
+        '/app/release/notify'
+      )
+      return res.data?.data ?? null
+    } catch {
+      return null
+    }
   },
 }

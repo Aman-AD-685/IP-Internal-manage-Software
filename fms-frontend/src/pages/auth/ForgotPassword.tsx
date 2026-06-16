@@ -10,12 +10,6 @@ import { clearStoredRecoveryAccessToken } from '../../utils/recoveryAuth'
 
 const { Text } = Typography
 
-const colors = {
-  lightBlue: '#7eb8da',
-  white: '#ffffff',
-  accent: '#f59e0b',
-}
-
 export const ForgotPassword = () => {
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
@@ -39,13 +33,11 @@ export const ForgotPassword = () => {
 
   return (
     <AuthLayout variant="login">
-      <div style={{ width: '100%', maxWidth: 560 }}>
-        <h1 style={{ color: colors.white, fontSize: 40, fontWeight: 700, marginBottom: 12, textAlign: 'center' }}>
-          Reset password
-        </h1>
-        <Text style={{ color: colors.lightBlue, display: 'block', textAlign: 'center', marginBottom: 28 }}>
+      <div className="auth-card">
+        <h1 className="auth-title">Forgot password</h1>
+        <Text className="auth-subtitle">
           Enter your account email. We will send a secure reset link from Industryprime.
-          The email may take a minute — check inbox and junk folder. Use the link once within 1 hour.
+          Check inbox and junk folder — use the link once within 1 hour.
         </Text>
 
         {sent && (
@@ -53,13 +45,12 @@ export const ForgotPassword = () => {
             type="success"
             showIcon
             message="Check your email"
-            description="Look for an email from Industryprime with subject “password reset”. Open the link once, then set your new password right away."
-            style={{ marginBottom: 24 }}
+            description="Look for an email from Industryprime with subject “password reset”. Open the link once, then set your new password."
           />
         )}
 
         {error && (
-          <Alert type="error" showIcon message={error} style={{ marginBottom: 24 }} closable onClose={() => setError(null)} />
+          <Alert type="error" showIcon message={error} closable onClose={() => setError(null)} />
         )}
 
         {!sent && (
@@ -78,33 +69,20 @@ export const ForgotPassword = () => {
               ]}
             >
               <Input
-                prefix={<MailOutlined style={{ color: colors.lightBlue, marginRight: 8, fontSize: 20 }} />}
+                prefix={<MailOutlined />}
                 placeholder="Your e-mail"
                 size="large"
                 autoComplete="email"
-                style={{
-                  borderRadius: 15,
-                  padding: '16px 20px',
-                  background: colors.white,
-                  fontSize: 18,
-                }}
               />
             </Form.Item>
-            <Form.Item>
+            <Form.Item style={{ marginBottom: 0 }}>
               <Button
                 type="primary"
                 htmlType="submit"
                 block
                 size="large"
                 loading={loading}
-                style={{
-                  background: colors.accent,
-                  borderColor: colors.accent,
-                  borderRadius: 15,
-                  height: 56,
-                  fontWeight: 600,
-                  fontSize: 18,
-                }}
+                className="auth-btn-primary"
               >
                 Send reset link
               </Button>
@@ -112,11 +90,9 @@ export const ForgotPassword = () => {
           </Form>
         )}
 
-        <div style={{ textAlign: 'center', marginTop: 16 }}>
-          <Link to={ROUTES.LOGIN} style={{ color: colors.lightBlue }}>
-            Back to Sign in
-          </Link>
-        </div>
+        <Link to={ROUTES.LOGIN} className="auth-footer-link">
+          Back to Sign in
+        </Link>
       </div>
     </AuthLayout>
   )

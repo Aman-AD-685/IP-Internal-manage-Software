@@ -68,5 +68,7 @@ COMMENT ON FUNCTION public.bump_app_release IS
 
 -- Example after deploy (replace with your Vercel git commit short SHA):
 -- SELECT * FROM bump_app_release('ec0a03d');
+-- Then notify connected users instantly (Master Admin JWT):
+-- POST /api/app/release/notify
 
 NOTIFY pgrst, 'reload schema';

@@ -43,12 +43,12 @@ export default function DashboardKPIWeeklyBarChart({ graphModal, weeklyProgress 
             name="Weekly %"
             fill={
               graphModal === 'checklist'
-                ? '#4A6BFF'
+                ? '#60A5FA'
                 : graphModal === 'delegation'
-                  ? '#28A745'
+                  ? '#22C55E'
                   : graphModal === 'supportFMS'
-                    ? '#FFC107'
-                    : '#FAAD14'
+                    ? '#F59E0B'
+                    : '#0EA5E9'
             }
             radius={[4, 4, 0, 0]}
           />

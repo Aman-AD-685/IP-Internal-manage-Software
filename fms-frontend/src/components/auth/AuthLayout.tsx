@@ -1,65 +1,29 @@
 import { ReactNode } from 'react'
-import { AuthIllustration } from './AuthIllustration'
 import './auth.css'
-
-const colors = {
-  darkBlue: '#1e3a5f',
-  lightBlue: '#7eb8da',
-  white: '#ffffff',
-  accent: '#f59e0b',
-}
 
 interface AuthLayoutProps {
   children: ReactNode
   variant?: 'register' | 'login'
 }
 
-export const AuthLayout = ({ children, variant = 'register' }: AuthLayoutProps) => {
+export const AuthLayout = ({ children }: AuthLayoutProps) => {
   return (
-    <div className="auth-split-layout" style={{ minHeight: '100vh' }}>
-      <div
-        className="auth-left-panel"
-        style={{
-          background: colors.white,
-          position: 'relative',
-          overflow: 'hidden',
-        }}
-      >
-        <img
-          src="/logo.png"
-          alt="Logo"
-          style={{
-            position: 'absolute',
-            top: 24,
-            left: 24,
-            height: 40,
-            width: 'auto',
-            objectFit: 'contain',
-            zIndex: 1,
-          }}
-        />
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: '100%',
-            height: '100%',
-            padding: 32,
-          }}
-        >
-          <AuthIllustration variant={variant || 'register'} />
-        </div>
+    <div className="auth-page">
+      <div className="auth-page-bg" aria-hidden="true">
+        <div className="auth-page-bg__mesh" />
+        <div className="auth-page-bg__grid" />
+        <div className="auth-page-bg__stripes" />
+        <div className="auth-page-bg__glow auth-page-bg__glow--tl" />
+        <div className="auth-page-bg__glow auth-page-bg__glow--br" />
+        <div className="auth-page-bg__frame auth-page-bg__frame--tl" />
+        <div className="auth-page-bg__frame auth-page-bg__frame--tr" />
+        <div className="auth-page-bg__frame auth-page-bg__frame--bl" />
+        <div className="auth-page-bg__frame auth-page-bg__frame--br" />
+        <div className="auth-page-bg__dots" />
+        <div className="auth-page-bg__accent-bar" />
       </div>
-      <div
-        className="auth-right-panel"
-        style={{
-          background: colors.darkBlue,
-          position: 'relative',
-        }}
-      >
-        {children}
-      </div>
+      <img src="/logo.png" alt="Industryprime" className="auth-page-logo" />
+      <div className="auth-page-content">{children}</div>
     </div>
   )
 }
