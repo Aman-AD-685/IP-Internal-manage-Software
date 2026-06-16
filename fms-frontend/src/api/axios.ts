@@ -282,6 +282,27 @@ apiClient.interceptors.response.use(
       }
     }
 
+    if (error.response?.status === 423) {
+      const body = error.response?.data as {
+        message?: string
+        reason?: string
+        error?: string
+      } | undefined
+      if (typeof window !== 'undefined') {
+        const lockStatus = {
+          is_locked: true,
+          reason: (typeof body?.reason === 'string' && body.reason.trim()) || null,
+          locked_by: null,
+          locked_by_name: null,
+          locked_at: null,
+          unlocked_at: null,
+          updated_at: null,
+        }
+        window.dispatchEvent(new CustomEvent('fms:system-lock-changed', { detail: lockStatus }))
+      }
+      return Promise.reject(error)
+    }
+
     if (error.response?.status === 429) {
       const body = error.response?.data as { detail?: string; retry_after_sec?: number } | undefined
       const wait = body?.retry_after_sec

@@ -15,6 +15,7 @@ import { startIdleRoutePrefetch } from '../../utils/routePrefetch'
 import { useContextMenuTrigger, buildPageSurfaceMenu } from '../../contextMenu'
 import { OPEN_ACTION } from '../../utils/openActions'
 import { useDeepLinkAction } from '../../hooks/useDeepLinkAction'
+import { useSystemLock } from '../common/SystemLockProvider'
 
 const { Content } = Layout
 
@@ -31,7 +32,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const location = useLocation()
   const { user } = useAuth()
-  const { canAccessApproval, canAccessUsers, canAccessSettings, canViewSectionByKey } = useRole()
+  const { canAccessApproval, canAccessUsers, canAccessSettings, canViewSectionByKey, isMasterAdmin } = useRole()
+  const { isBlocked } = useSystemLock()
   const section = new URLSearchParams(location.search).get('section')
   const pageContextMenu = useContextMenuTrigger(() =>
     buildPageSurfaceMenu({
@@ -101,6 +103,10 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     const prefetchTimer = window.setTimeout(() => startIdleRoutePrefetch(routeKeys), 8_000)
     return () => window.clearTimeout(prefetchTimer)
   }, [user, canAccessApproval, canAccessUsers, canAccessSettings, canViewSectionByKey])
+
+  if (!isMasterAdmin && isBlocked) {
+    return null
+  }
 
   return (
     <Layout style={{ minHeight: '100vh', background: '#F5F7FB' }}>

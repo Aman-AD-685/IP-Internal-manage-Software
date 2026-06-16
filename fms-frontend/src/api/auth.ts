@@ -264,14 +264,19 @@ export const authApi = {
           err.code === 'ECONNREFUSED' ||
           err.code === 'ECONNABORTED' ||
           err.message === 'Network Error')
+      const lockReason =
+        typeof err.response?.data?.reason === 'string' ? err.response.data.reason.trim() : undefined
       return {
         data: undefined,
         error: {
           message:
-            (typeof err.response?.data?.detail === 'string'
-              ? err.response.data.detail
-              : err.response?.data?.message) || err.message || 'Failed to get user',
+            (typeof err.response?.data?.message === 'string'
+              ? err.response.data.message
+              : typeof err.response?.data?.detail === 'string'
+                ? err.response.data.detail
+                : err.message) || 'Failed to get user',
           code: isNetwork ? 'NETWORK_ERROR' : status?.toString(),
+          lockReason,
         },
       }
     }

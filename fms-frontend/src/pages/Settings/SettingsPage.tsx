@@ -30,12 +30,13 @@ import { resolveFeatureApprovalCronRunUrl } from '../../api/axios'
 import { SkeletonOverlay } from '../../components/common/skeletons'
 import { EscalationEmailSettings } from './EscalationEmailSettings'
 import { ChecklistDelegationEmailSettings } from './ChecklistDelegationEmailSettings'
+import { SystemControlSettings } from './SystemControlSettings'
 
 const { Title, Paragraph, Text } = Typography
 
 export const SettingsPage = () => {
   const { user, refreshUser } = useAuth()
-  const { canAccessSettings } = useRole()
+  const { canAccessSettings, isMasterAdmin } = useRole()
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
 
@@ -248,6 +249,13 @@ export const SettingsPage = () => {
               </Button>
             </Form.Item>
           </Form>
+
+          {isMasterAdmin && (
+            <>
+              <Divider />
+              <SystemControlSettings />
+            </>
+          )}
 
           {canAccessSettings && (
             <>

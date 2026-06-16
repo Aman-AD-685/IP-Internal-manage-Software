@@ -6,6 +6,7 @@ import { ROUTES } from '../../utils/constants'
 import { buildLoginUrl } from '../../utils/authRedirect'
 import type { UserRole } from '../../types/auth'
 import { canViewSection, getFirstAllowedRoute } from '../../utils/helpers'
+import { useSystemLock } from '../common/SystemLockProvider'
 
 interface ProtectedRouteProps {
   children: ReactNode
@@ -18,6 +19,7 @@ interface ProtectedRouteProps {
 
 export const ProtectedRoute = ({ children, requiredRole, sectionKeys, emailAllowlist }: ProtectedRouteProps) => {
   const { isAuthenticated, isLoading, user } = useAuth()
+  const { isBlocked, lockReady } = useSystemLock()
   const location = useLocation()
 
   if (isLoading) {
@@ -27,6 +29,14 @@ export const ProtectedRoute = ({ children, requiredRole, sectionKeys, emailAllow
   if (!isAuthenticated) {
     const returnPath = location.pathname + location.search + location.hash
     return <Navigate to={buildLoginUrl(returnPath)} replace />
+  }
+
+  if (!lockReady) {
+    return <LoadingSpinner fullPage />
+  }
+
+  if (isBlocked) {
+    return null
   }
 
   if (requiredRole && user) {
