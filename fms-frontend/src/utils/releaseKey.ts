@@ -1,3 +1,8 @@
+/** Git SHA embedded at Vite build time — the JS bundle the user currently has loaded. */
+export function getClientReleaseKey(): string {
+  return (import.meta.env.VITE_APP_RELEASE_KEY || 'dev-local').trim()
+}
+
 /** Normalize release keys so 7- vs 8-char git SHAs compare equal (Vercel vs bump_app_release). */
 export function normalizeReleaseKey(key: string | null | undefined): string {
   const k = (key || '').trim().toLowerCase()

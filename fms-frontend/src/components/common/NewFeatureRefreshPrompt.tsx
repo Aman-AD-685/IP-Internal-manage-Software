@@ -7,16 +7,13 @@ import { appReleaseApi, type AppReleaseBroadcast } from '../../api/appRelease'
 import { useAuth } from '../../hooks/useAuth'
 import {
   APP_RELEASE_CHECK_EVENT,
+  getClientReleaseKey,
   releaseKeysMatch,
 } from '../../utils/releaseKey'
 
 const ACK_KEY = 'fms_release_acknowledged_key'
-/** Poll while session is open so deploys reach users who never reload. */
+/** Poll while session is open so deploys reach logged-in users without reload. */
 const POLL_MS = 12 * 1000
-/** Backup poll when WebSocket is connected (notify may be missed). */
-const POLL_WS_BACKUP_MS = 45 * 1000
-const CLIENT_RELEASE_KEY = (import.meta.env.VITE_APP_RELEASE_KEY || 'dev-local').trim()
-/** Burst checks after login or when restoring an existing session. */
 const BURST_DELAYS_MS = [0, 500, 2000, 5000, 10000, 20000, 45000, 60000]
 
 function isAcknowledged(serverKey: string): boolean {
@@ -25,10 +22,10 @@ function isAcknowledged(serverKey: string): boolean {
 }
 
 function applyReleaseUpdate(
-  data: AppReleaseBroadcast,
+  data: AppReleaseBroadcast | null,
   setInfo: (v: AppReleaseBroadcast | null) => void,
   setShowBar: (v: boolean) => void,
-  lastServerKeyRef: { current: string | null }
+  lastServerKeyRef: { current: string | null },
 ) {
   if (!data?.is_active || !data.release_key) {
     setShowBar(false)
@@ -38,7 +35,9 @@ function applyReleaseUpdate(
 
   const serverKey = data.release_key.trim()
   lastServerKeyRef.current = serverKey
-  if (!serverKey || releaseKeysMatch(CLIENT_RELEASE_KEY, serverKey)) {
+  const clientKey = getClientReleaseKey()
+
+  if (!serverKey || releaseKeysMatch(clientKey, serverKey)) {
     setShowBar(false)
     setInfo(null)
     return
@@ -85,8 +84,8 @@ function ReleaseRefreshBar({
 }
 
 /**
- * When live release_key differs from this build's embedded key, show a persistent
- * bottom bar until the user refreshes. Auto-detect via WebSocket + HTTP polling.
+ * Logged-in users: compare loaded JS build key vs live /release.json + backend release.
+ * Shows persistent bottom bar on every new Vercel deploy (no manual SQL bump required).
  */
 export function NewFeatureRefreshPrompt() {
   const { isAuthenticated, token } = useAuth()
@@ -102,8 +101,7 @@ export function NewFeatureRefreshPrompt() {
     if (checkingRef.current) return
     checkingRef.current = true
     try {
-      const data = await appReleaseApi.get()
-      if (!data) return
+      const data = await appReleaseApi.getCurrent()
       applyReleaseUpdate(data, setInfo, setShowBar, lastServerKeyRef)
     } finally {
       checkingRef.current = false
@@ -145,9 +143,6 @@ export function NewFeatureRefreshPrompt() {
     }
 
     const pollId = window.setInterval(() => void checkRelease(), POLL_MS)
-    const wsBackupPollId = window.setInterval(() => {
-      if (window.__FMS_WS_CONNECTED__) void checkRelease()
-    }, POLL_WS_BACKUP_MS)
 
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibility)
@@ -157,7 +152,6 @@ export function NewFeatureRefreshPrompt() {
     return () => {
       burstIds.forEach((id) => window.clearTimeout(id))
       window.clearInterval(pollId)
-      window.clearInterval(wsBackupPollId)
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('pageshow', onPageShow)
@@ -182,8 +176,7 @@ export function NewFeatureRefreshPrompt() {
 
   const title = info?.title || 'New features are live'
   const message =
-    info?.message ||
-    'A new version is available. Refresh to load the latest features.'
+    info?.message || 'A new version is available. Refresh to load the latest features.'
 
   if (!showBar) return null
 

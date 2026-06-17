@@ -1,5 +1,6 @@
-import { defineConfig, loadEnv } from 'vite'
+import { defineConfig, loadEnv, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
+import fs from 'fs'
 import path from 'path'
 import { execSync } from 'child_process'
 import { visualizer } from 'rollup-plugin-visualizer'
@@ -18,6 +19,33 @@ function resolveAppReleaseKey(mode: string, env: Record<string, string>): string
     return execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim().slice(0, 8)
   } catch {
     return `build-${Date.now()}`
+  }
+}
+
+/** Served at /release.json — logged-in clients poll this after each Vercel deploy. */
+function releaseManifestPlugin(releaseKey: string): Plugin {
+  const buildPayload = () =>
+    JSON.stringify({
+      release_key: releaseKey,
+      title: 'New features are live',
+      message: 'A new version is available. Refresh to load the latest features.',
+      is_active: true,
+    })
+
+  return {
+    name: 'fms-release-manifest',
+    configureServer(server) {
+      server.middlewares.use('/release.json', (_req, res) => {
+        res.setHeader('Content-Type', 'application/json; charset=utf-8')
+        res.setHeader('Cache-Control', 'no-store')
+        res.end(buildPayload())
+      })
+    },
+    closeBundle() {
+      const out = path.resolve(__dirname, 'dist/release.json')
+      fs.mkdirSync(path.dirname(out), { recursive: true })
+      fs.writeFileSync(out, buildPayload(), 'utf8')
+    },
   }
 }
 
@@ -43,6 +71,7 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       react(),
+      releaseManifestPlugin(appReleaseKey),
       vitePluginImp({
         libList: [
           {
