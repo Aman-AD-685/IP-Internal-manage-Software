@@ -6,30 +6,13 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 
-from app.auth_middleware import get_current_user
-from app.supabase_client import supabase
+from app.auth_middleware import get_current_user, validate_access_token
 from app.system_lock import get_system_lock_state
 from app.ws_hub import broadcast_app_release_changed, ws_hub
 
 _log = logging.getLogger("ws_routes")
 
 ws_router = APIRouter(tags=["websocket"])
-
-
-def _validate_ws_token(token: str) -> dict:
-    token = (token or "").strip()
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing token")
-    try:
-        user_resp = supabase.auth.get_user(token)
-        if not user_resp or not user_resp.user:
-            raise HTTPException(status_code=401, detail="Invalid token")
-        return {"id": str(user_resp.user.id), "email": user_resp.user.email or ""}
-    except HTTPException:
-        raise
-    except Exception as e:
-        _log.warning("ws token validation failed: %s", type(e).__name__)
-        raise HTTPException(status_code=401, detail="Invalid token") from e
 
 
 def _require_master_admin(auth: dict = Depends(get_current_user)) -> dict:
@@ -57,7 +40,7 @@ def _invalidate_app_release_cache() -> None:
 async def fms_websocket(websocket: WebSocket, token: str = Query(default="")):
     """Live push for system lock + release changes. Token via query (browser WebSocket API)."""
     try:
-        _validate_ws_token(token)
+        await asyncio.to_thread(validate_access_token, token)
     except HTTPException:
         await websocket.close(code=4401, reason="Unauthorized")
         return
