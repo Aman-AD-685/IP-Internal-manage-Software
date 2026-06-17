@@ -3,9 +3,9 @@ import { User } from '../types/auth'
 import { clearAuthBrowserSessionMarkers, syncAuthMirrorToSession } from './authBrowserSession'
 
 /**
- * Auth tokens live in sessionStorage (per tab) and are mirrored to localStorage while the
- * browser session is active so new tabs / "Open in new tab" share the same login.
- * Closing all tabs clears the mirror (see authBrowserSession.ts).
+ * Browser-session auth: tokens in sessionStorage, mirrored to localStorage only while
+ * the browser is open (multi-tab + pinned tabs). Closing the browser clears the mirror;
+ * the next visit requires login. Manual logout is optional.
  */
 
 const AUTH_KEYS = [STORAGE_KEYS.AUTH_TOKEN, STORAGE_KEYS.REFRESH_TOKEN, STORAGE_KEYS.USER] as const
