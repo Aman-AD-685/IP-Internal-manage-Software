@@ -243,9 +243,11 @@ app.include_router(ws_router, prefix="/api")
 async def _bind_ws_event_loop():
     import asyncio
 
+    from app.release_sync import start_release_watch_loop
     from app.ws_hub import bind_event_loop
 
     bind_event_loop(asyncio.get_running_loop())
+    start_release_watch_loop(supabase)
 
 
 @app.on_event("startup")
@@ -545,52 +547,19 @@ _APP_RELEASE_CACHE_TTL_SEC = 10
 
 
 def invalidate_app_release_cache() -> None:
+    from app.release_sync import invalidate_release_broadcast_cache
+
     _APP_RELEASE_CACHE["ts"] = 0.0
     _APP_RELEASE_CACHE["payload"] = None
+    invalidate_release_broadcast_cache()
 
 
 def _get_app_release_broadcast() -> dict:
     """Public release key for new-feature refresh prompt (cached)."""
-    now = time.time()
-    cached = _APP_RELEASE_CACHE.get("payload")
-    if cached and now - float(_APP_RELEASE_CACHE.get("ts") or 0) < _APP_RELEASE_CACHE_TTL_SEC:
-        return cached
+    from app.release_sync import build_app_release_broadcast
 
-    env_key = (os.getenv("APP_RELEASE_KEY") or "").strip()
-    title = (os.getenv("APP_RELEASE_TITLE") or "New features are live").strip()
-    message = (
-        os.getenv("APP_RELEASE_MESSAGE") or
-        "A new version of Industry Prime is available. Refresh to load the latest features."
-    ).strip()
-    release_key = env_key
-    is_active = True
-
-    try:
-        r = supabase.table("app_release_broadcast").select(
-            "release_key, title, message, is_active"
-        ).eq("id", 1).limit(1).execute()
-        row = (r.data or [None])[0]
-        if row:
-            if row.get("release_key"):
-                release_key = str(row["release_key"]).strip()
-            if row.get("title"):
-                title = str(row["title"]).strip()
-            if row.get("message"):
-                message = str(row["message"]).strip()
-            is_active = bool(row.get("is_active", True))
-    except Exception as e:
-        _log(f"app/release broadcast: {e}")
-
-    if not release_key:
-        release_key = "dev-local"
-
-    payload = {
-        "release_key": release_key,
-        "title": title,
-        "message": message,
-        "is_active": is_active,
-    }
-    _APP_RELEASE_CACHE["ts"] = now
+    payload = build_app_release_broadcast(supabase)
+    _APP_RELEASE_CACHE["ts"] = time.time()
     _APP_RELEASE_CACHE["payload"] = payload
     return payload
 

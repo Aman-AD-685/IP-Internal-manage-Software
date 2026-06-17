@@ -20,6 +20,7 @@ export function releaseKeysMatch(clientKey: string, serverKey: string): boolean 
 }
 
 export const APP_RELEASE_CHECK_EVENT = 'fms:check-app-release'
+export const APP_RELEASE_WS_CONNECTED_EVENT = 'fms:ws-connected'
 
 export function dispatchAppReleaseChanged(release?: {
   release_key: string

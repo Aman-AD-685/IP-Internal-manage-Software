@@ -4,7 +4,8 @@ import { resolveWebSocketUrl } from '../../utils/wsUrl'
 import { SYSTEM_LOCK_CHANGED_EVENT, type SystemLockStatus, writeCachedSystemLockStatus } from '../../api/systemLock'
 import {
   APP_RELEASE_CHECK_EVENT,
-  dispatchAppReleaseChanged,
+  APP_RELEASE_WS_CONNECTED_EVENT,
+  dispatchAppReleaseCheck,
 } from '../../utils/releaseKey'
 import type { AppReleaseBroadcast } from '../../api/appRelease'
 
@@ -25,18 +26,11 @@ function applySystemLock(detail: SystemLockStatus | undefined) {
 }
 
 function applyAppRelease(detail: AppReleaseBroadcast | undefined) {
-  if (!detail?.release_key) {
-    window.dispatchEvent(new CustomEvent(APP_RELEASE_CHECK_EVENT))
+  if (detail?.release_key) {
+    window.dispatchEvent(new CustomEvent(APP_RELEASE_CHECK_EVENT, { detail }))
     return
   }
-  dispatchAppReleaseChanged({
-    release_key: detail.release_key,
-    title: detail.title || 'New features are live',
-    message:
-      detail.message ||
-      'A new version of Industry Prime is available. Refresh to load the latest features.',
-    is_active: Boolean(detail.is_active),
-  })
+  dispatchAppReleaseCheck()
 }
 
 function handleMessage(raw: string) {
@@ -69,7 +63,8 @@ declare global {
 
 /**
  * Live WebSocket — instant system lock + release updates for logged-in users.
- * HTTP polling remains as fallback when disconnected.
+ * On connect / push: triggers HTTP release check (/release.json + backend).
+ * HTTP polling remains fallback when disconnected.
  */
 export function FmsWebSocketProvider({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, token } = useAuth()
@@ -81,9 +76,16 @@ export function FmsWebSocketProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     stoppedRef.current = false
 
+    const setWsConnected = (connected: boolean) => {
+      window.__FMS_WS_CONNECTED__ = connected
+      window.dispatchEvent(
+        new CustomEvent(APP_RELEASE_WS_CONNECTED_EVENT, { detail: { connected } }),
+      )
+    }
+
     const cleanup = () => {
       stoppedRef.current = true
-      window.__FMS_WS_CONNECTED__ = false
+      setWsConnected(false)
       if (reconnectRef.current != null) {
         window.clearTimeout(reconnectRef.current)
         reconnectRef.current = null
@@ -113,7 +115,8 @@ export function FmsWebSocketProvider({ children }: { children: React.ReactNode }
       wsRef.current = ws
 
       ws.onopen = () => {
-        window.__FMS_WS_CONNECTED__ = true
+        setWsConnected(true)
+        dispatchAppReleaseCheck()
         if (pingRef.current != null) window.clearInterval(pingRef.current)
         pingRef.current = window.setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) ws.send('ping')
@@ -125,7 +128,7 @@ export function FmsWebSocketProvider({ children }: { children: React.ReactNode }
       }
 
       ws.onclose = (ev) => {
-        window.__FMS_WS_CONNECTED__ = false
+        setWsConnected(false)
         if (pingRef.current != null) {
           window.clearInterval(pingRef.current)
           pingRef.current = null

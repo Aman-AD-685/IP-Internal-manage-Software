@@ -7,13 +7,16 @@ import { appReleaseApi, type AppReleaseBroadcast } from '../../api/appRelease'
 import { useAuth } from '../../hooks/useAuth'
 import {
   APP_RELEASE_CHECK_EVENT,
+  APP_RELEASE_WS_CONNECTED_EVENT,
   getClientReleaseKey,
   releaseKeysMatch,
 } from '../../utils/releaseKey'
 
 const ACK_KEY = 'fms_release_acknowledged_key'
-/** Poll while session is open so deploys reach logged-in users without reload. */
-const POLL_MS = 12 * 1000
+/** HTTP poll when WebSocket is down (primary fallback). */
+const POLL_DISCONNECTED_MS = 12 * 1000
+/** Light backup poll while WS is connected (catches CDN edge cases). */
+const POLL_CONNECTED_MS = 60 * 1000
 const BURST_DELAYS_MS = [0, 500, 2000, 5000, 10000, 20000, 45000, 60000]
 
 function isAcknowledged(serverKey: string): boolean {
@@ -84,8 +87,7 @@ function ReleaseRefreshBar({
 }
 
 /**
- * Logged-in users: compare loaded JS build key vs live /release.json + backend release.
- * Shows persistent bottom bar on every new Vercel deploy (no manual SQL bump required).
+ * Logged-in users: HTTP poll /release.json + backend; WebSocket pushes instant checks.
  */
 export function NewFeatureRefreshPrompt() {
   const { isAuthenticated, token } = useAuth()
@@ -93,6 +95,9 @@ export function NewFeatureRefreshPrompt() {
   const sessionActive = Boolean(isAuthenticated && token)
   const [info, setInfo] = useState<AppReleaseBroadcast | null>(null)
   const [showBar, setShowBar] = useState(false)
+  const [wsConnected, setWsConnected] = useState(
+    () => typeof window !== 'undefined' && Boolean(window.__FMS_WS_CONNECTED__),
+  )
   const checkingRef = useRef(false)
   const lastServerKeyRef = useRef<string | null>(null)
 
@@ -133,20 +138,26 @@ export function NewFeatureRefreshPrompt() {
       if (document.visibilityState === 'visible') void checkRelease()
     }
     const onPageShow = () => void checkRelease()
+    const onWsConnected = (e: Event) => {
+      const connected = Boolean((e as CustomEvent<{ connected?: boolean }>).detail?.connected)
+      setWsConnected(connected)
+      if (connected) void checkRelease()
+    }
     const onReleaseCheck = (e: Event) => {
       const detail = (e as CustomEvent<AppReleaseBroadcast>).detail
       if (detail?.release_key) {
         applyReleaseUpdate(detail, setInfo, setShowBar, lastServerKeyRef)
-        return
       }
       void checkRelease()
     }
 
-    const pollId = window.setInterval(() => void checkRelease(), POLL_MS)
+    const pollMs = wsConnected ? POLL_CONNECTED_MS : POLL_DISCONNECTED_MS
+    const pollId = window.setInterval(() => void checkRelease(), pollMs)
 
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener('pageshow', onPageShow)
+    window.addEventListener(APP_RELEASE_WS_CONNECTED_EVENT, onWsConnected)
     window.addEventListener(APP_RELEASE_CHECK_EVENT, onReleaseCheck)
 
     return () => {
@@ -155,9 +166,10 @@ export function NewFeatureRefreshPrompt() {
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('pageshow', onPageShow)
+      window.removeEventListener(APP_RELEASE_WS_CONNECTED_EVENT, onWsConnected)
       window.removeEventListener(APP_RELEASE_CHECK_EVENT, onReleaseCheck)
     }
-  }, [checkRelease, sessionActive])
+  }, [checkRelease, sessionActive, wsConnected])
 
   useEffect(() => {
     if (!sessionActive) return
