@@ -2,11 +2,63 @@
 JWT auth middleware for protected routes.
 Validates Bearer token and returns current user info.
 """
+from __future__ import annotations
+
+import httpx
 from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from app.supabase_client import supabase
+
+from app.supabase_client import SUPABASE_URL, SUPABASE_ANON_KEY
 
 security = HTTPBearer(auto_error=False)
+
+
+def validate_access_token(token: str) -> dict:
+    """
+    Validate a Supabase user JWT via GoTrue /auth/v1/user.
+    Must use the anon apikey (service_role returns 403 for user tokens).
+    """
+    token = (token or "").strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing or invalid token")
+
+    apikey = (SUPABASE_ANON_KEY or "").strip()
+    if not apikey:
+        raise HTTPException(status_code=503, detail="Server configuration error: missing SUPABASE_ANON_KEY")
+
+    url = f"{SUPABASE_URL.rstrip('/')}/auth/v1/user"
+    try:
+        r = httpx.get(
+            url,
+            headers={"Authorization": f"Bearer {token}", "apikey": apikey},
+            timeout=30.0,
+        )
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    if r.status_code >= 400:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    try:
+        data = r.json()
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    user_id = data.get("id")
+    if not user_id:
+        nested = data.get("user")
+        if isinstance(nested, dict):
+            user_id = nested.get("id")
+            email = nested.get("email") or ""
+        else:
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
+    else:
+        email = data.get("email") or ""
+
+    return {"id": str(user_id), "email": str(email) if email else ""}
 
 
 async def get_current_user(
@@ -15,14 +67,7 @@ async def get_current_user(
     """Validate JWT and return {id, email} for current user."""
     if not credentials:
         raise HTTPException(status_code=401, detail="Missing or invalid token")
-    token = credentials.credentials
-    try:
-        user = supabase.auth.get_user(token)
-        if not user or not user.user:
-            raise HTTPException(status_code=401, detail="Invalid or expired token")
-        return {"id": str(user.user.id), "email": user.user.email or ""}
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    return validate_access_token(credentials.credentials)
 
 
 async def get_current_user_optional(
@@ -32,9 +77,6 @@ async def get_current_user_optional(
     if not credentials:
         return None
     try:
-        user = supabase.auth.get_user(credentials.credentials)
-        if not user or not user.user:
-            return None
-        return {"id": str(user.user.id), "email": user.user.email or ""}
-    except Exception:
+        return validate_access_token(credentials.credentials)
+    except HTTPException:
         return None

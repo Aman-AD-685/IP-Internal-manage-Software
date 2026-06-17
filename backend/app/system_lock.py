@@ -6,9 +6,10 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from app.auth_middleware import validate_access_token
 from app.supabase_client import supabase
 
 _log = logging.getLogger("system_lock")
@@ -201,12 +202,10 @@ async def check_request_system_lock(request: Request) -> JSONResponse | None:
         return system_locked_response(state.get("reason"))
 
     try:
-        user_resp = supabase.auth.get_user(token)
-        if not user_resp or not user_resp.user:
-            return system_locked_response(state.get("reason"))
-        user_id = str(user_resp.user.id)
-    except Exception as e:
-        _log.warning("system lock get_user failed: %s", type(e).__name__)
+        user = validate_access_token(token)
+        user_id = user["id"]
+    except HTTPException as e:
+        _log.warning("system lock get_user failed: %s", e.detail)
         return system_locked_response(state.get("reason"))
 
     try:

@@ -9,6 +9,7 @@ import {
 import type { AppReleaseBroadcast } from '../../api/appRelease'
 
 const RECONNECT_MS = 3_000
+const AUTH_RECONNECT_MS = 60_000
 const PING_MS = 45_000
 
 type WsEnvelope =
@@ -123,14 +124,16 @@ export function FmsWebSocketProvider({ children }: { children: React.ReactNode }
         if (typeof ev.data === 'string') handleMessage(ev.data)
       }
 
-      ws.onclose = () => {
+      ws.onclose = (ev) => {
         window.__FMS_WS_CONNECTED__ = false
         if (pingRef.current != null) {
           window.clearInterval(pingRef.current)
           pingRef.current = null
         }
         if (!stoppedRef.current) {
-          reconnectRef.current = window.setTimeout(connect, RECONNECT_MS)
+          const authRejected = ev.code === 4401 || ev.code === 1008
+          const delay = authRejected ? AUTH_RECONNECT_MS : RECONNECT_MS
+          reconnectRef.current = window.setTimeout(connect, delay)
         }
       }
 
