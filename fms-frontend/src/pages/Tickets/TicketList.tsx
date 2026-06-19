@@ -41,7 +41,6 @@ import type { Company } from '../../api/support'
 import { ROUTES } from '../../utils/constants'
 import { sessionApiCacheClearLogicalPrefix, sessionApiCacheGet, ticketsListLogicalKey } from '../../utils/sessionApiCache'
 import type { ApiResponse, PaginatedResponse } from '../../api/types'
-import { dateRangeToIsoBounds, fetchAllTicketsPages } from '../../utils/ticketExportByDateRange'
 import { formatPriorityLabel, getPriorityTagColor } from '../../utils/ticketPriority'
 import { PriorityColoredReference } from '../../components/tickets/PriorityColoredReference'
 import { TicketPriorityFilter } from '../../components/tickets/TicketPriorityFilter'
@@ -158,6 +157,7 @@ export const TicketList = () => {
   const [total, setTotal] = useState(0)
   const [loadingMore, setLoadingMore] = useState(false)
   const listFetchGeneration = useRef(0)
+  const companyOptionsFetchGeneration = useRef(0)
   const serverListPageRef = useRef(0)
   const loadingMoreRef = useRef(false)
   const listExhaustedRef = useRef(false)
@@ -181,12 +181,6 @@ export const TicketList = () => {
     sectionFromUrl !== 'approval-status'
   const isChoresBugsSection = sectionFromUrl === 'chores-bugs'
   const showTicketNaStatusFilter = isChoresBugsSection || isFeatureListSection
-  const scopeHint = isUser
-    ? 'Exports every ticket you created between the selected dates (ignores Status/Stage filters on screen).'
-    : isChoresBugsSection
-      ? 'Exports every chore and bug created between the selected dates (ignores Status/Stage filters on screen).'
-      : 'Exports all tickets in this section created between the selected dates (ignores table filters).'
-
   useEffect(() => {
     if (isApprovalSection && !canAccessApproval) {
       navigate(ROUTES.DASHBOARD, { replace: true })
@@ -195,6 +189,7 @@ export const TicketList = () => {
   const [searchInput, setSearchInput] = useState('')
   const [referenceFilterInput, setReferenceFilterInput] = useState('')
   const [companies, setCompanies] = useState<Company[]>([])
+  const [pageCompanyOptions, setPageCompanyOptions] = useState<Array<{ value: string; label: string }>>([])
   const [drawerTicketId, setDrawerTicketId] = useState<string | null>(null)
   const [drawerTicketType, setDrawerTicketType] = useState<string | null>(null)
   const [drawerInitialTicket, setDrawerInitialTicket] = useState<Ticket | null>(null)
@@ -351,11 +346,25 @@ export const TicketList = () => {
     supportApi.getCompanies().then(setCompanies).catch(() => setCompanies([]))
   }, [])
 
+  const companyNameById = useMemo(() => {
+    const map = new Map<string, string>()
+    companies.forEach((company) => {
+      if (company.id) map.set(company.id, company.name)
+    })
+    return map
+  }, [companies])
+
   const getTicketsListParams = useCallback(
     (
       pageNum: number,
       limitSize: number,
-      options?: { skipCache?: boolean; dateFrom?: string; dateTo?: string; mineOnly?: boolean },
+      options?: {
+        skipCache?: boolean
+        dateFrom?: string
+        dateTo?: string
+        mineOnly?: boolean
+        omitCompanyFilter?: boolean
+      },
     ) => ({
       page: pageNum,
       page_size: limitSize,
@@ -398,7 +407,7 @@ export const TicketList = () => {
         registerStatusFilter !== 'all' && { register_status_filter: registerStatusFilter }),
       ...(isApprovalSection && { section: 'approval-status', approval_filter: approvalFilter }),
       ...(isFeatureHoldView && { approval_filter: 'hold' }),
-      ...(filters.company_ids?.length ? { company_ids: filters.company_ids } : {}),
+      ...(!options?.omitCompanyFilter && filters.company_ids?.length ? { company_ids: filters.company_ids } : {}),
       ...(filters.priority && { priority: filters.priority }),
       ...(options?.dateFrom
         ? { date_from: options.dateFrom }
@@ -468,6 +477,70 @@ export const TicketList = () => {
     }
     return allTickets
   }, [getTicketsListParams, isChoresBugs])
+
+  const fetchCompanyOptionsForCurrentPage = useCallback(async () => {
+    const gen = ++companyOptionsFetchGeneration.current
+    const optionsMap = new Map<string, string>()
+    let currentPage = 1
+    const limit = 200
+    let hasMore = true
+
+    try {
+      while (hasMore) {
+        const response = await ticketsApi.list(
+          getTicketsListParams(currentPage, limit, {
+            skipCache: true,
+            omitCompanyFilter: true,
+          }),
+        )
+        if (gen !== companyOptionsFetchGeneration.current) return
+
+        const { rows: rawTickets, total: apiTotal } = unwrapTicketListPayload(response, limit)
+        let pageTickets: Ticket[] = rawTickets
+        if (isChoresBugs) {
+          pageTickets = keepOnlyChoresAndBugs(pageTickets)
+        }
+        if (showStageFilter && stageFilter) {
+          pageTickets = pageTickets.filter((t) => getChoresBugsCurrentStage(t).stageLabel === stageFilter)
+        } else if (showStageFilterForFeature && stageFilter) {
+          pageTickets = pageTickets.filter((t) => getFeatureCurrentStage(t).stageLabel === stageFilter)
+        }
+
+        pageTickets.forEach((ticket) => {
+          const id = String(ticket.company_id || '').trim()
+          if (!id) return
+          const label =
+            String(ticket.company_name || '').trim() ||
+            companyNameById.get(id) ||
+            id
+          optionsMap.set(id, label)
+        })
+
+        hasMore = rawTickets.length === limit && (apiTotal <= 0 || currentPage * limit < apiTotal)
+        currentPage++
+      }
+
+      if (gen !== companyOptionsFetchGeneration.current) return
+      setPageCompanyOptions(
+        Array.from(optionsMap.entries())
+          .map(([value, label]) => ({ value, label }))
+          .sort((a, b) => a.label.localeCompare(b.label)),
+      )
+    } catch {
+      if (gen === companyOptionsFetchGeneration.current) setPageCompanyOptions([])
+    }
+  }, [
+    getTicketsListParams,
+    isChoresBugs,
+    showStageFilter,
+    showStageFilterForFeature,
+    stageFilter,
+    companyNameById,
+  ])
+
+  useEffect(() => {
+    void fetchCompanyOptionsForCurrentPage()
+  }, [fetchCompanyOptionsForCurrentPage, location.pathname, location.search])
 
   const fetchAllTicketsForStageFilter = useCallback(async () => {
     const gen = ++listFetchGeneration.current
@@ -951,69 +1024,77 @@ export const TicketList = () => {
     return baseList
   }, [baseList, isChoresBugsSection, typeOfRequestFilter, typeFromUrl, sectionFromUrl])
 
+  const availableCompanyOptions = useMemo(() => {
+    const options = new Map<string, string>()
+
+    pageCompanyOptions.forEach((option) => {
+      if (option.value) options.set(option.value, option.label)
+    })
+
+    ticketsForDisplay.forEach((ticket) => {
+      const id = String(ticket.company_id || '').trim()
+      if (!id) return
+      const label =
+        String(ticket.company_name || '').trim() ||
+        companyNameById.get(id) ||
+        id
+      options.set(id, label)
+    })
+
+    filters.company_ids.forEach((id) => {
+      if (!id || options.has(id)) return
+      options.set(id, companyNameById.get(id) || id)
+    })
+
+    return Array.from(options.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }, [
+    pageCompanyOptions,
+    ticketsForDisplay,
+    filters.company_ids,
+    companyNameById,
+  ])
+
   const getStageForExport = isChoresBugs
     ? (t: Record<string, unknown>) => getChoresBugsCurrentStage(t as Parameters<typeof getChoresBugsCurrentStage>[0])
     : typeFromUrl === 'feature'
       ? (t: Record<string, unknown>) => getFeatureCurrentStage(t as Parameters<typeof getFeatureCurrentStage>[0])
       : undefined
 
-  /** Export/print by date range: section + dates only (no Status/Stage/Type table filters). */
-  const buildDateRangeExportListParams = useCallback(
-    (dateFrom: string, dateTo: string) => {
-      const bounds = dateRangeToIsoBounds(dateFrom, dateTo)
-      return {
-        date_from: bounds.date_from,
-        date_to: bounds.date_to,
-        sort_by: filters.sort_by,
-        sort_order: filters.sort_order,
-        export_date_range: true,
-        ...(isUser ? { mine_only: true } : {}),
-        ...(sectionFromUrl === 'chores-bugs' && { section: 'chores-bugs' as const }),
-        ...(sectionFromUrl === 'register-of-tickets' && {
-          section: 'register-of-tickets' as const,
-          ...(registerTypeFilters.length > 0 && { types_in: registerTypeFilters.join(',') }),
-        }),
-        ...(sectionFromUrl === 'completed-chores-bugs' && { section: 'completed-chores-bugs' as const }),
-        ...(sectionFromUrl === 'rejected-tickets' && { section: 'rejected-tickets' as const }),
-        ...(sectionFromUrl === 'completed-feature' && { section: 'completed-feature' as const }),
-        ...(sectionFromUrl === 'solutions' && { section: 'solutions' as const }),
-        ...(isApprovalSection && { section: 'approval-status' as const, approval_filter: 'all' }),
-        ...(typeFromUrl === 'feature' &&
-          !isApprovalSection &&
-          sectionFromUrl !== 'completed-feature' && { type: 'feature' as const }),
-        ...(!sectionFromUrl &&
-          !typeFromUrl &&
-          filters.types_in && { types_in: filters.types_in }),
-        ...(!sectionFromUrl &&
-          !typeFromUrl &&
-          !filters.types_in &&
-          filters.type && { type: filters.type }),
-      }
-    },
-    [
-      filters.sort_by,
-      filters.sort_order,
-      filters.types_in,
-      filters.type,
-      sectionFromUrl,
-      typeFromUrl,
-      isApprovalSection,
-      isUser,
-      registerTypeFilters,
-    ],
-  )
-
-  const fetchExportRowsByDateRange = useCallback(
-    async (dateFrom: string, dateTo: string) => {
-      let allTickets = await fetchAllTicketsPages(buildDateRangeExportListParams(dateFrom, dateTo))
+  /** Export/print exactly what the current filters represent, across all pages (not only loaded rows). */
+  const fetchFilteredExportRows = useCallback(
+    async () => {
+      let allTickets = await fetchAllTicketsWithFilters()
       if (isChoresBugs) {
         allTickets = keepOnlyChoresAndBugs(allTickets)
+      }
+      if (showStageFilter && stageFilter) {
+        allTickets = allTickets.filter((t) => getChoresBugsCurrentStage(t).stageLabel === stageFilter)
+      } else if (showStageFilterForFeature && stageFilter) {
+        allTickets = allTickets.filter((t) => getFeatureCurrentStage(t).stageLabel === stageFilter)
+      }
+      if (isChoresBugsSection && !typeOfRequestFilter) {
+        allTickets = sortTicketsByCreatedDescThenReference(allTickets)
+      } else if (isChoresBugsSection || typeFromUrl === 'feature' || sectionFromUrl === 'completed-feature') {
+        allTickets = sortTicketsByReferenceDesc(allTickets)
       }
       return allTickets.map((t) =>
         buildTicketExportRow(t as unknown as Record<string, unknown>, getStageForExport),
       )
     },
-    [buildDateRangeExportListParams, isChoresBugs, getStageForExport],
+    [
+      fetchAllTicketsWithFilters,
+      isChoresBugs,
+      showStageFilter,
+      showStageFilterForFeature,
+      stageFilter,
+      isChoresBugsSection,
+      typeOfRequestFilter,
+      typeFromUrl,
+      sectionFromUrl,
+      getStageForExport,
+    ],
   )
 
   const wrapStyle = { whiteSpace: 'normal' as const, wordBreak: 'break-word' as const }
@@ -1568,31 +1649,30 @@ export const TicketList = () => {
             {featureHoldView ? 'Back to Feature List' : 'Hold – Approve'}
           </Button>
         )}
+        <Input
+          placeholder="Global search..."
+          prefix={<SearchOutlined />}
+          style={{ width: 240 }}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          onPressEnter={handleSearch}
+          allowClear
+        />
+        <Button type="primary" onClick={handleSearch}>
+          Search
+        </Button>
         <PrintExport
           pageTitle={pageTitle}
-          dateRangeExport={{
+          filteredExport={{
             columns: exportColumns,
             filename: `tickets_${sectionFromUrl || typeFromUrl || 'all'}`,
-            scopeHint,
-            fetchRows: fetchExportRowsByDateRange,
+            fetchRows: fetchFilteredExportRows,
           }}
         />
       </Space>
 
       <Card style={cardStyle} bodyStyle={{ padding: 24 }}>
         <Space style={{ marginBottom: 16, width: '100%' }} wrap>
-          <Input
-            placeholder="Global search..."
-            prefix={<SearchOutlined />}
-            style={{ width: 220 }}
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            onPressEnter={handleSearch}
-            allowClear
-          />
-          <Button type="primary" onClick={handleSearch}>
-            Search
-          </Button>
           <Input
             placeholder="Reference Filter"
             style={{ width: 160 }}
@@ -1630,7 +1710,7 @@ export const TicketList = () => {
             optionFilterProp="label"
             filterOption={(input, opt) => (opt?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())}
             getPopupContainer={() => document.body}
-            options={companies.map((c) => ({ value: c.id, label: c.name }))}
+            options={availableCompanyOptions}
           />
           {showTicketNaStatusFilter || isRegisterSection ? (
             <Select

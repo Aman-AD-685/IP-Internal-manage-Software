@@ -23,6 +23,13 @@ export interface DateRangeExportConfig {
   scopeHint?: string
 }
 
+export interface FilteredExportConfig {
+  columns: ExportColumn[]
+  /** Load rows using the current on-screen filters. */
+  fetchRows: () => Promise<Record<string, unknown>[]>
+  filename: string
+}
+
 export interface PrintExportProps {
   pageTitle: string
   /** Legacy: export current rows without date modal (non–Support pages). */
@@ -35,6 +42,8 @@ export interface PrintExportProps {
   onExportClick?: (event?: React.MouseEvent<HTMLButtonElement>) => void
   /** When set, Export and Print ask for a date range and load tickets for that period. */
   dateRangeExport?: DateRangeExportConfig
+  /** When set, Export and Print use current page filters without a date modal. */
+  filteredExport?: FilteredExportConfig
 }
 
 function escapeCsvCell(value: unknown): string {
@@ -104,6 +113,7 @@ export function PrintExport({
   exportFilename,
   onExportClick,
   dateRangeExport,
+  filteredExport,
 }: PrintExportProps) {
   const location = useLocation()
   const pageHref = location.pathname + location.search
@@ -113,6 +123,7 @@ export function PrintExport({
   const [form] = Form.useForm<{ range: [Dayjs, Dayjs] }>()
 
   const useDateRange = Boolean(dateRangeExport)
+  const useFilteredExport = Boolean(filteredExport)
 
   const handleLegacyPrint = () => {
     const prevTitle = document.title
@@ -171,6 +182,24 @@ export function PrintExport({
   }
 
   const handlePrint = () => {
+    if (filteredExport) {
+      void (async () => {
+        setRangeLoading(true)
+        try {
+          const rows = await filteredExport.fetchRows()
+          if (!rows.length) {
+            message.warning('No rows found for the current filters')
+            return
+          }
+          printRowsTable(pageTitle, filteredExport.columns, rows)
+        } catch {
+          message.error('Failed to load rows for print')
+        } finally {
+          setRangeLoading(false)
+        }
+      })()
+      return
+    }
     if (useDateRange) {
       openRangeModal('print')
       return
@@ -179,6 +208,23 @@ export function PrintExport({
   }
 
   const handleExport = async () => {
+    if (filteredExport) {
+      setRangeLoading(true)
+      try {
+        const rows = await filteredExport.fetchRows()
+        if (!rows.length) {
+          message.warning('No rows found for the current filters')
+          return
+        }
+        downloadCsv(filteredExport.columns, rows, filteredExport.filename)
+        message.success(`Exported ${rows.length} row(s)`)
+      } catch {
+        message.error('Failed to load rows for export')
+      } finally {
+        setRangeLoading(false)
+      }
+      return
+    }
     if (useDateRange) {
       openRangeModal('export')
       return
@@ -195,19 +241,19 @@ export function PrintExport({
     message.success('Export downloaded')
   }
 
-  const canExport = useDateRange || (exportData && exportData.columns.length > 0)
+  const canExport = useDateRange || useFilteredExport || (exportData && exportData.columns.length > 0)
 
   return (
     <>
       <Space className="no-print" size="middle" style={{ marginBottom: 16 }}>
         <ContextMenuTarget openHref={pageHref} openLabel={`Print ${pageTitle}`}>
-          <Button type="default" icon={<PrinterOutlined />} onClick={handlePrint}>
+          <Button type="default" icon={<PrinterOutlined />} onClick={handlePrint} loading={rangeLoading && !rangeModalOpen}>
             Print
           </Button>
         </ContextMenuTarget>
         {canExport && (
           <ContextMenuTarget openHref={pageHref} openLabel={`Export ${pageTitle}`}>
-            <Button type="default" icon={<DownloadOutlined />} onClick={() => void handleExport()}>
+            <Button type="default" icon={<DownloadOutlined />} onClick={() => void handleExport()} loading={rangeLoading && !rangeModalOpen}>
               Export
             </Button>
           </ContextMenuTarget>
