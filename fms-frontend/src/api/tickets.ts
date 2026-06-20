@@ -247,6 +247,8 @@ export const ticketsApi = {
     search?: string
     search_all_sections?: boolean
     reference_filter?: string
+    reference_filters?: string[]
+    'reference_filters[]'?: string[]
     sort_by?: string
     sort_order?: string
     skipCache?: boolean
