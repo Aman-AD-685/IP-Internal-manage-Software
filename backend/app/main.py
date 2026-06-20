@@ -2192,6 +2192,12 @@ def list_tickets(
     date_to: str | None = None,
     search: str | None = None,
     reference_filter: str | None = None,  # Filter by reference_no (partial match)
+    reference_filters: list[str] | None = Query(None, description="Filter by multiple exact reference numbers"),
+    reference_filters_bracketed: list[str] | None = Query(
+        None,
+        alias="reference_filters[]",
+        description="Filter by multiple exact reference numbers",
+    ),
     sort_by: str = "created_at",
     sort_order: str = "desc",
     page: int = 1,
@@ -2217,7 +2223,12 @@ def list_tickets(
         role = _get_role_from_profile(auth["id"])
         if role not in ("admin", "master_admin", "approver"):
             raise HTTPException(status_code=403, detail="Approval Status is only available to Admin and Approver roles")
-    use_wide_select = bool(search and search.strip()) or bool(reference_filter and reference_filter.strip())
+    use_wide_select = (
+        bool(search and search.strip())
+        or bool(reference_filter and reference_filter.strip())
+        or bool(reference_filters)
+        or bool(reference_filters_bracketed)
+    )
     ticket_cols = _ticket_list_select(wide=use_wide_select)
     q = supabase.table("tickets").select(ticket_cols, count="exact")
     # When global search: bypass section/type filters to search across all tickets
@@ -2349,6 +2360,11 @@ def list_tickets(
             if _ticket_promote_columns_available():
                 ref_filter = f"reference_no.ilike.%{safe_ref}%,source_reference_no.ilike.%{safe_ref}%"
             q = q.or_(ref_filter)
+    selected_reference_filters = list(reference_filters or []) + list(reference_filters_bracketed or [])
+    if selected_reference_filters:
+        refs = [str(x).strip() for x in selected_reference_filters if x and str(x).strip()]
+        if refs:
+            q = q.in_("reference_no", refs[:200])
     order_col = sort_by if sort_by in (
         "created_at",
         "updated_at",

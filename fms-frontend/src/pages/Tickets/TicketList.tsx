@@ -187,16 +187,16 @@ export const TicketList = () => {
     }
   }, [isApprovalSection, canAccessApproval, navigate])
   const [searchInput, setSearchInput] = useState('')
-  const [referenceFilterInput, setReferenceFilterInput] = useState('')
   const [companies, setCompanies] = useState<Company[]>([])
   const [pageCompanyOptions, setPageCompanyOptions] = useState<Array<{ value: string; label: string }>>([])
+  const [pageReferenceOptions, setPageReferenceOptions] = useState<Array<{ value: string; label: string }>>([])
   const [drawerTicketId, setDrawerTicketId] = useState<string | null>(null)
   const [drawerTicketType, setDrawerTicketType] = useState<string | null>(null)
   const [drawerInitialTicket, setDrawerInitialTicket] = useState<Ticket | null>(null)
   const [repeatedModalTicket, setRepeatedModalTicket] = useState<{ id: string; ref: string } | null>(null)
   const [filters, setFilters] = useState({
     search: '',
-    reference_filter: '',
+    reference_filters: [] as string[],
     status: '',
     type: typeFromUrl,
     types_in: sectionFromUrl === 'chores-bugs' ? 'chore,bug' : sectionFromUrl === 'completed-chores-bugs' ? 'chore,bug' : sectionFromUrl === 'rejected-tickets' ? 'chore,bug' : '',
@@ -364,13 +364,16 @@ export const TicketList = () => {
         dateTo?: string
         mineOnly?: boolean
         omitCompanyFilter?: boolean
+        omitReferenceFilter?: boolean
       },
     ) => ({
       page: pageNum,
       page_size: limitSize,
       ...(options?.skipCache ? { skipCache: true } : {}),
       ...(filters.search && { search: filters.search, search_all_sections: true }),
-      ...(filters.reference_filter && { reference_filter: filters.reference_filter }),
+      ...(!options?.omitReferenceFilter && filters.reference_filters?.length
+        ? { 'reference_filters[]': filters.reference_filters }
+        : {}),
       ...(showTicketNaStatusFilter && status2Filter && { status_2_filter: status2Filter }),
       ...(isChoresBugsSection && typeOfRequestFilter && { type_filter: typeOfRequestFilter }),
       ...(!isChoresBugsSection &&
@@ -480,7 +483,8 @@ export const TicketList = () => {
 
   const fetchCompanyOptionsForCurrentPage = useCallback(async () => {
     const gen = ++companyOptionsFetchGeneration.current
-    const optionsMap = new Map<string, string>()
+    const companyOptionsMap = new Map<string, string>()
+    const referenceOptionsMap = new Map<string, string>()
     let currentPage = 1
     const limit = 200
     let hasMore = true
@@ -491,6 +495,7 @@ export const TicketList = () => {
           getTicketsListParams(currentPage, limit, {
             skipCache: true,
             omitCompanyFilter: true,
+            omitReferenceFilter: true,
           }),
         )
         if (gen !== companyOptionsFetchGeneration.current) return
@@ -507,13 +512,15 @@ export const TicketList = () => {
         }
 
         pageTickets.forEach((ticket) => {
+          const ref = String(ticket.reference_no || '').trim()
+          if (ref) referenceOptionsMap.set(ref, ref)
           const id = String(ticket.company_id || '').trim()
           if (!id) return
           const label =
             String(ticket.company_name || '').trim() ||
             companyNameById.get(id) ||
             id
-          optionsMap.set(id, label)
+          companyOptionsMap.set(id, label)
         })
 
         hasMore = rawTickets.length === limit && (apiTotal <= 0 || currentPage * limit < apiTotal)
@@ -522,12 +529,20 @@ export const TicketList = () => {
 
       if (gen !== companyOptionsFetchGeneration.current) return
       setPageCompanyOptions(
-        Array.from(optionsMap.entries())
+        Array.from(companyOptionsMap.entries())
           .map(([value, label]) => ({ value, label }))
           .sort((a, b) => a.label.localeCompare(b.label)),
       )
+      setPageReferenceOptions(
+        Array.from(referenceOptionsMap.entries())
+          .map(([value, label]) => ({ value, label }))
+          .sort((a, b) => b.label.localeCompare(a.label, undefined, { numeric: true })),
+      )
     } catch {
-      if (gen === companyOptionsFetchGeneration.current) setPageCompanyOptions([])
+      if (gen === companyOptionsFetchGeneration.current) {
+        setPageCompanyOptions([])
+        setPageReferenceOptions([])
+      }
     }
   }, [
     getTicketsListParams,
@@ -976,10 +991,6 @@ export const TicketList = () => {
     setFilters((f) => ({ ...f, search: searchInput }))
   }
 
-  const handleReferenceFilterApply = () => {
-    setFilters((f) => ({ ...f, reference_filter: referenceFilterInput }))
-  }
-
   const handleDateRange = (_: unknown, dateStrings: [string, string]) => {
     const from = dateStrings[0] ? `${dateStrings[0]}T00:00:00.000Z` : ''
     const to = dateStrings[1] ? `${dateStrings[1]}T23:59:59.999Z` : ''
@@ -1055,6 +1066,27 @@ export const TicketList = () => {
     filters.company_ids,
     companyNameById,
   ])
+
+  const availableReferenceOptions = useMemo(() => {
+    const options = new Map<string, string>()
+
+    pageReferenceOptions.forEach((option) => {
+      if (option.value) options.set(option.value, option.label)
+    })
+
+    ticketsForDisplay.forEach((ticket) => {
+      const ref = String(ticket.reference_no || '').trim()
+      if (ref) options.set(ref, ref)
+    })
+
+    filters.reference_filters.forEach((ref) => {
+      if (ref && !options.has(ref)) options.set(ref, ref)
+    })
+
+    return Array.from(options.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => b.label.localeCompare(a.label, undefined, { numeric: true }))
+  }, [pageReferenceOptions, ticketsForDisplay, filters.reference_filters])
 
   const getStageForExport = isChoresBugs
     ? (t: Record<string, unknown>) => getChoresBugsCurrentStage(t as Parameters<typeof getChoresBugsCurrentStage>[0])
@@ -1673,13 +1705,23 @@ export const TicketList = () => {
 
       <Card style={cardStyle} bodyStyle={{ padding: 24 }}>
         <Space style={{ marginBottom: 16, width: '100%' }} wrap>
-          <Input
+          <Select
+            mode="multiple"
             placeholder="Reference Filter"
-            style={{ width: 160 }}
-            value={referenceFilterInput}
-            onChange={(e) => setReferenceFilterInput(e.target.value)}
-            onPressEnter={handleReferenceFilterApply}
+            style={{ minWidth: 180, maxWidth: 320 }}
+            value={filters.reference_filters?.length ? filters.reference_filters : undefined}
+            onChange={(v) => {
+              setFilters((f) => ({
+                ...f,
+                reference_filters: Array.isArray(v) ? v : [],
+              }))
+            }}
             allowClear
+            showSearch
+            optionFilterProp="label"
+            filterOption={(input, opt) => (opt?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())}
+            getPopupContainer={() => document.body}
+            options={availableReferenceOptions}
           />
           {isApprovalSection && (
             <Select
