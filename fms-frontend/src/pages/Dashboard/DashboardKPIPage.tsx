@@ -38,7 +38,6 @@ import './dashboard-kpi.css'
 import {
   dashboardKpiApi,
   dashboardKpiCacheKey,
-  prefetchDashboardKpiPerson,
   DASHBOARD_KPI_NAMES,
   MONTHS,
   YEARS,
@@ -570,15 +569,6 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
     else setData(null)
   }, [selectedPerson, loadData])
 
-  /** Warm visible person dashboards while on chooser (memory: KPI cache-first, stagger prefetch). */
-  useEffect(() => {
-    if (selectedPerson !== null) return
-    const filters = { month, year, week }
-    visibleDashboardOptions.forEach((opt, i) => {
-      window.setTimeout(() => prefetchDashboardKpiPerson(opt.key, filters), 600 + i * 400)
-    })
-  }, [selectedPerson, visibleDashboardOptions, month, year, week])
-
   /** Deep-link from main Dashboard (e.g. ?person=Shreyasi). */
   useEffect(() => {
     if (forceOpen) return
@@ -649,9 +639,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
             <Col key={opt.key} xs={24} sm={12} md={12} lg={8} xl={8}>
               <Card
                 hoverable
-                onMouseEnter={() => prefetchDashboardKpiPerson(opt.key, { month, year, week })}
                 onClick={() => {
-                  prefetchDashboardKpiPerson(opt.key, { month, year, week })
                   setSelectedPerson(opt.key)
                   setSearchParams({ person: opt.key }, { replace: true })
                 }}

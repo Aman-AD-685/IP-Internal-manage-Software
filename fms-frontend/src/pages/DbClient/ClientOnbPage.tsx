@@ -23,6 +23,7 @@ import { dbClientOnbApi, type ClientOnbRecord } from '../../api/dbClientOnb'
 import { useRole } from '../../hooks/useRole'
 import { CLIENT_ONB_ADD_STATUS_SQL } from './clientOnbAddStatusSql'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
+import { OperationsSectionTabs } from '../../components/common/OperationsSectionTabs'
 
 const { Title } = Typography
 const { TextArea } = Input
@@ -421,9 +422,12 @@ export function ClientOnbPage({ mode = 'active' }: { mode?: ClientOnbPageMode })
       )}
       <Card>
         <Space align="center" style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }} wrap>
-          <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
-            {isInactivePage ? 'Inactive clients' : 'Client ONB'}
-          </Title>
+          <Space wrap align="center">
+            <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
+              {isInactivePage ? 'Inactive clients' : 'Client ONB'}
+            </Title>
+            <OperationsSectionTabs module="db-client" />
+          </Space>
           {canEdit && !isInactivePage && (
             <Button type="primary" icon={<PlusOutlined />} onClick={openAdd}>
               Add Client ONB

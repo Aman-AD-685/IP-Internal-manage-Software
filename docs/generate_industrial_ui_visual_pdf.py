@@ -1,5 +1,5 @@
 """
-Generate a human-readable VISUAL PDF with UI mockup images for Industryprime FMS.
+Generate a human-readable VISUAL PDF with UI mockup images.
 
 Output: docs/INDUSTRIAL_UI_DESIGN_VISUAL.pdf
         docs/mockups/*.png (source images)
@@ -99,7 +99,7 @@ def mock_palette() -> Image.Image:
     img = Image.new("RGB", (W, H), C_WHITE)
     draw = ImageDraw.Draw(img)
     draw.text((48, 40), "Design System — Color Palette", fill=C_TEXT, font=_font(32, bold=True))
-    draw.text((48, 88), "Modern industrial theme for Industryprime FMS", fill=C_MUTED, font=_font(16))
+    draw.text((48, 88), "Modern industrial theme", fill=C_MUTED, font=_font(16))
 
     swatches = [
         ("Primary Blue", C_PRIMARY, "#2563EB", "Links, focus, secondary buttons"),
@@ -424,7 +424,7 @@ img.mock { width: 960px; border: 1px solid #e5e7eb; }
 .cover h1 { border: none; font-size: 28pt; }
 </style></head><body>
 <div class="cover">
-<h1>Industryprime FMS</h1>
+<h1>Industrial UI</h1>
 <p style="font-size:14pt;">Industrial UI Design — Visual Mockups</p>
 <p class="note">Review these screens before implementation. Same colors & layout apply to all sections.</p>
 </div>

@@ -44,6 +44,7 @@ import type { ApiResponse, PaginatedResponse } from '../../api/types'
 import { formatPriorityLabel, getPriorityTagColor } from '../../utils/ticketPriority'
 import { PriorityColoredReference } from '../../components/tickets/PriorityColoredReference'
 import { TicketPriorityFilter } from '../../components/tickets/TicketPriorityFilter'
+import { SupportSectionTabs } from '../../components/tickets/SupportSectionTabs'
 
 const { Title, Text } = Typography
 const { Option } = Select
@@ -1660,7 +1661,7 @@ export const TicketList = () => {
         <style>{`.completed-chores-bugs-wrap .ant-table-cell,
 .completed-chores-bugs-wrap .ant-table-thead > tr > th { white-space: normal !important; word-break: break-word !important; }`}</style>
       )}
-      <Space className="page-toolbar-row" style={{ marginBottom: 16, width: '100%', flexWrap: 'wrap' }}>
+      <Space style={{ marginBottom: 10, width: '100%', justifyContent: 'flex-start', flexWrap: 'wrap' }}>
         <Title
           level={2}
           className="page-main-heading"
@@ -1681,6 +1682,9 @@ export const TicketList = () => {
             {featureHoldView ? 'Back to Feature List' : 'Hold – Approve'}
           </Button>
         )}
+        <SupportSectionTabs />
+      </Space>
+      <Space className="page-toolbar-row" style={{ marginBottom: 16, width: '100%', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
         <Input
           placeholder="Global search..."
           prefix={<SearchOutlined />}

@@ -22,6 +22,7 @@ import {
 } from 'react-simple-maps'
 import { dbClientOnbApi, type ClientOnbRecord } from '../../api/dbClientOnb'
 import { DashboardBlockSkeleton } from '../../components/common/skeletons'
+import { OperationsSectionTabs } from '../../components/common/OperationsSectionTabs'
 import './db-dash.css'
 
 const { Title, Text } = Typography
@@ -345,6 +346,7 @@ export function DbDashPage() {
           <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
             ACTIVE CLIENT DATABASE
           </Title>
+          <OperationsSectionTabs module="db-client" />
         </div>
 
         {error ? (

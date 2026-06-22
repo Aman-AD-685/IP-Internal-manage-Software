@@ -45,7 +45,7 @@ const isTaskPage = (pathname: string) =>
   pathname === ROUTES.CHECKLIST || pathname === ROUTES.DELEGATION
 
 const isSuccessPage = (pathname: string) =>
-  pathname === ROUTES.SUCCESS_DASHBOARD || pathname === ROUTES.SUCCESS_PERFORMANCE || pathname === ROUTES.SUCCESS_COMP_PERFORM || pathname === ROUTES.SU_DASH
+  pathname === ROUTES.SUCCESS_DASHBOARD || pathname === ROUTES.SUCCESS_PERFORMANCE || pathname === ROUTES.SUCCESS_COMP_PERFORM
 
 const isClientToLeadPage = (pathname: string) =>
   pathname === ROUTES.LEADS || pathname.startsWith(ROUTES.LEADS + '/') || pathname === ROUTES.LEADS_IMPORT
@@ -60,6 +60,15 @@ const isTrainingPage = (pathname: string) =>
 
 const isClientPaymentPage = (pathname: string) =>
   pathname === ROUTES.CLIENT_PAYMENT || pathname.startsWith(ROUTES.CLIENT_PAYMENT + '/')
+
+const isOperationsPage = (pathname: string) =>
+  isSupportPage(pathname) ||
+  isSuccessPage(pathname) ||
+  isClientToLeadPage(pathname) ||
+  isOnboardingPage(pathname) ||
+  isTrainingPage(pathname) ||
+  isClientPaymentPage(pathname) ||
+  isDbClientPage(pathname)
 
 interface SidebarProps {
   className?: string
@@ -89,8 +98,8 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
     onClose?.()
     onOpenSupportForm?.(buildSupportPrefillFromSoftSuggestion(row), row.id)
   }
-  const [supportOpen, setSupportOpen] = useState(isSupportPage(location.pathname))
   const [taskOpen, setTaskOpen] = useState(isTaskPage(location.pathname))
+  const [operationsOpen, setOperationsOpen] = useState(isOperationsPage(location.pathname))
   const [successOpen, setSuccessOpen] = useState(isSuccessPage(location.pathname))
   const [clientToLeadOpen, setClientToLeadOpen] = useState(isClientToLeadPage(location.pathname))
   const [onboardingOpen, setOnboardingOpen] = useState(isOnboardingPage(location.pathname))
@@ -98,7 +107,7 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
   const [dbClientOpen, setDbClientOpen] = useState(isDbClientPage(location.pathname))
   const [clientPaymentOpen, setClientPaymentOpen] = useState(isClientPaymentPage(location.pathname))
   useEffect(() => {
-    if (isSupportPage(location.pathname)) setSupportOpen(true)
+    if (isOperationsPage(location.pathname)) setOperationsOpen(true)
   }, [location.pathname])
   useEffect(() => {
     if (isClientPaymentPage(location.pathname)) setClientPaymentOpen(true)
@@ -135,7 +144,6 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
     </span>
   )
   const allSupportItems: MenuProps['items'] = [
-    { key: ROUTES.SUPPORT_DASHBOARD, icon: <DashboardOutlined />, label: prefetchedLabel(ROUTES.SUPPORT_DASHBOARD, ROUTES.SUPPORT_DASHBOARD, 'Support Dashboard'), sectionKey: 'support_dashboard' },
     { key: `${ROUTES.TICKETS}?section=chores-bugs`, icon: <FileTextOutlined />, label: prefetchedLabel(`${ROUTES.TICKETS}?section=chores-bugs`, { pathname: ROUTES.TICKETS, search: 'section=chores-bugs' }, 'Chores & Bugs'), sectionKey: 'chores_bugs' },
     { key: ROUTES.STAGING, icon: <RocketOutlined />, label: prefetchedLabel(ROUTES.STAGING, ROUTES.STAGING, 'Staging'), sectionKey: 'staging' },
     { key: `${ROUTES.TICKETS}?type=feature`, icon: <FileTextOutlined />, label: prefetchedLabel(`${ROUTES.TICKETS}?type=feature`, `${ROUTES.TICKETS}?type=feature`, 'Feature'), sectionKey: 'feature' },
@@ -174,7 +182,6 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
   ]
 
   const successItems: MenuProps['items'] = [
-    { key: ROUTES.SU_DASH, icon: <DashboardOutlined />, label: prefetchedLabel(ROUTES.SU_DASH, ROUTES.SU_DASH, 'Su -Dash'), sectionKey: 'success_performance' },
     { key: ROUTES.SUCCESS_PERFORMANCE, icon: <LineChartOutlined />, label: prefetchedLabel(ROUTES.SUCCESS_PERFORMANCE, ROUTES.SUCCESS_PERFORMANCE, 'Performance Monitoring'), sectionKey: 'success_performance' },
     { key: ROUTES.SUCCESS_COMP_PERFORM, icon: <LineChartOutlined />, label: prefetchedLabel(ROUTES.SUCCESS_COMP_PERFORM, ROUTES.SUCCESS_COMP_PERFORM, 'Comp- Perform'), sectionKey: 'success_comp_perform' },
   ]
@@ -245,15 +252,79 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
   const showTraining = canViewSectionByKey('training')
   const showClientPayment = canViewClientPaymentSection || canViewPendingPaymentPage
   const showDbClient = canViewSectionByKey('db_client')
+  const supportDefaultKey = supportItems?.[0]?.key as string | undefined
+  const successDefaultKey = filteredSuccessItems?.[0]?.key as string | undefined
+  const clientToLeadDefaultKey = leadItems?.[0]?.key as string | undefined
+  const onboardingDefaultKey = onboardingItems?.[0]?.key as string | undefined
+  const trainingDefaultKey = trainingItems?.[0]?.key as string | undefined
+  const clientPaymentDefaultKey = clientPaymentItems?.[0]?.key as string | undefined
+  const dbClientDefaultKey = dbClientItems?.[0]?.key as string | undefined
+  const operationItems: MenuProps['items'] = [
+    ...(supportDefaultKey ? [{
+      key: supportDefaultKey,
+      icon: <FileTextOutlined />,
+      label: 'Support',
+    }] : []),
+    ...(successDefaultKey ? [{
+      key: successDefaultKey,
+      icon: <RiseOutlined />,
+      label: 'Success',
+    }] : []),
+    ...(showClientToLead && clientToLeadDefaultKey
+      ? [
+          {
+            key: clientToLeadDefaultKey,
+            icon: <TeamOutlined />,
+            label: 'Client to Lead',
+          },
+        ]
+      : []),
+    ...(showOnboarding && onboardingDefaultKey
+      ? [
+          {
+            key: onboardingDefaultKey,
+            icon: <AuditOutlined />,
+            label: 'Onboarding',
+          },
+        ]
+      : []),
+    ...(showTraining && trainingDefaultKey
+      ? [
+          {
+            key: trainingDefaultKey,
+            icon: <ReadOutlined />,
+            label: 'Training',
+          },
+        ]
+      : []),
+    ...(showClientPayment && clientPaymentDefaultKey
+      ? [
+          {
+            key: clientPaymentDefaultKey,
+            icon: <FileTextOutlined />,
+            label: 'Client Payment',
+          },
+        ]
+      : []),
+    ...(showDbClient && dbClientDefaultKey
+      ? [
+          {
+            key: dbClientDefaultKey,
+            icon: <ReadOutlined />,
+            label: 'DB Client',
+          },
+        ]
+      : []),
+  ]
 
   const menuItems: MenuProps['items'] = [
     ...(showDashboard ? [{ key: ROUTES.DASHBOARD, icon: <DashboardOutlined />, label: prefetchedLabel(ROUTES.DASHBOARD, ROUTES.DASHBOARD, 'Dashboard') }] : []),
-    ...(hasAnySupportSection ? [{
-      key: 'support',
-      icon: <FileTextOutlined />,
-      label: 'Support',
-      children: supportItems,
-      onTitleClick: () => setSupportOpen(!supportOpen),
+    ...(operationItems.length > 0 ? [{
+      key: 'operations',
+      icon: <TeamOutlined />,
+      label: 'Operations',
+      children: operationItems,
+      onTitleClick: () => setOperationsOpen(!operationsOpen),
     }] : []),
     ...(canViewSectionByKey('task') ? [{
       key: 'task',
@@ -262,72 +333,6 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
       children: taskItems,
       onTitleClick: () => setTaskOpen(!taskOpen),
     }] : []),
-    ...(filteredSuccessItems.length > 0 ? [{
-      key: 'success',
-      icon: <RiseOutlined />,
-      label: 'Success',
-      children: filteredSuccessItems,
-      onTitleClick: () => setSuccessOpen(!successOpen),
-    }] : []),
-    ...(showClientToLead
-      ? [
-          {
-            key: 'client-to-lead',
-            icon: <TeamOutlined />,
-            label: 'Client to Lead',
-            children: leadItems,
-            onTitleClick: () => setClientToLeadOpen(!clientToLeadOpen),
-          },
-        ]
-      : []),
-    ...(showOnboarding
-      ? [
-          {
-            key: 'onboarding',
-            icon: <AuditOutlined />,
-            label: 'Onboarding',
-            children: onboardingItems,
-            onTitleClick: () => setOnboardingOpen(!onboardingOpen),
-          },
-        ]
-      : []),
-    ...(showTraining
-      ? [
-          {
-            key: 'training',
-            icon: <ReadOutlined />,
-            label: 'Training',
-            children: trainingItems,
-            onTitleClick: () => setTrainingOpen(!trainingOpen),
-          },
-        ]
-      : []),
-    ...(showClientPayment
-      ? [
-          {
-            key: 'client-payment',
-            icon: <FileTextOutlined />,
-            label: 'Client Payment',
-            children: clientPaymentItems,
-            onTitleClick: () => setClientPaymentOpen(!clientPaymentOpen),
-          },
-        ]
-      : []),
-    ...(showDbClient
-      ? [
-          {
-            key: 'db-client',
-            icon: <ReadOutlined />,
-            label: 'DB Client',
-            children: dbClientItems,
-            onTitleClick: () => {
-              const next = !dbClientOpen
-              setDbClientOpen(next)
-              if (next && showOnboarding) setOnboardingOpen(true)
-            },
-          },
-        ]
-      : []),
     ...(canAccessUsers ? [{ key: ROUTES.USERS, icon: <UserOutlined />, label: prefetchedLabel(ROUTES.USERS, ROUTES.USERS, 'Users') }] : []),
     ...(canAccessSettings ? [{ key: ROUTES.SETTINGS, icon: <SettingOutlined />, label: prefetchedLabel(ROUTES.SETTINGS, ROUTES.SETTINGS, 'Settings') }] : []),
     {
@@ -349,7 +354,7 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
     new Set([location.pathname, `${location.pathname}${location.search || ''}`])
   )
   const openKeys = [
-    ...(supportOpen ? ['support'] : []),
+    ...(operationsOpen ? ['operations'] : []),
     ...(taskOpen ? ['task'] : []),
     ...(successOpen ? ['success'] : []),
     ...(clientToLeadOpen ? ['client-to-lead'] : []),
@@ -360,7 +365,7 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
   ]
 
   const PARENT_KEYS = new Set([
-    'support',
+    'operations',
     'task',
     'success',
     'client-to-lead',
@@ -400,7 +405,7 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
   })
 
   const handleOpenChange = (keys: string[]) => {
-    setSupportOpen(keys.includes('support'))
+    setOperationsOpen(keys.includes('operations'))
     setTaskOpen(keys.includes('task'))
     setSuccessOpen(keys.includes('success'))
     setClientToLeadOpen(keys.includes('client-to-lead'))

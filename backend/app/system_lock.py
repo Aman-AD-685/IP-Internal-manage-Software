@@ -15,7 +15,7 @@ from app.supabase_client import supabase
 _log = logging.getLogger("system_lock")
 
 _LOCK_CACHE: dict[str, Any] = {"ts": 0.0, "payload": None}
-_LOCK_CACHE_TTL_SEC = 2.0
+_LOCK_CACHE_TTL_SEC = 30.0
 _TABLE_MISSING_LOGGED = False
 
 _SYSTEM_LOCK_EXEMPT_PREFIXES = (

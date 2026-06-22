@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Card, Typography, Select, Table, message, Modal, Alert, Descriptions } from 'antd'
+import { Card, Typography, Select, Table, message, Modal, Alert, Descriptions, Space } from 'antd'
 import { LineChartOutlined } from '@ant-design/icons'
 import { API_BASE_URL } from '../../api/axios'
 import { dashboardApi } from '../../api/dashboard'
@@ -8,6 +8,7 @@ import { sessionApiCacheGet } from '../../utils/sessionApiCache'
 import { sortPerformanceRefOptions } from '../../utils/performanceRefs'
 import { PerformanceTablePaginationBar } from '../../components/success/PerformanceTablePaginationBar'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
+import { OperationsSectionTabs } from '../../components/common/OperationsSectionTabs'
 
 const { Title } = Typography
 
@@ -171,10 +172,13 @@ export const CompPerformPage = () => {
 
   return (
     <div>
-      <Title level={4} className="page-main-heading" style={{ marginBottom: 24 }}>
-        <LineChartOutlined style={{ marginRight: 8 }} />
-        Comp- Perform
-      </Title>
+      <Space style={{ marginBottom: 24 }} wrap align="center">
+        <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
+          <LineChartOutlined style={{ marginRight: 8 }} />
+          Comp- Perform
+        </Title>
+        <OperationsSectionTabs module="success" />
+      </Space>
       <Card style={{ marginBottom: 16 }}>
         <Typography.Text type="secondary">
           Companies where all features are completed. They no longer appear in Performance Monitoring.

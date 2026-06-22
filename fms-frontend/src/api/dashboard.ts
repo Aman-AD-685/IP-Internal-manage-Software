@@ -1,5 +1,11 @@
 import { apiClient } from './axios'
 import type { SuccessKpiResponse } from './dashboardKpi'
+import type {
+  DashboardSummaryFilters,
+  DashboardSummaryResponse,
+  DashboardOperationDetailsResponse,
+  DashboardSupportDetailsResponse,
+} from '../types/dashboard'
 import {
   API_CACHE_TTL_MS,
   sessionApiCacheGet,
@@ -92,6 +98,30 @@ export interface SuccessPerformanceListItem {
 }
 
 export const dashboardApi = {
+  getSummary: async (filters: DashboardSummaryFilters = {}): Promise<DashboardSummaryResponse> => {
+    const params = Object.fromEntries(
+      Object.entries(filters).filter(([, value]) => value != null && String(value).trim() !== ''),
+    )
+    const r = await apiClient.get<DashboardSummaryResponse>('/dashboard/summary', { params })
+    return r.data
+  },
+
+  getSupportDetails: async (): Promise<DashboardSupportDetailsResponse> => {
+    const r = await apiClient.get<DashboardSupportDetailsResponse>('/dashboard/support-details')
+    return r.data
+  },
+
+  getOperationDetails: async (section: string): Promise<DashboardOperationDetailsResponse> => {
+    const key = `dashboard:operation-details:${section}`
+    const cached = sessionApiCacheGet<DashboardOperationDetailsResponse>(key)
+    if (cached) return cached
+    const r = await apiClient.get<DashboardOperationDetailsResponse>('/dashboard/operation-details', {
+      params: { section },
+    })
+    sessionApiCacheSet(key, r.data, 30_000)
+    return r.data
+  },
+
   /** Single request for metrics + trends (fast first paint). */
   getBootstrap: async (options?: { skipCache?: boolean }): Promise<{
     metrics: DashboardMetrics

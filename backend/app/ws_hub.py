@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import WebSocket
 
 _log = logging.getLogger("ws_hub")
+WS_SEND_TIMEOUT_SEC = 2.0
 
 _main_loop: asyncio.AbstractEventLoop | None = None
 
@@ -42,12 +43,16 @@ class WsHub:
             targets = list(self._connections)
         if not targets:
             return
-        dead: list[WebSocket] = []
-        for ws in targets:
+
+        async def send_one(ws: WebSocket) -> WebSocket | None:
             try:
-                await ws.send_text(text)
+                await asyncio.wait_for(ws.send_text(text), timeout=WS_SEND_TIMEOUT_SEC)
+                return None
             except Exception:
-                dead.append(ws)
+                return ws
+
+        results = await asyncio.gather(*(send_one(ws) for ws in targets), return_exceptions=False)
+        dead = [ws for ws in results if ws is not None]
         if dead:
             async with self._lock:
                 for ws in dead:

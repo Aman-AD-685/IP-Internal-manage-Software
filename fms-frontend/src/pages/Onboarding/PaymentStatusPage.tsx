@@ -23,6 +23,7 @@ import dayjs from 'dayjs'
 import { onboardingApi, type PaymentStatusRecord } from '../../api/onboarding'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
 import { DEFAULT_INFINITE_CHUNK, useInfiniteScrollChunk } from '../../hooks/useInfiniteScrollChunk'
+import { OperationsSectionTabs } from '../../components/common/OperationsSectionTabs'
 
 const { Title } = Typography
 const { TextArea } = Input
@@ -1204,10 +1205,13 @@ export function PaymentStatusPage() {
 
   return (
     <div style={{ padding: 24 }}>
-      <Space style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
-          Payment Status
-        </Title>
+      <Space style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} wrap>
+        <Space wrap align="center">
+          <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
+            Payment Status
+          </Title>
+          <OperationsSectionTabs module="onboarding" />
+        </Space>
         <Button type="primary" icon={<PlusOutlined />} onClick={openAddModal}>
           Add Payment Status
         </Button>

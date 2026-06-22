@@ -1,7 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
 import {
   bootstrapAuthBrowserSession,
   installAuthBrowserSessionHandlers,
@@ -30,11 +29,26 @@ const queryClient = new QueryClient({
   },
 })
 
+let QueryDevtools = () => null
+
+if (import.meta.env.DEV) {
+  const ReactQueryDevtoolsPanel = React.lazy(async () => {
+    const mod = await import('@tanstack/react-query-devtools')
+    return { default: mod.ReactQueryDevtools }
+  })
+
+  QueryDevtools = () => (
+    <React.Suspense fallback={null}>
+      <ReactQueryDevtoolsPanel initialIsOpen={false} />
+    </React.Suspense>
+  )
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <App />
-      <ReactQueryDevtools initialIsOpen={false} />
+      <QueryDevtools />
     </QueryClientProvider>
   </React.StrictMode>
 )

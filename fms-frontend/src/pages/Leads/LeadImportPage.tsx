@@ -3,6 +3,7 @@ import { Card, Typography, Button, Input, Space, message } from 'antd'
 import { DownloadOutlined, FileTextOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { ROUTES } from '../../utils/constants'
+import { OperationsSectionTabs } from '../../components/common/OperationsSectionTabs'
 
 const { Title, Text } = Typography
 const { TextArea } = Input
@@ -459,6 +460,7 @@ export const LeadImportPage = () => {
         <Button type="text" onClick={() => navigate(ROUTES.LEADS)}>
           ← Back to Lead
         </Button>
+        <OperationsSectionTabs module="client-to-lead" />
       </Space>
       <Card>
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>

@@ -1,5 +1,5 @@
-/** Limits idle route prefetch — 3 parallel keeps first navigation under ~750ms when warmed. */
-const MAX_CONCURRENT = 3
+/** Limits idle route prefetch so background warming does not compete with active page loads. */
+const MAX_CONCURRENT = 2
 let active = 0
 const queue: Array<() => void> = []
 

@@ -18,6 +18,7 @@ import { TicketPriorityFilter } from '../../components/tickets/TicketPriorityFil
 import { PrintExport } from '../../components/common/PrintExport'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
 import { TextCellTooltip, tableCellEllipsisStyle } from '../../components/common/TextCellTooltip'
+import { SupportSectionTabs } from '../../components/tickets/SupportSectionTabs'
 import { useRole } from '../../hooks/useRole'
 import { dateRangeToIsoBounds, fetchAllTicketsPages } from '../../utils/ticketExportByDateRange'
 
@@ -476,10 +477,13 @@ export const StagingList = () => {
 
   return (
     <div style={{ maxWidth: 1400, margin: '0 auto' }}>
-      <div className="page-toolbar-row" style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', gap: 16, marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', flexWrap: 'wrap', gap: 16, marginBottom: 10 }}>
         <Title level={2} className="page-main-heading" style={{ margin: 0 }}>
           Staging
         </Title>
+        <SupportSectionTabs />
+      </div>
+      <div className="page-toolbar-row" style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', gap: 16, marginBottom: 16 }}>
         <PrintExport
           pageTitle="Staging"
           dateRangeExport={{

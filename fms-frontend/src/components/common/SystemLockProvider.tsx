@@ -47,7 +47,7 @@ const { Paragraph, Text, Title } = Typography
 
 
 
-const POLL_MS = 5_000
+const POLL_MS = 60_000
 
 
 

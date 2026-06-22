@@ -580,8 +580,12 @@ export const dashboardKpiApi = {
     return data
   },
 
-  getData: async (filters: { name: string; month: string; year: string; week: string }) => {
-    const key = dashboardKpiCacheKey(filters)
+  getData: async (
+    filters: { name: string; month: string; year: string; week: string },
+    options?: { includeProgress?: boolean },
+  ) => {
+    const includeProgress = options?.includeProgress === true
+    const key = includeProgress ? `${dashboardKpiCacheKey(filters)}:progress` : dashboardKpiCacheKey(filters)
     const cached = sessionApiCacheGet<DashboardKpiResponse>(key)
     if (cached) return cached
     const data = await apiClient
@@ -591,6 +595,7 @@ export const dashboardKpiApi = {
           month: filters.month,
           year: filters.year,
           week: filters.week,
+          include_progress: includeProgress,
         },
       })
       .then((r) => r.data)

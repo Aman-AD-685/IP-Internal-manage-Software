@@ -12,6 +12,7 @@ import {
 } from '../../api/training'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
 import { DEFAULT_INFINITE_CHUNK, useInfiniteScrollChunk } from '../../hooks/useInfiniteScrollChunk'
+import { OperationsSectionTabs } from '../../components/common/OperationsSectionTabs'
 
 const { Title } = Typography
 
@@ -338,9 +339,12 @@ export function ClientTrainingPage() {
 
   return (
     <div style={{ padding: 24 }}>
-      <Title level={4} className="page-main-heading" style={{ marginBottom: 24 }}>
-        Client Training
-      </Title>
+      <Space style={{ marginBottom: 24 }} wrap align="center">
+        <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
+          Client Training
+        </Title>
+        <OperationsSectionTabs module="training" />
+      </Space>
       <Card title="Clients">
         <div style={{ marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
           <Input

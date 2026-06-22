@@ -1,4 +1,4 @@
-# Industrial-Level UI Design Spec (Industryprime FMS)
+# Industrial-Level UI Design Spec
 
 **Doc version:** 0.1 (v0.1 for review)  
 **Target:** Modern industrial look + consistent UX across **all Pages, Sections, and Dashboards**  

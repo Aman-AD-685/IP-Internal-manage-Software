@@ -11,6 +11,7 @@ import threading
 import time
 import asyncio
 import json
+import copy
 import hashlib
 import inspect
 import logging
@@ -1998,7 +1999,15 @@ _KPI_CB_COLS = (
 
 
 def _fetch_kpi_chore_bug_tickets(month_start: date, month_end: date) -> list[dict]:
+    rows = _fetch_kpi_chore_bug_tickets_cached(month_start.isoformat(), month_end.isoformat())
+    return [dict(row) for row in rows]
+
+
+@cached(ttl=300, key_prefix="dash:kpiTickets:")
+def _fetch_kpi_chore_bug_tickets_cached(month_start_iso: str, month_end_iso: str) -> list[dict]:
     """Bounded chore/bug rows for dashboard KPI (not full tickets table)."""
+    month_start = date.fromisoformat(month_start_iso)
+    month_end = date.fromisoformat(month_end_iso)
     fetch_from = month_start - timedelta(days=45)
     fetch_to = month_end + timedelta(days=14)
     by_id: dict[str, dict] = {}
@@ -3212,6 +3221,7 @@ _DASH_METRICS_CACHE: TTLCache = TTLCache(maxsize=256, ttl=180)
 _DASH_TRENDS_CACHE: TTLCache = TTLCache(maxsize=8, ttl=300)
 _DASH_BOOTSTRAP_CACHE: TTLCache = TTLCache(maxsize=256, ttl=120)
 _SUPPORT_DASH_CACHE: TTLCache = TTLCache(maxsize=64, ttl=120)
+_DASH_EXECUTOR = ThreadPoolExecutor(max_workers=4)
 
 
 def invalidate_dashboard_read_caches() -> None:
@@ -4407,6 +4417,7 @@ def put_dashboard_souvik_kpi_daily(
         saved = upsert_souvik_daily(
             [r.model_dump() for r in body.rows], created_by=auth["id"]
         )
+        _invalidate_ttl_cache_key_prefix("dash:")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -4421,6 +4432,7 @@ def dashboard_kpi(
     month: str = Query("Feb", description="Month: Jan..Dec"),
     year: str = Query("2026", description="Year"),
     week: str = Query("week 2", description="Week: week 1..week 5"),
+    include_progress: bool = Query(False, description="Include weekly graph arrays; false keeps first paint fast"),
     auth: dict = Depends(get_current_user),
 ):
     """KPI data for Checklist, Delegation, Support FMS from DB. No hardcoded data; no Attendance."""
@@ -4428,9 +4440,21 @@ def dashboard_kpi(
 
     require_dashboard_kpi_person(auth["id"], name)
     viewer_email = (auth.get("email") or "").strip()
-    return _dashboard_kpi_data(
-        name=name, month=month, year=year, week=week, viewer_email=viewer_email
+    payload = _dashboard_kpi_data(
+        name=name,
+        month=month,
+        year=year,
+        week=week,
+        viewer_email="",
+        include_progress=include_progress,
     )
+    if isinstance(payload, dict) and payload.get("success") is not False:
+        payload = copy.deepcopy(payload)
+        if isinstance(payload.get("akashKpi"), dict):
+            payload["akashKpi"]["kpiDailyLogEditor"] = _kpi_daily_log_email_allowed(viewer_email)
+        if isinstance(payload.get("adrijaSocialKpi"), dict):
+            payload["adrijaSocialKpi"]["editor"] = _adrija_social_kpi_editor(viewer_email)
+    return payload
 
 
 _SUPPORT_FMS_DETAIL_PILLARS = frozenset({"response_delay", "completion_delay", "pending"})
@@ -4502,6 +4526,7 @@ def _dashboard_kpi_data(
     year: str,
     week: str,
     viewer_email: str = "",
+    include_progress: bool = False,
 ):
     """Cached KPI payload (auth enforced on dashboard_kpi wrapper)."""
     try:
@@ -4750,62 +4775,63 @@ def _dashboard_kpi_data(
         weekly_progress_support_fms = []
         try:
             from app.checklist_utils import get_occurrence_dates_in_range
-            task_ids = [t["id"] for t in tasks] if tasks else []
-            for w in range(1, max_week_index + 1):
-                weekly_progress_weeks.append(f"week {w}")
-                rng = _dashboard_kpi_week_range(y, month_num, f"week {w}")
-                if not rng:
-                    weekly_progress_checklist.append(0)
-                    weekly_progress_delegation.append(0)
-                    weekly_progress_support_fms.append(0)
-                    continue
-                rs, re = rng
-                # Checklist % for this week
-                cl_pct = 0
-                if task_ids:
-                    comp_w = {
-                        k: v
-                        for k, v in comp_month.items()
-                        if rs.isoformat() <= k[1] <= re.isoformat()
-                    }
-                    occ_w = []
-                    for task in (tasks or []):
-                        t_id = task["id"]
-                        start = task.get("start_date")
-                        if isinstance(start, str):
-                            start = date.fromisoformat(start)
-                        freq = task.get("frequency", "D")
-                        dates_w = get_occurrence_dates_in_range(start, freq, rs, re, is_holiday)
-                        for d in dates_w:
-                            occ_w.append((t_id, d))
-                    total_w = len(occ_w)
-                    done_w = sum(1 for (tid, d) in occ_w if comp_w.get((tid, d.isoformat())))
-                    cl_pct = round((done_w / total_w) * 100) if total_w else 0
-                weekly_progress_checklist.append(cl_pct)
-                # Delegation % for this week
-                def _in_week_del(t, rs_=rs, re_=re):
-                    # Weekly progress should also be scoped by due_date only.
-                    d = t.get("due_date")
-                    if not d:
-                        return False
-                    if isinstance(d, str):
-                        d = date.fromisoformat(d[:10])
-                    return rs_ <= d <= re_
-                week_list_w = [t for t in all_tasks if _in_week_del(t)]
-                total_d = len(week_list_w)
-                done_d = sum(1 for t in week_list_w if _delegation_task_done(t))
-                del_pct = round((done_d / total_d) * 100) if total_d else 0
-                weekly_progress_delegation.append(del_pct)
-                # Support FMS % = average of response, completion, and pending pillar health %
-                sup_pct = _compute_support_fms_week_metrics(tickets, rs, re)["weekly_pct"]
-                weekly_progress_support_fms.append(sup_pct)
+            if include_progress:
+                task_ids = [t["id"] for t in tasks] if tasks else []
+                for w in range(1, max_week_index + 1):
+                    weekly_progress_weeks.append(f"week {w}")
+                    rng = _dashboard_kpi_week_range(y, month_num, f"week {w}")
+                    if not rng:
+                        weekly_progress_checklist.append(0)
+                        weekly_progress_delegation.append(0)
+                        weekly_progress_support_fms.append(0)
+                        continue
+                    rs, re = rng
+                    # Checklist % for this week
+                    cl_pct = 0
+                    if task_ids:
+                        comp_w = {
+                            k: v
+                            for k, v in comp_month.items()
+                            if rs.isoformat() <= k[1] <= re.isoformat()
+                        }
+                        occ_w = []
+                        for task in (tasks or []):
+                            t_id = task["id"]
+                            start = task.get("start_date")
+                            if isinstance(start, str):
+                                start = date.fromisoformat(start)
+                            freq = task.get("frequency", "D")
+                            dates_w = get_occurrence_dates_in_range(start, freq, rs, re, is_holiday)
+                            for d in dates_w:
+                                occ_w.append((t_id, d))
+                        total_w = len(occ_w)
+                        done_w = sum(1 for (tid, d) in occ_w if comp_w.get((tid, d.isoformat())))
+                        cl_pct = round((done_w / total_w) * 100) if total_w else 0
+                    weekly_progress_checklist.append(cl_pct)
+                    # Delegation % for this week
+                    def _in_week_del(t, rs_=rs, re_=re):
+                        # Weekly progress should also be scoped by due_date only.
+                        d = t.get("due_date")
+                        if not d:
+                            return False
+                        if isinstance(d, str):
+                            d = date.fromisoformat(d[:10])
+                        return rs_ <= d <= re_
+                    week_list_w = [t for t in all_tasks if _in_week_del(t)]
+                    total_d = len(week_list_w)
+                    done_d = sum(1 for t in week_list_w if _delegation_task_done(t))
+                    del_pct = round((done_d / total_d) * 100) if total_d else 0
+                    weekly_progress_delegation.append(del_pct)
+                    # Support FMS % = average of response, completion, and pending pillar health %
+                    sup_pct = _compute_support_fms_week_metrics(tickets, rs, re)["weekly_pct"]
+                    weekly_progress_support_fms.append(sup_pct)
         except Exception as e:
             _log(f"dashboard/kpi weeklyProgress: {e}")
 
         support_fms_monthly_pct = (
             round(sum(weekly_progress_support_fms) / len(weekly_progress_support_fms))
             if weekly_progress_support_fms
-            else 0
+            else support_fms_weekly_pct
         )
         if is_akash:
             support_fms_monthly_pct = 0
@@ -5106,6 +5132,57 @@ def _dashboard_kpi_data(
     except Exception as e:
         _log(f"dashboard/kpi: {e}")
         return {"success": False, "error": str(e)}
+
+
+_KPI_WARM_NAMES = ("Shreyasi", "Rimpa", "Akash", "Adrija", "Souvik")
+_KPI_WARM_INTERVAL_SEC = int(os.getenv("KPI_WARM_INTERVAL_SEC", "300"))
+
+
+def _default_kpi_warm_filters() -> tuple[str, str, str]:
+    today = date.today()
+    this_week_start = today - timedelta(days=today.weekday())
+    prev_start, _prev_end = prior_kpi_calendar_week_range(this_week_start)
+    return (
+        _MONTH_NAMES[prev_start.month - 1],
+        str(prev_start.year),
+        f"week {week_of_month_for_date(prev_start)}",
+    )
+
+
+def _warm_dashboard_kpi_cache_once() -> None:
+    month, year, week = _default_kpi_warm_filters()
+    for name in _KPI_WARM_NAMES:
+        try:
+            _dashboard_kpi_data(
+                name=name,
+                month=month,
+                year=year,
+                week=week,
+                viewer_email="",
+                include_progress=False,
+            )
+        except Exception as e:
+            _log(f"kpi warm {name}: {e}")
+
+
+def _start_dashboard_kpi_warmer() -> None:
+    if os.getenv("KPI_WARM_ENABLED", "1").strip() == "0":
+        return
+
+    def _loop() -> None:
+        while True:
+            try:
+                _warm_dashboard_kpi_cache_once()
+            except Exception as e:
+                _log(f"kpi warm loop: {e}")
+            time.sleep(max(60, _KPI_WARM_INTERVAL_SEC))
+
+    threading.Thread(target=_loop, name="dashboard-kpi-warmer", daemon=True).start()
+
+
+@app.on_event("startup")
+async def _start_dashboard_kpi_warmup():
+    _start_dashboard_kpi_warmer()
 
 
 @api_router.get("/dashboard/success-kpi-till-date")
@@ -5599,6 +5676,7 @@ def upsert_kpi_daily_log(
     }
     try:
         supabase.table("kpi_daily_work_log").upsert(row, on_conflict="user_id,work_date").execute()
+        _invalidate_ttl_cache_key_prefix("dash:")
     except Exception as e:
         msg = str(e)
         _log(f"upsert_kpi_daily_log: {msg}")
@@ -5697,6 +5775,7 @@ def put_adrija_social_kpi_daily(body: AdrijaSocialKpiDayBatchBody, auth: dict = 
         )
     try:
         supabase.table("onboarding_adrija_social_kpi_day").upsert(batch, on_conflict="work_date").execute()
+        _invalidate_ttl_cache_key_prefix("dash:")
     except Exception as e:
         _log(f"put_adrija_social_kpi_daily: {e}")
         raise HTTPException(
@@ -6200,14 +6279,1014 @@ def dashboard_bootstrap(auth: dict = Depends(get_current_user)):
         return _etag_json(_DASH_BOOTSTRAP_CACHE[email], max_age=45)
     except KeyError:
         pass
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        f_metrics = pool.submit(dashboard_metrics, auth)
-        f_trends = pool.submit(dashboard_trends, auth)
-        metrics = f_metrics.result()
-        trends = f_trends.result()
+    f_metrics = _DASH_EXECUTOR.submit(dashboard_metrics, auth)
+    f_trends = _DASH_EXECUTOR.submit(dashboard_trends, auth)
+    metrics = f_metrics.result()
+    trends = f_trends.result()
     payload = {"metrics": metrics, "trends": trends.get("data") if isinstance(trends, dict) else []}
     _DASH_BOOTSTRAP_CACHE[email] = payload
     return _etag_json(payload, max_age=45)
+
+
+class DashboardPermissionsModel(BaseModel):
+    support: bool = False
+    success: bool = False
+    clientToLead: bool = False
+    onboarding: bool = False
+    training: bool = False
+    clientPayment: bool = False
+    dbClient: bool = False
+    viewKpiSuccess: bool = False
+    manageUsers: bool = False
+    globalFilters: bool = False
+
+
+class DashboardUserContextModel(BaseModel):
+    userId: str
+    name: str
+    role: str
+    companyIds: list[str] = []
+    permissions: DashboardPermissionsModel
+
+
+class DashboardSnapshotModel(BaseModel):
+    dueToday: int = 0
+    overdue: int = 0
+    pendingApprovals: int = 0
+    kpiScore: int = 0
+    highRisk: int = 0
+
+
+class DashboardMyWorkModel(BaseModel):
+    checklistDueToday: int = 0
+    completedPct: int = 0
+    assignedToMe: int = 0
+    delegatedByMe: int = 0
+    supportTickets: int = 0
+
+
+class DashboardKpiModel(BaseModel):
+    weekly: int = 0
+    monthly: int = 0
+    checklistPct: int = 0
+    delegationPct: int = 0
+    supportFmsPct: int = 0
+    successKpi: int | None = None
+
+
+class DashboardSupportOpsModel(BaseModel):
+    open: int = 0
+    openChores: int = 0
+    openBugs: int = 0
+    openFeatures: int = 0
+    delayedResponse: int = 0
+    delayedCompletion: int = 0
+
+
+class DashboardSuccessOpsModel(BaseModel):
+    active: int = 0
+    completed: int = 0
+    lowPerformance: int = 0
+
+
+class DashboardClientToLeadOpsModel(BaseModel):
+    newLeads: int = 0
+    followUpDue: int = 0
+    closed: int = 0
+
+
+class DashboardOnboardingOpsModel(BaseModel):
+    active: int = 0
+    stuckStage: int = 0
+    pendingSetup: int = 0
+
+
+class DashboardTrainingOpsModel(BaseModel):
+    scheduled: int = 0
+    pending: int = 0
+    completed: int = 0
+
+
+class DashboardClientPaymentOpsModel(BaseModel):
+    pending: int = 0
+    ageingRisk: int = 0
+    completedRegister: int = 0
+
+
+class DashboardDbClientOpsModel(BaseModel):
+    active: int = 0
+    inactive: int = 0
+    missingFollowUp: int = 0
+
+
+class DashboardOperationsModel(BaseModel):
+    support: DashboardSupportOpsModel | None = None
+    success: DashboardSuccessOpsModel | None = None
+    clientToLead: DashboardClientToLeadOpsModel | None = None
+    onboarding: DashboardOnboardingOpsModel | None = None
+    training: DashboardTrainingOpsModel | None = None
+    clientPayment: DashboardClientPaymentOpsModel | None = None
+    dbClient: DashboardDbClientOpsModel | None = None
+
+
+class DashboardManagementModel(BaseModel):
+    activeUsers: int = 0
+    inactiveUsers: int = 0
+    usersOverdue: int = 0
+    usersLowKpi: int = 0
+    companiesAtRisk: int = 0
+    paymentAgeingHighRisk: int = 0
+
+
+class DashboardSummaryResponseModel(BaseModel):
+    user: DashboardUserContextModel
+    snapshot: DashboardSnapshotModel
+    myWork: DashboardMyWorkModel
+    kpi: DashboardKpiModel
+    operations: DashboardOperationsModel
+    management: DashboardManagementModel | None = None
+
+
+class DashboardSupportDetailRowModel(BaseModel):
+    id: str
+    referenceNo: str
+    title: str = ""
+    type: str = ""
+    company: str = ""
+    status: str = ""
+    reason: str = ""
+    createdAt: str | None = None
+
+
+class DashboardSupportDetailsResponseModel(BaseModel):
+    chores: list[DashboardSupportDetailRowModel] = []
+    bugs: list[DashboardSupportDetailRowModel] = []
+    features: list[DashboardSupportDetailRowModel] = []
+    responseDelay: list[DashboardSupportDetailRowModel] = []
+    completionDelay: list[DashboardSupportDetailRowModel] = []
+
+
+class DashboardOperationDetailRowModel(BaseModel):
+    id: str
+    referenceNo: str
+    title: str = ""
+    type: str = ""
+    company: str = ""
+    status: str = ""
+    reason: str = ""
+    response: str = ""
+    contact: str = ""
+    totalCompletionPct: int | None = None
+    currentStage: str = ""
+    targetUrl: str | None = None
+
+
+class DashboardOperationDetailsResponseModel(BaseModel):
+    section: str
+    title: str
+    rows: list[DashboardOperationDetailRowModel] = []
+
+
+_DASHBOARD_SUMMARY_CACHE: TTLCache = TTLCache(maxsize=512, ttl=60)
+_DASHBOARD_OPERATION_DETAILS_CACHE: TTLCache = TTLCache(maxsize=64, ttl=30)
+_UNIVERSAL_DASHBOARD_ALLOWED_EMAILS = {"aman@industryprime.com", "rimpa@industryprime.com"}
+_DASHBOARD_ALL_PERMISSION_KEYS = (
+    "support",
+    "success",
+    "clientToLead",
+    "onboarding",
+    "training",
+    "clientPayment",
+    "dbClient",
+    "viewKpiSuccess",
+    "manageUsers",
+    "globalFilters",
+)
+
+
+def _require_universal_dashboard_access(auth: dict) -> None:
+    email = str(auth.get("email") or "").strip().lower()
+    if email not in _UNIVERSAL_DASHBOARD_ALLOWED_EMAILS:
+        raise HTTPException(status_code=403, detail="Universal Dashboard is not enabled for this user.")
+
+
+def _dashboard_has_section(perms: list[dict], *section_keys: str) -> bool:
+    by_key = {str(p.get("section_key") or ""): p for p in perms}
+    return any(bool(by_key.get(k, {}).get("can_view")) for k in section_keys)
+
+
+def _dashboard_effective_permissions(role: str, section_permissions: list[dict]) -> DashboardPermissionsModel:
+    dashboard_role = "master_admin" if role == "master_admin" else ("admin" if role in ("admin", "approver") else "user")
+    if dashboard_role == "master_admin":
+        return DashboardPermissionsModel(**{k: True for k in _DASHBOARD_ALL_PERMISSION_KEYS})
+
+    support = _dashboard_has_section(
+        section_permissions,
+        "support_dashboard",
+        "all_tickets",
+        "chores_bugs",
+        "staging",
+        "feature",
+    )
+    success = _dashboard_has_section(section_permissions, "success_performance", "success_comp_perform")
+    client_to_lead = _dashboard_has_section(section_permissions, "client_to_lead", "leads")
+    onboarding = _dashboard_has_section(section_permissions, "onboarding", "onboarding_payment_status")
+    training = _dashboard_has_section(section_permissions, "training")
+    client_payment = _dashboard_has_section(section_permissions, "client_payment")
+    db_client = _dashboard_has_section(section_permissions, "db_client")
+    users = _dashboard_has_section(section_permissions, "users")
+    dashboard_kpi = _dashboard_has_section(section_permissions, "dashboard_kpi")
+
+    return DashboardPermissionsModel(
+        support=support,
+        success=success,
+        clientToLead=client_to_lead,
+        onboarding=onboarding,
+        training=training,
+        clientPayment=client_payment,
+        dbClient=db_client,
+        viewKpiSuccess=dashboard_kpi and (success or training),
+        manageUsers=dashboard_role == "admin" or users,
+        globalFilters=dashboard_role == "admin" or users,
+    )
+
+
+def _dashboard_role_for_contract(role: str) -> str:
+    if role == "master_admin":
+        return "master_admin"
+    if role in ("admin", "approver"):
+        return "admin"
+    return "user"
+
+
+def _dashboard_user_company_ids(user_id: str) -> list[str]:
+    for table in ("user_company_assignments", "user_companies"):
+        try:
+            r = supabase.table(table).select("company_id").eq("user_id", user_id).execute()
+            ids = [str(row.get("company_id")) for row in (r.data or []) if row.get("company_id")]
+            if ids:
+                return sorted(set(ids))
+        except Exception:
+            continue
+    return []
+
+
+def _dashboard_display_name(row: dict, auth: dict | None = None) -> str:
+    role_like = {"user", "admin", "master_admin", "approver"}
+    for key in ("display_name", "full_name"):
+        value = str(row.get(key) or "").strip()
+        if value and value.lower() not in role_like:
+            return value
+    email = str((auth or {}).get("email") or "").strip()
+    if email and "@" in email:
+        return email.split("@", 1)[0].replace(".", " ").replace("_", " ").title()
+    return "User"
+
+
+def _dashboard_profile_context(user_id: str, auth: dict | None = None) -> tuple[str, str, list[dict], list[str]]:
+    profile = (
+        supabase.table("user_profiles")
+        .select("id, full_name, display_name, role_id")
+        .eq("id", user_id)
+        .single()
+        .execute()
+    )
+    row = profile.data or {}
+    role = _get_role_from_profile(user_id)
+    try:
+        perm_r = (
+            supabase.table("user_section_permissions")
+            .select("section_key, can_view, can_edit")
+            .eq("user_id", user_id)
+            .execute()
+        )
+        section_permissions = _build_section_permissions_list(role, perm_r.data or [])
+    except Exception:
+        section_permissions = _build_section_permissions_list(role, [])
+    name = _dashboard_display_name(row, auth)
+    return name, role, section_permissions, _dashboard_user_company_ids(user_id)
+
+
+def _dashboard_count(table: str, build_query: Callable[[Any], Any] | None = None) -> int:
+    try:
+        q = supabase.table(table).select("id", count="exact")
+        if build_query is not None:
+            q = build_query(q)
+        r = q.limit(1).execute()
+        return int(getattr(r, "count", 0) or 0)
+    except Exception as e:
+        _log(f"dashboard/summary count {table}: {e}")
+        return 0
+
+
+def _dashboard_scope_user_id(
+    requested_user_id: str | None,
+    auth_user_id: str,
+    dashboard_role: str,
+) -> str | None:
+    if dashboard_role == "user":
+        return auth_user_id
+    value = (requested_user_id or "").strip()
+    return value or None
+
+
+def _dashboard_scope_company_id(
+    requested_company_id: str | None,
+    company_ids: list[str],
+    dashboard_role: str,
+) -> str | None:
+    value = (requested_company_id or "").strip()
+    if dashboard_role == "master_admin":
+        return value or None
+    if dashboard_role == "admin":
+        if not value:
+            return None
+        return value if value in set(company_ids) else None
+    return None
+
+
+def _dashboard_ticket_scope(q: Any, user_id: str | None, company_id: str | None) -> Any:
+    if user_id:
+        q = q.or_(f"assignee_id.eq.{user_id},created_by.eq.{user_id}")
+    if company_id:
+        q = q.eq("company_id", company_id)
+    return q
+
+
+def _dashboard_open_ticket_query(ticket_type: str, user_id: str):
+    return _dashboard_ticket_scope(
+        supabase.table("tickets").select("id", count="exact").eq("type", ticket_type),
+        user_id,
+        None,
+    ).or_("status_4.is.null,status_4.neq.completed")
+
+
+def _dashboard_prior_week_range() -> tuple[date, date]:
+    today = datetime.now(timezone.utc).date()
+    this_week_start = today - timedelta(days=today.weekday())
+    start = this_week_start - timedelta(days=7)
+    end = this_week_start - timedelta(days=1)
+    return start, end
+
+
+def _dashboard_support_detail_row(ticket: dict, reason: str = "") -> DashboardSupportDetailRowModel:
+    return DashboardSupportDetailRowModel(
+        id=str(ticket.get("id") or ""),
+        referenceNo=(ticket.get("reference_no") or "").strip() or "N/A",
+        title=(ticket.get("title") or "").strip(),
+        type=(ticket.get("type") or "").strip(),
+        company=(ticket.get("company_name") or "").strip(),
+        status=(ticket.get("status") or ticket.get("status_4") or "").strip(),
+        reason=reason,
+        createdAt=ticket.get("created_at"),
+    )
+
+
+def _dashboard_operation_row(
+    row: dict,
+    *,
+    reference: str | None = None,
+    title: str | None = None,
+    row_type: str = "",
+    company: str | None = None,
+    status: str | None = None,
+    reason: str = "",
+    response: str | None = None,
+    contact: str | None = None,
+    total_completion_pct: int | float | None = None,
+    current_stage: str | None = None,
+    target_url: str | None = None,
+) -> DashboardOperationDetailRowModel:
+    rid = str(row.get("id") or row.get("payment_status_id") or row.get("client_payment_id") or "")
+    ref = (reference or row.get("reference_no") or row.get("old_reference_no") or rid or "N/A")
+    pct_value = total_completion_pct if total_completion_pct is not None else row.get("total_percentage")
+    try:
+        pct_out = int(round(float(pct_value))) if pct_value is not None and str(pct_value).strip() != "" else None
+    except Exception:
+        pct_out = None
+    return DashboardOperationDetailRowModel(
+        id=rid,
+        referenceNo=str(ref).strip() or "N/A",
+        title=str(title or row.get("title") or row.get("company_name") or row.get("feature") or "").strip(),
+        type=row_type,
+        company=str(company or row.get("company_name") or "").strip(),
+        status=str(status or row.get("status") or row.get("completion_status") or row.get("stage") or "").strip(),
+        reason=reason,
+        response=str(response or row.get("response") or "").strip(),
+        contact=str(contact or row.get("contact") or "").strip(),
+        totalCompletionPct=pct_out,
+        currentStage=str(current_stage or row.get("current_stage") or "").strip(),
+        targetUrl=target_url,
+    )
+
+
+def _dashboard_success_preview_rows(limit: int = 200) -> list[dict]:
+    cols = "id, company_id, message_owner, response, contact, reference_no, completion_status, created_at"
+    marked_na_ok = performance_marked_na_supported()
+    if marked_na_ok:
+        cols += ",marked_na"
+    q = (
+        supabase.table("performance_monitoring")
+        .select(cols)
+        .or_("completion_status.eq.in_progress,completion_status.is.null")
+    )
+    if marked_na_ok:
+        q = q.or_("marked_na.is.null,marked_na.eq.false")
+    rows = q.order("created_at", desc=True).limit(max(1, min(limit, 200))).execute().data or []
+    if not rows:
+        return []
+    ticket_ids = [row.get("id") for row in rows if row.get("id")]
+    company_ids = list({row.get("company_id") for row in rows if row.get("company_id")})
+    training_map: dict[str, int | float | None] = {}
+    companies_map: dict[str, str] = {}
+
+    def _load_training() -> None:
+        nonlocal training_map
+        if not ticket_ids:
+            return
+        try:
+            tr = (
+                supabase.table("performance_training")
+                .select("performance_id,total_percentage")
+                .in_("performance_id", ticket_ids)
+                .execute()
+                .data
+                or []
+            )
+            training_map = {str(t.get("performance_id")): t.get("total_percentage") for t in tr if t.get("performance_id")}
+        except Exception as e:
+            _log(f"dashboard/success-preview training: {e}")
+
+    def _load_companies() -> None:
+        nonlocal companies_map
+        if not company_ids:
+            return
+        try:
+            cr = supabase.table("companies").select("id,name").in_("id", company_ids).execute().data or []
+            companies_map = {str(c.get("id")): str(c.get("name") or "") for c in cr if c.get("id")}
+        except Exception as e:
+            _log(f"dashboard/success-preview companies: {e}")
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        f_training = pool.submit(_load_training)
+        f_companies = pool.submit(_load_companies)
+        f_training.result()
+        f_companies.result()
+
+    for row in rows:
+        row_id = str(row.get("id") or "")
+        total = training_map.get(row_id)
+        row["company_name"] = companies_map.get(str(row.get("company_id") or ""), "")
+        row["total_percentage"] = total
+        if row.get("completion_status") == "completed":
+            row["current_stage"] = "Completed"
+        elif row_id not in training_map:
+            row["current_stage"] = "POC Added - Pending: Training"
+        elif total is None:
+            row["current_stage"] = "Training Done - Pending: Followup"
+        else:
+            try:
+                pct = float(total)
+            except Exception:
+                pct = 0
+            row["current_stage"] = "Followup completed" if pct >= 100 else "Followup in progress"
+    _sort_performance_list_rows(rows)
+    return rows
+
+
+def _dashboard_fetch_user_support_details(user_id: str) -> DashboardSupportDetailsResponseModel:
+    cols = (
+        "id,reference_no,title,type,status,status_4,company_name,created_by,assignee_id,created_at,"
+        "query_arrival_at,query_response_at,actual_4,planned_2,actual_2,actual_1,status_2,quality_solution"
+    )
+
+
+def _dashboard_operation_details(section: str) -> DashboardOperationDetailsResponseModel:
+    key = (section or "").strip()
+    try:
+        if key == "success":
+            cached = _DASHBOARD_OPERATION_DETAILS_CACHE.get(key)
+            if cached is not None:
+                return cached
+            rows = _dashboard_success_preview_rows(200)
+            payload = DashboardOperationDetailsResponseModel(
+                section=key,
+                title="Success Preview",
+                rows=[
+                    _dashboard_operation_row(
+                        r,
+                        row_type="Success",
+                        company=r.get("company_name"),
+                        status=r.get("completion_status"),
+                        response=r.get("response"),
+                        contact=r.get("contact"),
+                        total_completion_pct=r.get("total_percentage"),
+                        current_stage=r.get("current_stage"),
+                        target_url="/success/performance",
+                    )
+                    for r in rows
+                ],
+            )
+            _DASHBOARD_OPERATION_DETAILS_CACHE[key] = payload
+            return payload
+        if key == "clientToLead":
+            rows = (
+                supabase.table("leads")
+                .select("*")
+                .order("created_at", desc=True)
+                .limit(200)
+                .execute()
+                .data
+                or []
+            )
+            return DashboardOperationDetailsResponseModel(
+                section=key,
+                title="Client to Lead Preview",
+                rows=[
+                    _dashboard_operation_row(
+                        r,
+                        row_type="Lead",
+                        title=r.get("company_name") or r.get("name") or r.get("contact_name"),
+                        company=r.get("company_name"),
+                        status=r.get("status") or r.get("stage"),
+                        target_url=f"/client-to-lead/leads/{r.get('id')}",
+                    )
+                    for r in rows
+                ],
+            )
+        if key == "onboarding":
+            rows = (
+                supabase.table("onboarding_payment_status")
+                .select("id,timestamp,reference_no,company_name,payment_status,payment_received_date,poc_name")
+                .order("timestamp", desc=True)
+                .limit(200)
+                .execute()
+                .data
+                or []
+            )
+            status_map = _get_onboarding_stage_status([r.get("id") for r in rows if r.get("id")])
+            return DashboardOperationDetailsResponseModel(
+                section=key,
+                title="Onboarding Preview",
+                rows=[
+                    _dashboard_operation_row(
+                        r,
+                        row_type="Onboarding",
+                        company=r.get("company_name"),
+                        status=status_map.get(r.get("id")) or r.get("payment_status"),
+                        reason=f"POC: {r.get('poc_name') or '-'}",
+                        target_url=f"/onboarding/payment-status?reference={r.get('reference_no') or ''}",
+                    )
+                    for r in rows
+                ],
+            )
+        if key == "training":
+            setup_rows = (
+                supabase.table("onboarding_final_setup")
+                .select("payment_status_id,submitted_at")
+                .order("submitted_at", desc=True)
+                .limit(200)
+                .execute()
+                .data
+                or []
+            )
+            payment_ids = [r.get("payment_status_id") for r in setup_rows if r.get("payment_status_id")]
+            payment_map: dict[str, dict] = {}
+            if payment_ids:
+                pay = (
+                    supabase.table("onboarding_payment_status")
+                    .select("id,company_name,reference_no,poc_name")
+                    .in_("id", payment_ids)
+                    .execute()
+                    .data
+                    or []
+                )
+                payment_map = {str(p.get("id")): p for p in pay if p.get("id")}
+            assignment_map: dict[str, dict] = {}
+            if payment_ids:
+                try:
+                    assignments = (
+                        supabase.table("training_client_assignments")
+                        .select("payment_status_id,poc_name,trainer_user_id,created_at")
+                        .in_("payment_status_id", payment_ids)
+                        .execute()
+                        .data
+                        or []
+                    )
+                    assignment_map = {str(a.get("payment_status_id")): a for a in assignments if a.get("payment_status_id")}
+                except Exception as e:
+                    _log(f"dashboard/operation-details training assignments: {e}")
+            return DashboardOperationDetailsResponseModel(
+                section=key,
+                title="Training Preview",
+                rows=[
+                    _dashboard_operation_row(
+                        r,
+                        reference=(payment_map.get(str(r.get("payment_status_id"))) or {}).get("reference_no"),
+                        row_type="Training",
+                        company=(payment_map.get(str(r.get("payment_status_id"))) or {}).get("company_name"),
+                        status="Assigned" if assignment_map.get(str(r.get("payment_status_id"))) else "Pending Assignment",
+                        reason=f"POC: {(assignment_map.get(str(r.get('payment_status_id'))) or payment_map.get(str(r.get('payment_status_id'))) or {}).get('poc_name') or '-'}",
+                        target_url="/training/client-training",
+                    )
+                    for r in setup_rows
+                ],
+            )
+        if key == "clientPayment":
+            rows = (
+                _ocp_query_exclude_marked_na(
+                    supabase.table("onboarding_client_payment")
+                    .select(_ocp_list_select_columns())
+                )
+                .order("timestamp", desc=True)
+                .limit(200)
+                .execute()
+                .data
+                or []
+            )
+            return DashboardOperationDetailsResponseModel(
+                section=key,
+                title="Client Payment Preview",
+                rows=[
+                    _dashboard_operation_row(
+                        r,
+                        row_type="Client Payment",
+                        company=r.get("company_name"),
+                        status="Paid" if r.get("payment_received_date") else "Pending",
+                        reason=str(r.get("invoice_number") or r.get("stage") or ""),
+                        target_url=f"/onboarding/client-payment?reference={r.get('reference_no') or ''}",
+                    )
+                    for r in rows
+                ],
+            )
+        if key == "dbClient":
+            rows = (
+                supabase.table("db_client_client_onb")
+                .select(
+                    "id,reference_no,organization_name,company_name,contact_person,status,client_location_city,client_location_state"
+                )
+                .order("reference_no", desc=True)
+                .limit(200)
+                .execute()
+                .data
+                or []
+            )
+            return DashboardOperationDetailsResponseModel(
+                section=key,
+                title="DB Client Preview",
+                rows=[
+                    _dashboard_operation_row(
+                        r,
+                        row_type="DB Client",
+                        title=r.get("organization_name") or r.get("company_name") or r.get("contact_person"),
+                        company=r.get("company_name") or r.get("organization_name"),
+                        status=r.get("status") or "active",
+                        reason=", ".join(
+                            str(v).strip()
+                            for v in (r.get("contact_person"), r.get("client_location_city"), r.get("client_location_state"))
+                            if str(v or "").strip()
+                        ),
+                        target_url=f"/db-client/client-onb?reference={r.get('reference_no') or ''}",
+                    )
+                    for r in rows
+                ],
+            )
+    except Exception as e:
+        _log(f"dashboard/operation-details {key}: {e}")
+    return DashboardOperationDetailsResponseModel(section=key, title="Preview", rows=[])
+
+
+def _dashboard_fetch_user_support_details(user_id: str) -> DashboardSupportDetailsResponseModel:
+    """Mirror Support section filters for Universal Dashboard drill-down data."""
+    _ = user_id  # Support dashboard mirrors Support section data; it is not filtered by assignee/creator.
+    cols = (
+        "id,reference_no,title,type,status,status_4,company_name,created_by,assignee_id,created_at,"
+        "query_arrival_at,query_response_at,actual_4,planned_2,actual_2,actual_1,status_2,quality_solution"
+    )
+    response_start, response_end = _dashboard_prior_week_range()
+    chore_bug_rows: list[dict] = []
+    feature_rows: list[dict] = []
+    week_rows: list[dict] = []
+
+    try:
+        chore_bug_q = _apply_chores_bugs_pending_filters(supabase.table("tickets").select(cols))
+        chore_bug_q = chore_bug_q.or_("status_4.is.null,status_4.neq.completed")
+        chore_bug_q = _exclude_repeat_children_from_list(chore_bug_q)
+        chore_bug_rows = chore_bug_q.order("created_at", desc=True).limit(500).execute().data or []
+    except Exception as e:
+        _log(f"dashboard/support-details chores-bugs: {e}")
+
+    try:
+        feature_q = (
+            supabase.table("tickets")
+            .select(cols)
+            .eq("type", "feature")
+            .eq("approval_status", "approved")
+            .or_("staging_planned.is.null,live_review_status.eq.completed")
+            .or_("live_status.is.null,live_status.neq.completed")
+        )
+        feature_q = _exclude_repeat_children_from_list(feature_q)
+        feature_rows = feature_q.order("created_at", desc=True).limit(500).execute().data or []
+    except Exception as e:
+        _log(f"dashboard/support-details feature: {e}")
+
+    try:
+        week_q = (
+            supabase.table("tickets")
+            .select(cols)
+            .in_("type", ["chore", "bug", "feature"])
+            .gte("created_at", response_start.isoformat())
+            .lte("created_at", response_end.isoformat())
+        )
+        week_q = _exclude_repeat_children_from_list(week_q)
+        week_rows = week_q.order("created_at", desc=True).limit(500).execute().data or []
+    except Exception as e:
+        _log(f"dashboard/support-details week: {e}")
+
+    response_delay: list[DashboardSupportDetailRowModel] = []
+    completion_delay: list[DashboardSupportDetailRowModel] = []
+    for ticket in week_rows:
+        has_rd, rd_reason = _has_response_delay(ticket.get("query_arrival_at") or ticket.get("created_at"), ticket.get("query_response_at"))
+        if has_rd:
+            response_delay.append(_dashboard_support_detail_row(ticket, rd_reason or "Response delay"))
+        has_cd, cd_reason = _has_completion_delay(
+            resolved_at=ticket.get("actual_4"),
+            created_at=ticket.get("created_at"),
+            ticket_type=ticket.get("type"),
+            planned_2=ticket.get("planned_2"),
+            actual_2=ticket.get("actual_2"),
+            status_2=ticket.get("status_2"),
+            actual_1=ticket.get("actual_1"),
+        )
+        if has_cd:
+            completion_delay.append(_dashboard_support_detail_row(ticket, cd_reason or "Completion delay"))
+
+    return DashboardSupportDetailsResponseModel(
+        chores=[_dashboard_support_detail_row(t) for t in chore_bug_rows if t.get("type") == "chore"],
+        bugs=[_dashboard_support_detail_row(t) for t in chore_bug_rows if t.get("type") == "bug"],
+        features=[_dashboard_support_detail_row(t) for t in feature_rows],
+        responseDelay=response_delay,
+        completionDelay=completion_delay,
+    )
+
+
+def _dashboard_count_open_chore_bug(ticket_type: str) -> int:
+    return _dashboard_count(
+        "tickets",
+        lambda q: _exclude_repeat_children_from_list(
+            _apply_chores_bugs_pending_filters(q.eq("type", ticket_type), type_filter=ticket_type)
+            .or_("status_4.is.null,status_4.neq.completed")
+        ),
+    )
+
+
+def _dashboard_count_open_features() -> int:
+    return _dashboard_count(
+        "tickets",
+        lambda q: _exclude_repeat_children_from_list(
+            q.eq("type", "feature")
+            .eq("approval_status", "approved")
+            .or_("staging_planned.is.null,live_review_status.eq.completed")
+            .or_("live_status.is.null,live_status.neq.completed")
+        ),
+    )
+
+
+def _dashboard_support_delay_counts() -> tuple[int, int]:
+    cols = "id,type,created_at,query_arrival_at,query_response_at,actual_4,planned_2,actual_2,actual_1,status_2"
+    response_start, response_end = _dashboard_prior_week_range()
+    try:
+        week_q = (
+            supabase.table("tickets")
+            .select(cols)
+            .in_("type", ["chore", "bug", "feature"])
+            .gte("created_at", response_start.isoformat())
+            .lte("created_at", response_end.isoformat())
+        )
+        week_q = _exclude_repeat_children_from_list(week_q)
+        week_rows = week_q.order("created_at", desc=True).limit(500).execute().data or []
+    except Exception as e:
+        _log(f"dashboard/summary support delay counts: {e}")
+        return 0, 0
+    response_delay = 0
+    completion_delay = 0
+    for ticket in week_rows:
+        if _has_response_delay(ticket.get("query_arrival_at") or ticket.get("created_at"), ticket.get("query_response_at"))[0]:
+            response_delay += 1
+        if _has_completion_delay(
+            resolved_at=ticket.get("actual_4"),
+            created_at=ticket.get("created_at"),
+            ticket_type=ticket.get("type"),
+            planned_2=ticket.get("planned_2"),
+            actual_2=ticket.get("actual_2"),
+            status_2=ticket.get("status_2"),
+            actual_1=ticket.get("actual_1"),
+        )[0]:
+            completion_delay += 1
+    return response_delay, completion_delay
+
+
+def _dashboard_date_filters(month: str | None, week: str | None) -> tuple[date, date]:
+    today = datetime.now(timezone.utc).date()
+    month_num = today.month
+    year_num = today.year
+    if month:
+        for idx, label in enumerate(_MONTH_NAMES, 1):
+            if label.lower() == month.strip().lower():
+                month_num = idx
+                break
+    range_week = None
+    try:
+        range_week = _dashboard_kpi_week_range(year_num, month_num, week or f"week {week_of_month_for_date(today)}")
+    except Exception:
+        range_week = None
+    if range_week:
+        return range_week
+    return today, today
+
+
+@api_router.get("/dashboard/summary", response_model=DashboardSummaryResponseModel)
+def dashboard_summary(
+    month: str | None = Query(None),
+    week: str | None = Query(None),
+    companyId: str | None = Query(None),
+    userId: str | None = Query(None),
+    section: str | None = Query(None),
+    auth: dict = Depends(get_current_user),
+):
+    _require_universal_dashboard_access(auth)
+    auth_user_id = str(auth["id"])
+    name, role_raw, section_permissions, company_ids = _dashboard_profile_context(auth_user_id, auth)
+    dashboard_role = _dashboard_role_for_contract(role_raw)
+    permissions = _dashboard_effective_permissions(role_raw, section_permissions)
+    # This dashboard is intentionally user-id scoped for every role.
+    permissions.manageUsers = False
+    permissions.globalFilters = False
+    scoped_user_id = auth_user_id
+    scoped_company_id = None
+    scope_key = {
+        "auth": auth_user_id,
+        "role": dashboard_role,
+        "user": scoped_user_id,
+        "company": scoped_company_id,
+        "month": month or "",
+        "week": week or "",
+        "section": section or "",
+    }
+    _ = scope_key  # kept explicit for future audit logging; summary itself is real-time.
+
+    today = datetime.now(timezone.utc).date()
+    week_start, week_end = _dashboard_date_filters(month, week)
+    open_statuses = ["pending", "open", "in_progress", "in progress", "staging"]
+
+    checklist_due = _dashboard_count(
+        "checklist_tasks",
+        lambda q: q.eq("doer_id", scoped_user_id or auth_user_id),
+    )
+    delegated_assigned = _dashboard_count(
+        "delegation_tasks",
+        lambda q: q.eq("assignee_id", scoped_user_id or auth_user_id).neq("status", "completed"),
+    )
+    delegated_by_me = _dashboard_count(
+        "delegation_tasks",
+        lambda q: q.eq("submitted_by", scoped_user_id or auth_user_id),
+    )
+    open_chores = _dashboard_count_open_chore_bug("chore")
+    pending_bug_till_date = _dashboard_count_open_chore_bug("bug")
+    open_features = _dashboard_count_open_features()
+    support_open = open_chores + pending_bug_till_date + open_features
+    delayed_response, delayed_completion = _dashboard_support_delay_counts()
+    pending_approval_features = _dashboard_count(
+        "tickets",
+        lambda q: _dashboard_ticket_scope(q.eq("type", "feature").is_("approval_status", "null"), scoped_user_id, None),
+    )
+
+    checklist_pct = 0 if checklist_due else 100
+    delegation_pct = max(0, min(100, 100 - min(delegated_assigned * 5, 100)))
+    support_pct = max(0, min(100, 100 - min(delayed_response * 10, 100)))
+    weekly_kpi = round((checklist_pct + delegation_pct + support_pct) / 3)
+
+    operations = DashboardOperationsModel(
+        support=DashboardSupportOpsModel(
+            open=support_open,
+            openChores=open_chores,
+            openBugs=pending_bug_till_date,
+            openFeatures=open_features,
+            delayedResponse=delayed_response,
+            delayedCompletion=delayed_completion,
+        ) if permissions.support else None,
+        success=DashboardSuccessOpsModel(
+            active=_dashboard_count("performance_monitoring", lambda q: q.eq("completion_status", "in_progress")),
+            completed=_dashboard_count("performance_monitoring", lambda q: q.eq("completion_status", "completed")),
+            lowPerformance=0,
+        ) if permissions.success else None,
+        clientToLead=DashboardClientToLeadOpsModel(
+            newLeads=_dashboard_count("leads", lambda q: q.gte("created_at", week_start.isoformat()).lte("created_at", week_end.isoformat())),
+            followUpDue=0,
+            closed=_dashboard_count("leads", lambda q: q.eq("status", "Closed")),
+        ) if permissions.clientToLead else None,
+        onboarding=DashboardOnboardingOpsModel(
+            active=_dashboard_count("onboarding_payment_status"),
+            stuckStage=0,
+            pendingSetup=0,
+        ) if permissions.onboarding else None,
+        training=DashboardTrainingOpsModel(
+            scheduled=_dashboard_count("training_client_assignments"),
+            pending=0,
+            completed=0,
+        ) if permissions.training else None,
+        clientPayment=DashboardClientPaymentOpsModel(
+            pending=_dashboard_count("onboarding_client_payment", lambda q: q.is_("payment_received_date", "null")),
+            ageingRisk=0,
+            completedRegister=_dashboard_count("onboarding_client_payment", lambda q: q.not_.is_("payment_received_date", "null")),
+        ) if permissions.clientPayment else None,
+        dbClient=DashboardDbClientOpsModel(
+            active=_dashboard_count("db_client_client_onb", lambda q: q.neq("status", "inactive")),
+            inactive=_dashboard_count("db_client_client_onb", lambda q: q.eq("status", "inactive")),
+            missingFollowUp=0,
+        ) if permissions.dbClient else None,
+    )
+
+    management = None
+    if permissions.manageUsers:
+        management = DashboardManagementModel(
+            activeUsers=_dashboard_count("user_profiles", lambda q: q.eq("is_active", True)),
+            inactiveUsers=_dashboard_count("user_profiles", lambda q: q.eq("is_active", False)),
+            usersOverdue=0,
+            usersLowKpi=0,
+            companiesAtRisk=pending_approval_features,
+            paymentAgeingHighRisk=operations.clientPayment.ageingRisk if operations.clientPayment else 0,
+        )
+
+    payload = DashboardSummaryResponseModel(
+        user=DashboardUserContextModel(
+            userId=auth_user_id,
+            name=name,
+            role=dashboard_role,
+            companyIds=company_ids,
+            permissions=permissions,
+        ),
+        snapshot=DashboardSnapshotModel(
+            dueToday=pending_bug_till_date,
+            overdue=0,
+            pendingApprovals=pending_approval_features,
+            kpiScore=0,
+            highRisk=0,
+        ),
+        myWork=DashboardMyWorkModel(
+            checklistDueToday=checklist_due,
+            completedPct=checklist_pct,
+            assignedToMe=delegated_assigned,
+            delegatedByMe=delegated_by_me,
+            supportTickets=support_open,
+        ),
+        kpi=DashboardKpiModel(
+            weekly=weekly_kpi,
+            monthly=weekly_kpi,
+            checklistPct=checklist_pct,
+            delegationPct=delegation_pct,
+            supportFmsPct=support_pct,
+            successKpi=weekly_kpi if permissions.viewKpiSuccess else None,
+        ),
+        operations=operations,
+        management=management,
+    )
+    return payload
+
+
+@api_router.get("/dashboard/support-details", response_model=DashboardSupportDetailsResponseModel)
+def dashboard_support_details(auth: dict = Depends(get_current_user)):
+    """User-scoped Support drill-down rows for the universal dashboard modal."""
+    _require_universal_dashboard_access(auth)
+    _name, role_raw, section_permissions, _company_ids = _dashboard_profile_context(str(auth["id"]), auth)
+    permissions = _dashboard_effective_permissions(role_raw, section_permissions)
+    if not permissions.support:
+        raise HTTPException(status_code=403, detail="No access to Support details")
+    return _dashboard_fetch_user_support_details(str(auth["id"]))
+
+
+@api_router.get("/dashboard/operation-details", response_model=DashboardOperationDetailsResponseModel)
+def dashboard_operation_details(
+    section: str = Query(..., description="success | clientToLead | onboarding | training | clientPayment | dbClient"),
+    auth: dict = Depends(get_current_user),
+):
+    _require_universal_dashboard_access(auth)
+    _name, role_raw, section_permissions, _company_ids = _dashboard_profile_context(str(auth["id"]), auth)
+    permissions = _dashboard_effective_permissions(role_raw, section_permissions)
+    allowed = {
+        "success": permissions.success,
+        "clientToLead": permissions.clientToLead,
+        "onboarding": permissions.onboarding,
+        "training": permissions.training,
+        "clientPayment": permissions.clientPayment,
+        "dbClient": permissions.dbClient,
+    }
+    key = (section or "").strip()
+    if key not in allowed:
+        raise HTTPException(status_code=400, detail="Unknown operation section")
+    if not allowed[key]:
+        raise HTTPException(status_code=403, detail="No access to this operation section")
+    return _dashboard_operation_details(key)
 
 
 # ---------- Support Form Lookups ----------
