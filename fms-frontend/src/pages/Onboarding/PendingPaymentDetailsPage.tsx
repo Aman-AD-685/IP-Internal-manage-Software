@@ -8,6 +8,7 @@ import { normalizeCompanyDedupeKey } from '../../utils/companiesDedupe'
 import './PendingPaymentDetailsPage.css'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
 import { exportRowsToCsv, type ExportColumn } from '../../utils/exportCsv'
+import { OperationsSectionTabs } from '../../components/common/OperationsSectionTabs'
 
 const { Title } = Typography
 const { RangePicker } = DatePicker
@@ -247,6 +248,9 @@ export function PendingPaymentDetailsPage() {
       <div className="ppd-title-box">
         <div className="ppd-title">PENDING PAYMENT DETAILS</div>
       </div>
+      <Space style={{ margin: '0 0 16px 0' }} wrap>
+        <OperationsSectionTabs module="client-payment" />
+      </Space>
 
       <div className="ppd-controls">
         <div className="ppd-control ppd-control--company">

@@ -98,6 +98,14 @@ npm run dev
 
 ---
 
+## Universal Dashboard Permissions
+
+The main dashboard is driven by role + section permission flags, not email allowlists. To grant a user a new dashboard section, update `user_section_permissions` for that user and set `can_view=true` for the matching section key, such as `client_payment`, `training`, `db_client`, `success_performance`, `client_to_lead`, or `task`.
+
+`master_admin` receives all dashboard permissions from the backend. `admin` receives management/global-filter capabilities plus the section flags assigned in the permission matrix. Normal users only see their own scoped data and the sections explicitly granted. Do not add new `if email === ...` dashboard access rules.
+
+---
+
 ## Contributing & license
 
 Follow patterns in `01_`–`05_` docs; respect RLS and role checks on new endpoints.  

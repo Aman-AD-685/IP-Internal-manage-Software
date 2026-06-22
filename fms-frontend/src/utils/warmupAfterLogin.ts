@@ -1,4 +1,3 @@
-import { dashboardApi } from '../api/dashboard'
 import { DASHBOARD_KPI_NAMES, prefetchDashboardKpiPerson, MONTHS } from '../api/dashboardKpi'
 import { getDefaultPreviousWeekFilter } from '../pages/Dashboard/kpiWeekUtils'
 import { prefetchRouteData, startIdleRoutePrefetch } from './routePrefetch'
@@ -26,10 +25,11 @@ export function scheduleWhenIdle(fn: () => void, timeoutMs = 4000): () => void {
  */
 export function warmupAfterLogin(targetPath: string): void {
   const routeKey = targetPath.startsWith('/') ? targetPath : `/${targetPath}`
-  void dashboardApi.getBootstrap().catch(() => {})
   prefetchRouteData(routeKey)
   const [path] = routeKey.split('?')
-  if (path !== ROUTES.DASHBOARD) prefetchRouteData(ROUTES.DASHBOARD)
+  if (path !== ROUTES.DASHBOARD) {
+    scheduleAfterFirstPaint(() => prefetchRouteData(ROUTES.DASHBOARD), 750)
+  }
   if (!routeKey.includes(ROUTES.TICKETS)) {
     prefetchRouteData(`${ROUTES.TICKETS}?section=chores-bugs`)
   }

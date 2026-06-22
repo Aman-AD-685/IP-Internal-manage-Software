@@ -5,12 +5,18 @@ Use for API authorization — never rely on UI-only gating for KPI / IP / I-1 da
 """
 from __future__ import annotations
 
+import os
+import threading
 from fastapi import HTTPException
+from cachetools import TTLCache
 
 from app.dashboard_kpi_sections import PERSON_KEY_BY_DASHBOARD_NAME
 from app.supabase_client import supabase
 
 KPI_PERSON_KEY_PREFIX = "dashboard_kpi_person_"
+_PERMISSION_CACHE_TTL_SEC = int(os.getenv("SECTION_PERMISSION_CACHE_TTL_SEC", "180"))
+_PERMISSION_CACHE: TTLCache = TTLCache(maxsize=512, ttl=_PERMISSION_CACHE_TTL_SEC)
+_PERMISSION_CACHE_LOCK = threading.Lock()
 
 
 def _fetch_perm_rows(user_id: str) -> list[dict]:
@@ -30,8 +36,16 @@ def get_merged_section_permissions(user_id: str) -> list[dict]:
     """Same shape as login /users/me section_permissions."""
     from app.main import _build_section_permissions_list, _get_role_from_profile
 
+    with _PERMISSION_CACHE_LOCK:
+        cached = _PERMISSION_CACHE.get(user_id)
+        if cached is not None:
+            return [dict(row) for row in cached]
+
     role = _get_role_from_profile(user_id)
-    return _build_section_permissions_list(role, _fetch_perm_rows(user_id))
+    merged = _build_section_permissions_list(role, _fetch_perm_rows(user_id))
+    with _PERMISSION_CACHE_LOCK:
+        _PERMISSION_CACHE[user_id] = [dict(row) for row in merged]
+    return merged
 
 
 def can_view_section_from_list(perms: list[dict], section_key: str) -> bool:

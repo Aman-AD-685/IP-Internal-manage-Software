@@ -28,6 +28,7 @@ import {
 } from '../../utils/sessionApiCache'
 import { sortPerformanceRefOptions } from '../../utils/performanceRefs'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
+import { OperationsSectionTabs } from '../../components/common/OperationsSectionTabs'
 const { Title, Text } = Typography
 
 /* List endpoint batches Supabase calls; allow headroom for cold DB / network. */
@@ -853,10 +854,13 @@ export const PerformanceMonitoringPage = () => {
 
   return (
     <div>
-      <Title level={4} className="page-main-heading" style={{ marginBottom: 24 }}>
-        <LineChartOutlined style={{ marginRight: 8 }} />
-        Performance Monitoring
-      </Title>
+      <Space style={{ marginBottom: 24 }} wrap align="center">
+        <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
+          <LineChartOutlined style={{ marginRight: 8 }} />
+          Performance Monitoring
+        </Title>
+        <OperationsSectionTabs module="success" />
+      </Space>
 
       <Card style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>

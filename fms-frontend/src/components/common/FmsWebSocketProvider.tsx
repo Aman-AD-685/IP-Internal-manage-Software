@@ -12,6 +12,7 @@ import type { AppReleaseBroadcast } from '../../api/appRelease'
 const RECONNECT_MS = 3_000
 const AUTH_RECONNECT_MS = 60_000
 const PING_MS = 45_000
+const MAX_RECONNECT_MS = 60_000
 
 type WsEnvelope =
   | { type: 'hello'; system_lock?: SystemLockStatus; app_release?: AppReleaseBroadcast }
@@ -72,6 +73,7 @@ export function FmsWebSocketProvider({ children }: { children: React.ReactNode }
   const reconnectRef = useRef<number | null>(null)
   const pingRef = useRef<number | null>(null)
   const stoppedRef = useRef(false)
+  const reconnectAttemptRef = useRef(0)
 
   useEffect(() => {
     stoppedRef.current = false
@@ -110,11 +112,21 @@ export function FmsWebSocketProvider({ children }: { children: React.ReactNode }
       if (stoppedRef.current) return
       const url = resolveWebSocketUrl(token)
       if (!url) return
+      const existing = wsRef.current
+      if (
+        existing &&
+        (existing.readyState === WebSocket.CONNECTING || existing.readyState === WebSocket.OPEN)
+      ) {
+        return
+      }
 
       const ws = new WebSocket(url)
       wsRef.current = ws
+      let opened = false
 
       ws.onopen = () => {
+        opened = true
+        reconnectAttemptRef.current = 0
         setWsConnected(true)
         dispatchAppReleaseCheck()
         if (pingRef.current != null) window.clearInterval(pingRef.current)
@@ -135,7 +147,12 @@ export function FmsWebSocketProvider({ children }: { children: React.ReactNode }
         }
         if (!stoppedRef.current) {
           const authRejected = ev.code === 4401 || ev.code === 1008
-          const delay = authRejected ? AUTH_RECONNECT_MS : RECONNECT_MS
+          if (!opened) reconnectAttemptRef.current += 1
+          const backoffDelay = Math.min(
+            MAX_RECONNECT_MS,
+            RECONNECT_MS * 2 ** Math.min(reconnectAttemptRef.current, 5),
+          )
+          const delay = authRejected ? AUTH_RECONNECT_MS : backoffDelay
           reconnectRef.current = window.setTimeout(connect, delay)
         }
       }

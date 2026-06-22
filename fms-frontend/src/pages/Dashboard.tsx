@@ -16,7 +16,6 @@ const DashboardTrendCharts = lazy(() =>
 )
 import { ticketsApi } from '../api/tickets'
 import { leadsApi, type ActiveLeadRow } from '../api/leads'
-import { LoadingSpinner } from '../components/common/LoadingSpinner'
 import {
   ChartAreaSkeleton,
   ModalContentSkeleton,
@@ -898,10 +897,6 @@ export const Dashboard = () => {
             ]
           : []
 
-  if (loading) {
-    return <LoadingSpinner fullPage />
-  }
-
   return (
     <div
       style={{
@@ -936,6 +931,15 @@ export const Dashboard = () => {
             </Button>
           }
           style={{ marginBottom: 24, borderRadius: 8, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.4)' }}
+        />
+      )}
+      {loading && !metrics && (
+        <Alert
+          type="info"
+          showIcon
+          message="Opening dashboard instantly"
+          description="Latest metrics are loading in the background."
+          style={{ marginBottom: 24, borderRadius: 8 }}
         />
       )}
 

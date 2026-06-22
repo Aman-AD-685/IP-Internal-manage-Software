@@ -105,7 +105,7 @@ export const Register = () => {
     <AuthLayout variant="register">
       <div className="auth-card auth-card--wide">
         <h1 className="auth-title">Sign up</h1>
-        <p className="auth-subtitle">Create your Industryprime FMS account</p>
+        <p className="auth-subtitle">Create your account</p>
 
         <Form
           form={form}

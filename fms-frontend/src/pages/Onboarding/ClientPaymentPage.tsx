@@ -12,6 +12,7 @@ import { DEFAULT_INFINITE_CHUNK, useInfiniteScrollChunk } from '../../hooks/useI
 import { exportRowsToCsv, type ExportColumn } from '../../utils/exportCsv'
 import { PaymentAmountKpiCards } from '../../components/onboarding/PaymentAmountKpiCards'
 import { invalidateAfterDashboardPaymentSubmit } from '../../utils/sessionApiCache'
+import { OperationsSectionTabs } from '../../components/common/OperationsSectionTabs'
 
 const { Title, Text } = Typography
 
@@ -51,6 +52,7 @@ const GENRE_OPTIONS = [
 
 const COMP_REGISTER_SECTION = 'Comp-Register'
 const COMPLETED_REGISTER_PAGE_SIZE = 10
+const OPEN_LIST_PAGE_SIZE = 50
 
 export function ClientPaymentPage() {
   const { user } = useAuth()
@@ -172,10 +174,13 @@ export function ClientPaymentPage() {
   /** Comp _ Register: total completed rows (server) for infinite scroll. */
   const [completedRegisterTotal, setCompletedRegisterTotal] = useState(0)
   const [loadingMoreCompleted, setLoadingMoreCompleted] = useState(false)
+  const [openListTotal, setOpenListTotal] = useState(0)
+  const [loadingMoreOpen, setLoadingMoreOpen] = useState(false)
 
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const compRegisterNextPageRef = useRef(1)
+  const openListNextPageRef = useRef(1)
   const completedSection = location.pathname.includes('/completed/')
     ? location.pathname.split('/completed/')[1]?.split('/')[0] || null
     : null
@@ -192,27 +197,22 @@ export function ClientPaymentPage() {
   const loadOpenListAllPages = useCallback(async () => {
     setLoading(true)
     setCompletedRegisterTotal(0)
-    const pageSize = 200
-    const rows: ClientPaymentRecord[] = []
+    setOpenListTotal(0)
+    openListNextPageRef.current = 2
     try {
-      for (let page = 1; page <= 100; page += 1) {
-        const r = await apiClient.get<{
-          items?: ClientPaymentRecord[]
-          data?: ClientPaymentRecord[]
-          total?: number
-          marked_na_supported?: boolean
-        }>(listBasePath, { params: { status: 'open', page_size: pageSize, page, na_view: naListView } })
-        const body = r.data
-        if (page === 1 && typeof body?.marked_na_supported === 'boolean') {
-          setMarkedNaSupported(body.marked_na_supported)
-        }
-        const chunk = Array.isArray(body?.data) ? body.data : Array.isArray(body?.items) ? body.items : []
-        rows.push(...(chunk as ClientPaymentRecord[]))
-        const total = typeof body?.total === 'number' ? body.total : undefined
-        if (chunk.length < pageSize) break
-        if (total != null && rows.length >= total) break
+      const r = await apiClient.get<{
+        items?: ClientPaymentRecord[]
+        data?: ClientPaymentRecord[]
+        total?: number
+        marked_na_supported?: boolean
+      }>(listBasePath, { params: { status: 'open', page_size: OPEN_LIST_PAGE_SIZE, page: 1, na_view: naListView } })
+      const body = r.data
+      if (typeof body?.marked_na_supported === 'boolean') {
+        setMarkedNaSupported(body.marked_na_supported)
       }
-      setRecords(rows)
+      const chunk = Array.isArray(body?.data) ? body.data : Array.isArray(body?.items) ? body.items : []
+      setRecords(chunk as ClientPaymentRecord[])
+      setOpenListTotal(typeof body?.total === 'number' ? body.total : chunk.length)
     } catch (e: unknown) {
       setRecords([])
       const err = e as { response?: { data?: { detail?: string } } }
@@ -221,6 +221,43 @@ export function ClientPaymentPage() {
       setLoading(false)
     }
   }, [listBasePath, naListView])
+
+  const loadMoreOpenListPage = useCallback(async () => {
+    if (!isOpenList) return
+    if (loading || loadingMoreOpen) return
+    if (openListTotal > 0 && records.length >= openListTotal) return
+    const nextPage = openListNextPageRef.current
+    if (nextPage < 2) return
+    setLoadingMoreOpen(true)
+    try {
+      const r = await apiClient.get<{
+        items?: ClientPaymentRecord[]
+        data?: ClientPaymentRecord[]
+        total?: number
+      }>(listBasePath, {
+        params: { status: 'open', page_size: OPEN_LIST_PAGE_SIZE, page: nextPage, na_view: naListView },
+      })
+      const body = r.data
+      const chunk = Array.isArray(body?.data) ? body.data : Array.isArray(body?.items) ? body.items : []
+      if (typeof body?.total === 'number') setOpenListTotal(body.total)
+      if (chunk.length > 0) {
+        setRecords((prev) => [...prev, ...(chunk as ClientPaymentRecord[])])
+        openListNextPageRef.current = nextPage + 1
+      }
+    } catch {
+      message.error('Could not load more invoices')
+    } finally {
+      setLoadingMoreOpen(false)
+    }
+  }, [
+    isOpenList,
+    loading,
+    loadingMoreOpen,
+    openListTotal,
+    records.length,
+    listBasePath,
+    naListView,
+  ])
 
   const fetchCompRegisterFirstPage = useCallback(async () => {
     setLoading(true)
@@ -1171,6 +1208,8 @@ export function ClientPaymentPage() {
 
   const compRegisterHasMoreServer =
     isCompRegister && completedRegisterTotal > 0 && records.length < completedRegisterTotal
+  const openListHasMoreServer =
+    isOpenList && openListTotal > 0 && records.length < openListTotal
 
   return (
     <div style={{ padding: 24 }}>
@@ -1183,6 +1222,7 @@ export function ClientPaymentPage() {
         <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
           {pageTitle}
         </Title>
+        <OperationsSectionTabs module="client-payment" />
         <Space wrap align="center" size="middle">
           {isOpenList ? (
             <>
@@ -1282,8 +1322,19 @@ export function ClientPaymentPage() {
                           </>
                         ) : (
                           <>
-                            Showing {visibleFilteredRecordCount} of {totalFilteredRecords} rows
-                            {filteredRecordsHasMore ? ' · scroll to load more' : ''}
+                            Showing {visibleFilteredRecordCount} of {companyFilterNorm || awaitingPaymentReceiveOnly ? totalFilteredRecords : openListTotal || totalFilteredRecords} rows
+                            {filteredRecordsHasMore ? ' · scroll to show loaded rows' : ''}
+                            {!companyFilterNorm && !awaitingPaymentReceiveOnly && openListHasMoreServer ? (
+                              <Button
+                                size="small"
+                                type="link"
+                                loading={loadingMoreOpen}
+                                onClick={() => void loadMoreOpenListPage()}
+                                style={{ paddingInline: 8 }}
+                              >
+                                Load more invoices
+                              </Button>
+                            ) : null}
                           </>
                         )}
                       </Text>

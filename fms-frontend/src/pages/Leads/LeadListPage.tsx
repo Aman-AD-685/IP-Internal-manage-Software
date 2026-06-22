@@ -8,6 +8,7 @@ import { ROUTES } from '../../utils/constants'
 import { leadsApi, type Lead } from '../../api/leads'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
 import { DEFAULT_INFINITE_CHUNK, useInfiniteScrollChunk } from '../../hooks/useInfiniteScrollChunk'
+import { OperationsSectionTabs } from '../../components/common/OperationsSectionTabs'
 
 const { Title, Text } = Typography
 const { RangePicker } = DatePicker
@@ -127,10 +128,17 @@ export const LeadListPage = () => {
 
   return (
     <div style={{ padding: 24 }}>
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
-          {isClosedLeads ? 'Closed Leads' : 'Lead'}
-        </Title>
+      <Space
+        style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }}
+        wrap
+        align="center"
+      >
+        <Space wrap align="center">
+          <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
+            {isClosedLeads ? 'Closed Leads' : 'Lead'}
+          </Title>
+          <OperationsSectionTabs module="client-to-lead" />
+        </Space>
         {!isClosedLeads && (
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddModalOpen(true)}>
             Add Lead Details

@@ -22,12 +22,13 @@ let idleBatchStarted = false
 let refreshTimer: number | null = null
 let trackedRouteKeys: string[] = []
 const TEN_MIN_MS = 20 * 60 * 1000
-/** Warm top routes right after login / session restore for sub-750ms first navigation. */
-const IMMEDIATE_WARM_COUNT = 6
-const IMMEDIATE_STEP_MS = 60
-const REFRESH_BATCH_SIZE = 3
-const IDLE_STAGGER_MS = 80
+/** Warm only the most likely routes; avoid competing with first-page API and chunk loading. */
+const IMMEDIATE_WARM_COUNT = 2
+const IMMEDIATE_STEP_MS = 250
+const REFRESH_BATCH_SIZE = 1
+const IDLE_STAGGER_MS = 750
 let refreshCursor = 0
+const ENABLE_ROUTE_DATA_PREFETCH = import.meta.env.VITE_ENABLE_ROUTE_DATA_PREFETCH === '1'
 
 function fire(key: string, run: () => Promise<unknown>) {
   if (inFlight.has(key)) return
@@ -37,6 +38,7 @@ function fire(key: string, run: () => Promise<unknown>) {
 
 export function prefetchRouteData(routeKey: string): void {
   prefetchRouteChunk(routeKey)
+  if (!ENABLE_ROUTE_DATA_PREFETCH) return
   const [path] = routeKey.split('?')
   const q = routeKey.includes('?') ? routeKey.slice(routeKey.indexOf('?') + 1) : ''
 
@@ -238,13 +240,13 @@ function scheduleIdle(task: () => void) {
     cancelIdleCallback?: (id: number) => void
   }
   if (typeof w.requestIdleCallback === 'function') {
-    w.requestIdleCallback(() => task(), { timeout: 400 })
+    w.requestIdleCallback(() => task(), { timeout: 2500 })
     return
   }
-  window.setTimeout(task, 80)
+  window.setTimeout(task, 500)
 }
 
-function runImmediateWarmup(routeKeys: string[]) {
+function runImmediateWarmup(routeKeys: string[]): string[] {
   const priority = [
     ROUTES.DASHBOARD,
     ROUTES.SUPPORT_DASHBOARD,
@@ -262,12 +264,14 @@ function runImmediateWarmup(routeKeys: string[]) {
     const sb = ib === -1 ? 999 : ib
     return sa - sb
   })
-  sorted.slice(0, IMMEDIATE_WARM_COUNT).forEach((key, idx) => {
+  const immediate = sorted.slice(0, IMMEDIATE_WARM_COUNT)
+  immediate.forEach((key, idx) => {
     window.setTimeout(() => {
       if (document.visibilityState === 'hidden') return
       prefetchRouteData(key)
     }, idx * IMMEDIATE_STEP_MS)
   })
+  return immediate
 }
 
 export function startIdleRoutePrefetch(routeKeys: string[]): void {
@@ -282,18 +286,19 @@ export function startIdleRoutePrefetch(routeKeys: string[]): void {
   })
 
   // Warm top routes immediately after login for fast first navigation.
-  runImmediateWarmup(unique)
+  const immediate = new Set(runImmediateWarmup(unique))
 
   unique.forEach((key, index) => {
+    if (immediate.has(key)) return
     scheduleIdle(() => {
       window.setTimeout(() => {
         if (document.visibilityState === 'hidden') return
-        prefetchRouteData(key)
+        prefetchRouteChunk(key)
       }, index * IDLE_STAGGER_MS)
     })
   })
 
-  if (refreshTimer != null) return
+  if (!ENABLE_ROUTE_DATA_PREFETCH || refreshTimer != null) return
   refreshTimer = window.setInterval(() => {
     if (document.visibilityState === 'hidden') return
     if (trackedRouteKeys.length === 0) return

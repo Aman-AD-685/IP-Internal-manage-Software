@@ -17,6 +17,7 @@ import { API_ENDPOINTS } from '../../utils/constants'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
 import { exportRowsToCsv, type ExportColumn } from '../../utils/exportCsv'
 import { PaymentAmountKpiCards, type PaymentAmountKpis } from '../../components/onboarding/PaymentAmountKpiCards'
+import { OperationsSectionTabs } from '../../components/common/OperationsSectionTabs'
 
 const { Title, Text, Link } = Typography
 
@@ -245,9 +246,12 @@ export function PaymentAgeingReportPage() {
   return (
     <div style={{ padding: 16 }}>
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
-        <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
-          Payment Ageing Report
-        </Title>
+        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+          <OperationsSectionTabs module="client-payment" />
+          <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
+            Payment Ageing Report
+          </Title>
+        </Space>
 
         <PaymentAmountKpiCards kpis={kpis ?? null} />
 

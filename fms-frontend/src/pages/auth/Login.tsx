@@ -168,7 +168,7 @@ export const Login = () => {
     <AuthLayout variant="login">
       <div className="auth-card">
         <h1 className="auth-title">Sign in</h1>
-        <p className="auth-subtitle">Welcome back to Industryprime FMS</p>
+        <p className="auth-subtitle">Welcome back</p>
 
         {connectionError && (
           <Alert

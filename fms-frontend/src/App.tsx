@@ -27,7 +27,8 @@ import { NewFeatureRefreshPrompt } from "./components/common/NewFeatureRefreshPr
 import { FmsWebSocketProvider } from "./components/common/FmsWebSocketProvider"
 import { SystemLockProvider } from "./components/common/SystemLockProvider"
 
-const Dashboard = lazy(() => import("./pages/Dashboard").then((m) => ({ default: m.Dashboard })))
+const UniversalDashboard = lazy(() => import("./components/dashboard/Dashboard").then((m) => ({ default: m.Dashboard })))
+const LegacyDashboard = lazy(() => import("./pages/Dashboard").then((m) => ({ default: m.Dashboard })))
 const DashboardKPIPage = lazy(() => import("./pages/Dashboard/DashboardKPIPage").then((m) => ({ default: m.DashboardKPIPage })))
 const TicketList = lazy(() => import("./pages/Tickets/TicketList").then((m) => ({ default: m.TicketList })))
 const TicketDetail = lazy(() => import("./pages/Tickets/TicketDetail").then((m) => ({ default: m.TicketDetail })))
@@ -97,6 +98,18 @@ function CatchAllRedirect() {
       replace
     />
   )
+}
+
+const UNIVERSAL_DASHBOARD_ALLOWED_EMAILS = new Set([
+  "aman@industryprime.com",
+  "rimpa@industryprime.com",
+])
+
+function DashboardRoute() {
+  const { user } = useAuth()
+  const email = (user?.email || "").trim().toLowerCase()
+  const DashboardComponent = UNIVERSAL_DASHBOARD_ALLOWED_EMAILS.has(email) ? UniversalDashboard : LegacyDashboard
+  return <DashboardComponent />
 }
 
 function AppTitle() {
@@ -199,7 +212,7 @@ function App() {
                 <ProtectedRoute sectionKeys={["dashboard"]}>
                   <AppLayout>
                     <ErrorBoundary>
-                      <Dashboard />
+                      <DashboardRoute />
                     </ErrorBoundary>
                   </AppLayout>
                 </ProtectedRoute>
