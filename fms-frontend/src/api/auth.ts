@@ -337,9 +337,13 @@ export const authApi = {
   /**
    * Logout - clears session. Backend call optional.
    */
-  logout: async (): Promise<void> => {
+  logout: async (accessToken?: string): Promise<void> => {
     try {
-      await apiClient.post('/auth/logout')
+      await apiClient.post(
+        '/auth/logout',
+        undefined,
+        accessToken ? { headers: { Authorization: `Bearer ${accessToken}` } } : undefined,
+      )
     } catch {
       // Ignore - client clears storage anyway
     }

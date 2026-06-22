@@ -9,6 +9,7 @@ import { clearAuthBrowserSessionMarkers, syncAuthMirrorToSession } from './authB
  */
 
 const AUTH_KEYS = [STORAGE_KEYS.AUTH_TOKEN, STORAGE_KEYS.REFRESH_TOKEN, STORAGE_KEYS.USER] as const
+const AUTH_GENERATION_KEY = 'fms_auth_generation'
 
 function getLocal(): Storage | null {
   if (typeof window === 'undefined') return null
@@ -77,6 +78,24 @@ function clearAuthFromAllStorages(): void {
   } catch {
     /* ignore */
   }
+}
+
+export function readAuthSessionGeneration(): string {
+  try {
+    return getLocal()?.getItem(AUTH_GENERATION_KEY) || '0'
+  } catch {
+    return '0'
+  }
+}
+
+export function bumpAuthSessionGeneration(): string {
+  const next = String(Date.now())
+  try {
+    getLocal()?.setItem(AUTH_GENERATION_KEY, next)
+  } catch {
+    /* ignore */
+  }
+  return next
 }
 
 export type SingleSessionCheck =
