@@ -1,6 +1,11 @@
 import { useState, useEffect, useRef, useCallback, ReactNode } from 'react'
 import { AuthContext, AuthContextType } from './AuthContext'
-import { storage, checkSingleBrowserSession } from '../utils/storage'
+import {
+  storage,
+  checkSingleBrowserSession,
+  bumpAuthSessionGeneration,
+  readAuthSessionGeneration,
+} from '../utils/storage'
 import { STORAGE_KEYS } from '../utils/constants'
 import { sessionApiCacheClearAll } from '../utils/sessionApiCache'
 import { clearAmiGreetingSession } from '../utils/amiGreeting'
@@ -26,9 +31,29 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [token, setToken] = useState<string | null>(stored.token)
   const [isLoading, setIsLoading] = useState(!stored.hasSession)
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const authRunRef = useRef(0)
+
+  const clearClientAuthSession = useCallback(() => {
+    authRunRef.current += 1
+    bumpAuthSessionGeneration()
+    if (refreshIntervalRef.current) {
+      clearInterval(refreshIntervalRef.current)
+      refreshIntervalRef.current = null
+    }
+    sessionApiCacheClearAll()
+    clearAmiGreetingSession()
+    storage.clear()
+    setToken(null)
+    setUser(null)
+    setIsLoading(false)
+  }, [])
 
   const doProactiveRefresh = useCallback(async () => {
+    const runId = authRunRef.current
+    const generation = readAuthSessionGeneration()
     const result = await authApi.refresh()
+    if (runId !== authRunRef.current) return
+    if (generation !== readAuthSessionGeneration()) return
     if (result?.access_token) {
       storage.setToken(result.access_token)
       setToken(result.access_token)
@@ -66,10 +91,12 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   // Validate stored session after first paint — do not block dashboards on /users/me (memory: stale-while-revalidate).
   useEffect(() => {
     const validateSession = async () => {
+      const runId = authRunRef.current
       const storedToken = storage.getToken()
       const storedUser = storage.getUser()
 
       if (!storedToken || !storedUser) {
+        if (runId !== authRunRef.current) return
         setToken(null)
         setUser(null)
         setIsLoading(false)
@@ -78,12 +105,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
       try {
         const response = await authApi.getCurrentUser()
+        if (runId !== authRunRef.current) return
         if (response.data) {
           if (response.data.is_active === false) {
-            sessionApiCacheClearAll()
-            storage.clear()
-            setToken(null)
-            setUser(null)
+            clearClientAuthSession()
           } else {
             const merged = normalizeUserSectionPermissions(response.data)
             setUser(merged)
@@ -112,10 +137,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         }
 
         if (code === '403') {
-          sessionApiCacheClearAll()
-          storage.clear()
-          setToken(null)
-          setUser(null)
+          clearClientAuthSession()
           return
         }
 
@@ -143,12 +165,16 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         }
 
         if (code === '401') {
+          const generation = readAuthSessionGeneration()
           const refreshed = await authApi.refresh()
+          if (runId !== authRunRef.current) return
+          if (generation !== readAuthSessionGeneration()) return
           if (refreshed?.access_token) {
             storage.setToken(refreshed.access_token)
             if (refreshed.refresh_token) storage.setRefreshToken(refreshed.refresh_token)
             setToken(refreshed.access_token)
             const retry = await authApi.getCurrentUser()
+            if (runId !== authRunRef.current) return
             if (retry.data && retry.data.is_active !== false) {
               const merged = normalizeUserSectionPermissions(retry.data)
               setUser(merged)
@@ -158,18 +184,12 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
               return
             }
           }
-          sessionApiCacheClearAll()
-          storage.clear()
-          setToken(null)
-          setUser(null)
+          clearClientAuthSession()
           return
         }
 
         if (code === '404') {
-          sessionApiCacheClearAll()
-          storage.clear()
-          setToken(null)
-          setUser(null)
+          clearClientAuthSession()
         }
         // Other errors: keep cached session so a stray API issue does not force logout on reload
       } catch {
@@ -215,9 +235,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       const nextToken = storage.getToken()
       const nextUser = storage.getUser()
       if (!nextToken || !nextUser) {
-        sessionApiCacheClearAll()
-        setToken(null)
-        setUser(null)
+        clearClientAuthSession()
         return
       }
       setToken(nextToken)
@@ -226,9 +244,11 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
-  }, [])
+  }, [clearClientAuthSession])
 
   const applySession = (newToken: string, newUser: User, refreshToken?: string) => {
+    authRunRef.current += 1
+    bumpAuthSessionGeneration()
     const merged = normalizeUserSectionPermissions(newUser)
     setToken(newToken)
     setUser(merged)
@@ -247,18 +267,12 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     applySession(newToken, newUser, refreshToken)
   }
 
-  const logout = async () => {
-    try {
-      await authApi.logout()
-    } catch (error) {
+  const logout = () => {
+    const logoutToken = storage.getToken()
+    clearClientAuthSession()
+    void authApi.logout(logoutToken || undefined).catch((error) => {
       console.error('Logout error:', error)
-    } finally {
-      sessionApiCacheClearAll()
-      clearAmiGreetingSession()
-      setToken(null)
-      setUser(null)
-      storage.clear()
-    }
+    })
   }
 
   const register = (newToken: string, newUser: User, refreshToken?: string) => {

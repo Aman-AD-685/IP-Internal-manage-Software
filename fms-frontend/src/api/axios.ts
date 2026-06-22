@@ -1,5 +1,5 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from "axios"
-import { storage } from "../utils/storage"
+import { readAuthSessionGeneration, storage } from "../utils/storage"
 import { ROUTES } from "../utils/constants"
 import { buildLoginUrl } from "../utils/authRedirect"
 import { isPublicPasswordResetPath } from "../utils/recoveryAuth"
@@ -341,9 +341,14 @@ apiClient.interceptors.response.use(
 
       const refreshToken = storage.getRefreshToken()
       if (refreshToken) {
+        const refreshGeneration = readAuthSessionGeneration()
         if (isRefreshing) {
-          return new Promise((resolve) => {
+          return new Promise((resolve, reject) => {
             addRefreshSubscriber((token: string) => {
+              if (!token || refreshGeneration !== readAuthSessionGeneration()) {
+                reject(error)
+                return
+              }
               if (originalRequest.headers) originalRequest.headers.Authorization = `Bearer ${token}`
               resolve(apiClient(originalRequest))
             })
@@ -362,9 +367,10 @@ apiClient.interceptors.response.use(
           result = null
         }
         isRefreshing = false
-        if (result?.access_token) {
+        if (result?.access_token && refreshGeneration === readAuthSessionGeneration() && storage.getRefreshToken()) {
           storage.setToken(result.access_token)
           if (result.refresh_token) storage.setRefreshToken(result.refresh_token)
+          onRefreshed(result.access_token)
           if (originalRequest.headers) originalRequest.headers.Authorization = `Bearer ${result.access_token}`
           originalRequest._retry = true
           return apiClient(originalRequest)
