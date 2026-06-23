@@ -45,7 +45,7 @@ const isTaskPage = (pathname: string) =>
   pathname === ROUTES.CHECKLIST || pathname === ROUTES.DELEGATION
 
 const isSuccessPage = (pathname: string) =>
-  pathname === ROUTES.SUCCESS_DASHBOARD || pathname === ROUTES.SUCCESS_PERFORMANCE || pathname === ROUTES.SUCCESS_COMP_PERFORM
+  pathname === ROUTES.SUCCESS_DASHBOARD || pathname === ROUTES.SUCCESS_PERFORMANCE || pathname === ROUTES.SUCCESS_COMP_PERFORM || pathname === ROUTES.SU_DASH
 
 const isClientToLeadPage = (pathname: string) =>
   pathname === ROUTES.LEADS || pathname.startsWith(ROUTES.LEADS + '/') || pathname === ROUTES.LEADS_IMPORT
@@ -70,6 +70,11 @@ const isOperationsPage = (pathname: string) =>
   isClientPaymentPage(pathname) ||
   isDbClientPage(pathname)
 
+const OPERATIONS_DROPDOWN_ALLOWED_EMAILS = new Set([
+  'aman@industryprime.com',
+  'rimpa@industryprime.com',
+])
+
 interface SidebarProps {
   className?: string
   open?: boolean
@@ -86,6 +91,8 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
   const { canAccessApproval, canAccessSettings, canAccessUsers, canViewSectionByKey, role: userRole, isMasterAdmin } =
     useRole()
   const { user } = useAuth()
+  const emailLower = (user?.email || '').trim().toLowerCase()
+  const canUseOperationsDropdown = OPERATIONS_DROPDOWN_ALLOWED_EMAILS.has(emailLower)
   const [softSuggOpen, setSoftSuggOpen] = useState(false)
   const [suggDetailsOpen, setSuggDetailsOpen] = useState(false)
   const canSoftSugg =
@@ -98,6 +105,7 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
     onClose?.()
     onOpenSupportForm?.(buildSupportPrefillFromSoftSuggestion(row), row.id)
   }
+  const [supportOpen, setSupportOpen] = useState(isSupportPage(location.pathname))
   const [taskOpen, setTaskOpen] = useState(isTaskPage(location.pathname))
   const [operationsOpen, setOperationsOpen] = useState(isOperationsPage(location.pathname))
   const [successOpen, setSuccessOpen] = useState(isSuccessPage(location.pathname))
@@ -107,8 +115,11 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
   const [dbClientOpen, setDbClientOpen] = useState(isDbClientPage(location.pathname))
   const [clientPaymentOpen, setClientPaymentOpen] = useState(isClientPaymentPage(location.pathname))
   useEffect(() => {
-    if (isOperationsPage(location.pathname)) setOperationsOpen(true)
+    if (isSupportPage(location.pathname)) setSupportOpen(true)
   }, [location.pathname])
+  useEffect(() => {
+    if (canUseOperationsDropdown && isOperationsPage(location.pathname)) setOperationsOpen(true)
+  }, [canUseOperationsDropdown, location.pathname])
   useEffect(() => {
     if (isClientPaymentPage(location.pathname)) setClientPaymentOpen(true)
   }, [location.pathname])
@@ -143,7 +154,13 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
       </Link>
     </span>
   )
-  const allSupportItems: MenuProps['items'] = [
+  const supportDashboardItem: NonNullable<MenuProps['items']>[number] = {
+    key: ROUTES.SUPPORT_DASHBOARD,
+    icon: <DashboardOutlined />,
+    label: prefetchedLabel(ROUTES.SUPPORT_DASHBOARD, ROUTES.SUPPORT_DASHBOARD, 'Support Dashboard'),
+    sectionKey: 'support_dashboard',
+  }
+  const supportCoreItems: MenuProps['items'] = [
     { key: `${ROUTES.TICKETS}?section=chores-bugs`, icon: <FileTextOutlined />, label: prefetchedLabel(`${ROUTES.TICKETS}?section=chores-bugs`, { pathname: ROUTES.TICKETS, search: 'section=chores-bugs' }, 'Chores & Bugs'), sectionKey: 'chores_bugs' },
     { key: ROUTES.STAGING, icon: <RocketOutlined />, label: prefetchedLabel(ROUTES.STAGING, ROUTES.STAGING, 'Staging'), sectionKey: 'staging' },
     { key: `${ROUTES.TICKETS}?type=feature`, icon: <FileTextOutlined />, label: prefetchedLabel(`${ROUTES.TICKETS}?type=feature`, `${ROUTES.TICKETS}?type=feature`, 'Feature'), sectionKey: 'feature' },
@@ -158,7 +175,7 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
       ),
     },
   ]
-  const supportItems: MenuProps['items'] = allSupportItems?.filter((item) => {
+  const filterSupportItems = (items: MenuProps['items']) => items?.filter((item) => {
     const key = item?.key as string
     const sectionKey = (item as { sectionKey?: string })?.sectionKey
     if (sectionKey && !canViewSectionByKey(sectionKey)) return false
@@ -175,6 +192,8 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
     if (key?.includes('view=approval')) return canAccessApproval
     return true
   }) ?? []
+  const supportItems = filterSupportItems(supportCoreItems)
+  const legacySupportItems = filterSupportItems([supportDashboardItem, ...(supportCoreItems ?? [])])
 
   const taskItems: MenuProps['items'] = [
     { key: ROUTES.CHECKLIST, icon: <CheckSquareOutlined />, label: prefetchedLabel(ROUTES.CHECKLIST, ROUTES.CHECKLIST, 'Checklist') },
@@ -185,11 +204,17 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
     { key: ROUTES.SUCCESS_PERFORMANCE, icon: <LineChartOutlined />, label: prefetchedLabel(ROUTES.SUCCESS_PERFORMANCE, ROUTES.SUCCESS_PERFORMANCE, 'Performance Monitoring'), sectionKey: 'success_performance' },
     { key: ROUTES.SUCCESS_COMP_PERFORM, icon: <LineChartOutlined />, label: prefetchedLabel(ROUTES.SUCCESS_COMP_PERFORM, ROUTES.SUCCESS_COMP_PERFORM, 'Comp- Perform'), sectionKey: 'success_comp_perform' },
   ]
-  const filteredSuccessItems: MenuProps['items'] = successItems?.filter((item) => {
+  const legacySuccessItems: MenuProps['items'] = [
+    { key: ROUTES.SU_DASH, icon: <DashboardOutlined />, label: prefetchedLabel(ROUTES.SU_DASH, ROUTES.SU_DASH, 'Su -Dash'), sectionKey: 'success_performance' },
+    ...(successItems ?? []),
+  ]
+  const filterSuccessItems = (items: MenuProps['items']) => items?.filter((item) => {
     const sectionKey = (item as { sectionKey?: string })?.sectionKey
     if (sectionKey && !canViewSectionByKey(sectionKey)) return false
     return true
   }) ?? []
+  const filteredSuccessItems = filterSuccessItems(successItems)
+  const filteredLegacySuccessItems = filterSuccessItems(legacySuccessItems)
 
   const onboardingItems: MenuProps['items'] = [
     { key: ROUTES.ONBOARDING_PAYMENT_STATUS, icon: <FileTextOutlined />, label: prefetchedLabel(ROUTES.ONBOARDING_PAYMENT_STATUS, ROUTES.ONBOARDING_PAYMENT_STATUS, 'Record of Onboarding') },
@@ -247,6 +272,7 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
 
   const showDashboard = canViewSectionByKey('dashboard')
   const hasAnySupportSection = (supportItems?.length ?? 0) > 0
+  const hasAnyLegacySupportSection = (legacySupportItems?.length ?? 0) > 0
   const showClientToLead = canViewSectionByKey('leads') || canViewSectionByKey('client_to_lead')
   const showOnboarding = canViewSectionByKey('onboarding') || canViewSectionByKey('onboarding_payment_status')
   const showTraining = canViewSectionByKey('training')
@@ -259,73 +285,99 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
   const trainingDefaultKey = trainingItems?.[0]?.key as string | undefined
   const clientPaymentDefaultKey = clientPaymentItems?.[0]?.key as string | undefined
   const dbClientDefaultKey = dbClientItems?.[0]?.key as string | undefined
-  const operationItems: MenuProps['items'] = [
-    ...(supportDefaultKey ? [{
-      key: supportDefaultKey,
+  const operationSections = [
+    {
+      key: 'support',
       icon: <FileTextOutlined />,
       label: 'Support',
-    }] : []),
-    ...(successDefaultKey ? [{
-      key: successDefaultKey,
+      children: legacySupportItems,
+      compactKey: supportDefaultKey,
+      showLegacy: hasAnyLegacySupportSection,
+      showCompact: Boolean(supportDefaultKey),
+      onTitleClick: () => setSupportOpen(!supportOpen),
+    },
+    {
+      key: 'success',
       icon: <RiseOutlined />,
       label: 'Success',
-    }] : []),
-    ...(showClientToLead && clientToLeadDefaultKey
-      ? [
-          {
-            key: clientToLeadDefaultKey,
-            icon: <TeamOutlined />,
-            label: 'Client to Lead',
-          },
-        ]
-      : []),
-    ...(showOnboarding && onboardingDefaultKey
-      ? [
-          {
-            key: onboardingDefaultKey,
-            icon: <AuditOutlined />,
-            label: 'Onboarding',
-          },
-        ]
-      : []),
-    ...(showTraining && trainingDefaultKey
-      ? [
-          {
-            key: trainingDefaultKey,
-            icon: <ReadOutlined />,
-            label: 'Training',
-          },
-        ]
-      : []),
-    ...(showClientPayment && clientPaymentDefaultKey
-      ? [
-          {
-            key: clientPaymentDefaultKey,
-            icon: <FileTextOutlined />,
-            label: 'Client Payment',
-          },
-        ]
-      : []),
-    ...(showDbClient && dbClientDefaultKey
-      ? [
-          {
-            key: dbClientDefaultKey,
-            icon: <ReadOutlined />,
-            label: 'DB Client',
-          },
-        ]
-      : []),
-  ]
-
-  const menuItems: MenuProps['items'] = [
-    ...(showDashboard ? [{ key: ROUTES.DASHBOARD, icon: <DashboardOutlined />, label: prefetchedLabel(ROUTES.DASHBOARD, ROUTES.DASHBOARD, 'Dashboard') }] : []),
-    ...(operationItems.length > 0 ? [{
-      key: 'operations',
+      children: filteredLegacySuccessItems,
+      compactKey: successDefaultKey,
+      showLegacy: filteredLegacySuccessItems.length > 0,
+      showCompact: Boolean(successDefaultKey),
+      onTitleClick: () => setSuccessOpen(!successOpen),
+    },
+    {
+      key: 'client-to-lead',
       icon: <TeamOutlined />,
-      label: 'Operations',
-      children: operationItems,
-      onTitleClick: () => setOperationsOpen(!operationsOpen),
-    }] : []),
+      label: 'Client to Lead',
+      children: leadItems,
+      compactKey: clientToLeadDefaultKey,
+      showLegacy: showClientToLead,
+      showCompact: showClientToLead && Boolean(clientToLeadDefaultKey),
+      onTitleClick: () => setClientToLeadOpen(!clientToLeadOpen),
+    },
+    {
+      key: 'onboarding',
+      icon: <AuditOutlined />,
+      label: 'Onboarding',
+      children: onboardingItems,
+      compactKey: onboardingDefaultKey,
+      showLegacy: showOnboarding,
+      showCompact: showOnboarding && Boolean(onboardingDefaultKey),
+      onTitleClick: () => setOnboardingOpen(!onboardingOpen),
+    },
+    {
+      key: 'training',
+      icon: <ReadOutlined />,
+      label: 'Training',
+      children: trainingItems,
+      compactKey: trainingDefaultKey,
+      showLegacy: showTraining,
+      showCompact: showTraining && Boolean(trainingDefaultKey),
+      onTitleClick: () => setTrainingOpen(!trainingOpen),
+    },
+    {
+      key: 'client-payment',
+      icon: <FileTextOutlined />,
+      label: 'Client Payment',
+      children: clientPaymentItems,
+      compactKey: clientPaymentDefaultKey,
+      showLegacy: showClientPayment,
+      showCompact: showClientPayment && Boolean(clientPaymentDefaultKey),
+      onTitleClick: () => setClientPaymentOpen(!clientPaymentOpen),
+    },
+    {
+      key: 'db-client',
+      icon: <ReadOutlined />,
+      label: 'DB Client',
+      children: dbClientItems,
+      compactKey: dbClientDefaultKey,
+      showLegacy: showDbClient,
+      showCompact: showDbClient && Boolean(dbClientDefaultKey),
+      onTitleClick: () => {
+        const next = !dbClientOpen
+        setDbClientOpen(next)
+        if (next && showOnboarding) setOnboardingOpen(true)
+      },
+    },
+  ]
+  const operationItems: MenuProps['items'] = operationSections
+    .filter((section) => section.showCompact && section.compactKey)
+    .map((section) => ({
+      key: section.compactKey as string,
+      icon: section.icon,
+      label: section.label,
+    }))
+  const legacySectionItems: MenuProps['items'] = operationSections
+    .filter((section) => section.showLegacy)
+    .map((section) => ({
+      key: section.key,
+      icon: section.icon,
+      label: section.label,
+      children: section.children,
+      onTitleClick: section.onTitleClick,
+    }))
+  const sharedMenuTailItems: MenuProps['items'] = [
     ...(canViewSectionByKey('task') ? [{
       key: 'task',
       icon: <UnorderedListOutlined />,
@@ -342,6 +394,25 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
     },
   ]
 
+  const operationsMenuItems: MenuProps['items'] = [
+    ...(showDashboard ? [{ key: ROUTES.DASHBOARD, icon: <DashboardOutlined />, label: prefetchedLabel(ROUTES.DASHBOARD, ROUTES.DASHBOARD, 'Dashboard') }] : []),
+    ...(operationItems.length > 0 ? [{
+      key: 'operations',
+      icon: <TeamOutlined />,
+      label: 'Operations',
+      children: operationItems,
+      onTitleClick: () => setOperationsOpen(!operationsOpen),
+    }] : []),
+    ...(sharedMenuTailItems ?? []),
+  ]
+
+  const legacyOperationMenuItems: MenuProps['items'] = [
+    ...(showDashboard ? [{ key: ROUTES.DASHBOARD, icon: <DashboardOutlined />, label: prefetchedLabel(ROUTES.DASHBOARD, ROUTES.DASHBOARD, 'Dashboard') }] : []),
+    ...(legacySectionItems ?? []),
+    ...(sharedMenuTailItems ?? []),
+  ]
+  const menuItems = canUseOperationsDropdown ? operationsMenuItems : legacyOperationMenuItems
+
   const handleMenuClick = ({ key }: { key: string }) => {
     if (key === 'help') return
     prefetchRouteData(key)
@@ -354,7 +425,8 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
     new Set([location.pathname, `${location.pathname}${location.search || ''}`])
   )
   const openKeys = [
-    ...(operationsOpen ? ['operations'] : []),
+    ...(canUseOperationsDropdown && operationsOpen ? ['operations'] : []),
+    ...(!canUseOperationsDropdown && supportOpen ? ['support'] : []),
     ...(taskOpen ? ['task'] : []),
     ...(successOpen ? ['success'] : []),
     ...(clientToLeadOpen ? ['client-to-lead'] : []),
@@ -366,6 +438,7 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
 
   const PARENT_KEYS = new Set([
     'operations',
+    'support',
     'task',
     'success',
     'client-to-lead',
@@ -406,6 +479,7 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
 
   const handleOpenChange = (keys: string[]) => {
     setOperationsOpen(keys.includes('operations'))
+    setSupportOpen(keys.includes('support'))
     setTaskOpen(keys.includes('task'))
     setSuccessOpen(keys.includes('success'))
     setClientToLeadOpen(keys.includes('client-to-lead'))
