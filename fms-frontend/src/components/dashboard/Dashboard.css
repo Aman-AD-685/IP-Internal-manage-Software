@@ -121,7 +121,7 @@
 }
 
 .support-details-infinite-scroll {
-  max-height: 560px;
+  max-height: 360px;
   overflow-y: auto;
   padding-right: 4px;
 }

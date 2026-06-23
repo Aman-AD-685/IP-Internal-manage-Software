@@ -5,8 +5,6 @@ import type { DashboardSummaryResponse } from '../../types/dashboard'
 import { KpiOverview } from './KpiOverview'
 import { MyWork } from './MyWork'
 import { OperationsOverview } from './OperationsOverview'
-import { TodaySnapshot } from './TodaySnapshot'
-import { TopBar } from './TopBar'
 import './Dashboard.css'
 
 function DashboardSkeleton() {
@@ -74,17 +72,15 @@ export function Dashboard() {
     <div className="universal-dashboard">
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         {error && <Alert type="warning" showIcon message={error} />}
-        <TopBar user={summary.user} />
-        <TodaySnapshot snapshot={summary.snapshot} />
+        <OperationsOverview operations={summary.operations} user={summary.user} />
         <Row gutter={[16, 16]}>
           <Col xs={24} lg={12}>
             <MyWork myWork={summary.myWork} />
           </Col>
           <Col xs={24} lg={12}>
-            <KpiOverview kpi={summary.kpi} user={summary.user} />
+            <KpiOverview user={summary.user} />
           </Col>
         </Row>
-        <OperationsOverview operations={summary.operations} user={summary.user} />
       </Space>
     </div>
   )

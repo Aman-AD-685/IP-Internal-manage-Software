@@ -5,7 +5,7 @@ const { Text, Title } = Typography
 
 export interface OperationMetric {
   label: string
-  value: number
+  value: number | string
 }
 
 interface OperationTileProps {

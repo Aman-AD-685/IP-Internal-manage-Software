@@ -22,10 +22,10 @@ export function MyWork({ myWork }: MyWorkProps) {
         <Progress percent={myWork.completedPct} strokeColor="#0f766e" />
         <Row gutter={[12, 12]}>
           <Col xs={12}>
-            <Statistic title="Checklist due" value={myWork.checklistDueToday} />
+            <Statistic title="Today pending Checklist" value={myWork.checklistDueToday} />
           </Col>
           <Col xs={12}>
-            <Statistic title="Delegated by me" value={myWork.delegatedByMe} />
+            <Statistic title="Today pending Delegation" value={myWork.assignedToMe} />
           </Col>
         </Row>
         <Space wrap>

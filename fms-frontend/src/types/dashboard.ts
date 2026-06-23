@@ -51,6 +51,7 @@ export interface DashboardSupportOperations {
   openChores: number
   openBugs: number
   openFeatures: number
+  pendingFeatureApprovals: number
   delayedResponse: number
   delayedCompletion: number
 }
@@ -81,6 +82,7 @@ export interface DashboardTrainingOperations {
 
 export interface DashboardClientPaymentOperations {
   pending: number
+  totalPendingAmount: number
   ageingRisk: number
   completedRegister: number
 }
@@ -142,6 +144,7 @@ export interface DashboardSupportDetailsResponse {
   chores: DashboardSupportDetailRow[]
   bugs: DashboardSupportDetailRow[]
   features: DashboardSupportDetailRow[]
+  pendingFeatureApprovals: DashboardSupportDetailRow[]
   responseDelay: DashboardSupportDetailRow[]
   completionDelay: DashboardSupportDetailRow[]
 }
@@ -159,6 +162,7 @@ export interface DashboardOperationDetailRow {
   totalCompletionPct: number | null
   currentStage: string
   targetUrl: string | null
+  extra?: Record<string, unknown>
 }
 
 export interface DashboardOperationDetailsResponse {
