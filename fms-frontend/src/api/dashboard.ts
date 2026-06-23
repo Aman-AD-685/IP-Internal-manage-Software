@@ -112,13 +112,9 @@ export const dashboardApi = {
   },
 
   getOperationDetails: async (section: string): Promise<DashboardOperationDetailsResponse> => {
-    const key = `dashboard:operation-details:${section}`
-    const cached = sessionApiCacheGet<DashboardOperationDetailsResponse>(key)
-    if (cached) return cached
     const r = await apiClient.get<DashboardOperationDetailsResponse>('/dashboard/operation-details', {
-      params: { section },
+      params: { section, _: Date.now() },
     })
-    sessionApiCacheSet(key, r.data, 30_000)
     return r.data
   },
 

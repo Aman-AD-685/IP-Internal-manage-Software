@@ -9,7 +9,7 @@ import {
   TeamOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
-import type { ReactNode, UIEvent } from 'react'
+import type { ReactNode, UIEvent, WheelEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { dashboardApi } from '../../api/dashboard'
 import type {
@@ -27,6 +27,13 @@ import { OperationTile, type OperationMetric } from './OperationTile'
 
 const { Text, Title } = Typography
 const SUPPORT_DETAIL_BATCH_SIZE = 7
+
+const extraValue = (row: DashboardOperationDetailRow, key: string) => {
+  const value = row.extra?.[key]
+  return value == null || value === '' ? '—' : String(value)
+}
+
+const formatInrAmount = (value: number | undefined) => `₹${Number(value || 0).toLocaleString('en-IN')}`
 
 interface OperationsOverviewProps {
   operations: DashboardOperations
@@ -55,6 +62,7 @@ const OPERATION_CONFIG: OperationConfig[] = [
       { label: 'Open Chores', value: ops.support?.openChores ?? 0 },
       { label: 'Pending Bug', value: ops.support?.openBugs ?? 0 },
       { label: 'Open Feature', value: ops.support?.openFeatures ?? 0 },
+      { label: 'Pending Feature Approval', value: ops.support?.pendingFeatureApprovals ?? 0 },
       { label: 'Response Delay', value: ops.support?.delayedResponse ?? 0 },
       { label: 'Completion Delay', value: ops.support?.delayedCompletion ?? 0 },
     ],
@@ -80,9 +88,9 @@ const OPERATION_CONFIG: OperationConfig[] = [
     route: ROUTES.LEADS,
     icon: <TeamOutlined />,
     metrics: (ops) => [
-      { label: 'New', value: ops.clientToLead?.newLeads ?? 0 },
-      { label: 'Follow-up', value: ops.clientToLead?.followUpDue ?? 0 },
+      { label: 'Open', value: ops.clientToLead?.newLeads ?? 0 },
       { label: 'Closed', value: ops.clientToLead?.closed ?? 0 },
+      { label: 'Total', value: ops.clientToLead?.followUpDue ?? 0 },
     ],
   },
   {
@@ -120,6 +128,7 @@ const OPERATION_CONFIG: OperationConfig[] = [
     icon: <DollarOutlined />,
     metrics: (ops) => [
       { label: 'Pending', value: ops.clientPayment?.pending ?? 0 },
+      { label: 'Total Pending Amount', value: formatInrAmount(ops.clientPayment?.totalPendingAmount) },
       { label: 'Ageing Risk', value: ops.clientPayment?.ageingRisk ?? 0 },
       { label: 'Completed', value: ops.clientPayment?.completedRegister ?? 0 },
     ],
@@ -244,34 +253,186 @@ export function OperationsOverview({ operations, user }: OperationsOverviewProps
     { title: 'Status', dataIndex: 'status', key: 'status', width: 140 },
   ]
 
+  const clientToLeadColumns = [
+    {
+      title: 'Reference No',
+      key: 'referenceNo',
+      fixed: 'left' as const,
+      width: 150,
+      render: (_: unknown, row: DashboardOperationDetailRow) => (
+        <Typography.Link onClick={() => row.targetUrl && navigate(row.targetUrl)}>
+          {extraValue(row, 'clientTrainingRef')}
+        </Typography.Link>
+      ),
+    },
+    { title: 'Company', dataIndex: 'company', key: 'company', width: 260 },
+    { title: 'Stage', dataIndex: 'currentStage', key: 'currentStage', width: 200 },
+    { title: 'Assigned POC', dataIndex: 'contact', key: 'contact', width: 220 },
+  ]
+
+  const onboardingColumns = [
+    {
+      title: 'Reference',
+      dataIndex: 'referenceNo',
+      key: 'referenceNo',
+      fixed: 'left' as const,
+      width: 150,
+      render: (value: string, row: DashboardOperationDetailRow) => (
+        <Typography.Link onClick={() => row.targetUrl && navigate(row.targetUrl)}>{value}</Typography.Link>
+      ),
+    },
+    { title: 'Company', dataIndex: 'company', key: 'company', width: 240 },
+    { title: 'Payment Received Date', key: 'paymentReceivedDate', width: 190, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'paymentReceivedDate') },
+    { title: 'POC', key: 'poc', width: 180, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'poc') },
+    { title: 'POC Contact', key: 'pocContact', width: 160, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'pocContact') },
+  ]
+
+  const trainingColumns = [
+    {
+      title: 'Reference No',
+      key: 'referenceNo',
+      fixed: 'left' as const,
+      width: 150,
+      render: (_: unknown, row: DashboardOperationDetailRow) => (
+        <Typography.Link onClick={() => row.targetUrl && navigate(row.targetUrl)}>
+          {extraValue(row, 'clientTrainingRef')}
+        </Typography.Link>
+      ),
+    },
+    { title: 'Company Name', key: 'companyName', width: 220, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'companyName') },
+    { title: 'Point of Contact', key: 'pointOfContact', width: 180, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'pointOfContact') },
+    { title: 'Onb Ref', key: 'onbRef', width: 150, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'onbRef') },
+    { title: 'Expected Day 0', key: 'expectedDay0', width: 180, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'expectedDay0') },
+    { title: 'Trainer', key: 'trainer', width: 170, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'trainer') },
+    { title: 'Training Feedback', key: 'trainingFeedback', width: 260, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'trainingFeedback') },
+  ]
+
+  const clientPaymentColumns = [
+    {
+      title: 'Reference',
+      dataIndex: 'referenceNo',
+      key: 'referenceNo',
+      fixed: 'left' as const,
+      width: 150,
+      render: (value: string, row: DashboardOperationDetailRow) => (
+        <Typography.Link onClick={() => row.targetUrl && navigate(row.targetUrl)}>{value}</Typography.Link>
+      ),
+    },
+    { title: 'Company Name', dataIndex: 'company', key: 'company', width: 220 },
+    { title: 'Invoice Date', key: 'invoiceDate', width: 160, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'invoiceDate') },
+    { title: 'Invoice Amount', key: 'invoiceAmount', width: 160, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'invoiceAmount') },
+    { title: 'Invoice Number', key: 'invoiceNumber', width: 170, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'invoiceNumber') },
+    { title: 'Stage', key: 'stage', width: 160, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'stage') },
+    { title: 'Aging (days)', key: 'agingDays', width: 140, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'agingDays') },
+    { title: 'Genre', key: 'genre', width: 120, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'genre') },
+  ]
+
+  const dbClientColumns = [
+    {
+      title: 'Reference',
+      dataIndex: 'referenceNo',
+      key: 'referenceNo',
+      fixed: 'left' as const,
+      width: 150,
+      render: (value: string, row: DashboardOperationDetailRow) => (
+        <Typography.Link onClick={() => row.targetUrl && navigate(row.targetUrl)}>{value}</Typography.Link>
+      ),
+    },
+    { title: 'Status', dataIndex: 'status', key: 'status', width: 120 },
+    { title: 'Organization Name', key: 'organizationName', width: 220, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'organizationName') },
+    { title: 'Company Name', dataIndex: 'company', key: 'company', width: 220 },
+    { title: 'Contact Person', key: 'contactPerson', width: 180, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'contactPerson') },
+    { title: 'Mobile No.', key: 'mobileNo', width: 150, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'mobileNo') },
+    { title: 'Email ID', key: 'emailId', width: 220, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'emailId') },
+    { title: 'Paid Divisions', key: 'paidDivisions', width: 160, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'paidDivisions') },
+    { title: 'Division Abbreviation', key: 'divisionAbbreviation', width: 190, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'divisionAbbreviation') },
+    { title: 'Name of Divisions & Cost Details', key: 'nameOfDivisionsCostDetails', width: 280, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'nameOfDivisionsCostDetails') },
+    { title: 'Amount Paid / Division', key: 'amountPaidPerDivision', width: 200, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'amountPaidPerDivision') },
+    { title: 'Total Amount Paid / Month', key: 'totalAmountPaidPerMonth', width: 230, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'totalAmountPaidPerMonth') },
+    { title: 'Payment Frequency', key: 'paymentFrequency', width: 180, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'paymentFrequency') },
+    { title: 'Client Since', key: 'clientSince', width: 150, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'clientSince') },
+    { title: 'Client Till', key: 'clientTill', width: 150, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'clientTill') },
+    { title: 'Client Duration', key: 'clientDuration', width: 170, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'clientDuration') },
+    { title: 'Total Amount Paid Till Date', key: 'totalAmountPaidTillDate', width: 240, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'totalAmountPaidTillDate') },
+    { title: 'TDS %', key: 'tdsPercent', width: 110, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'tdsPercent') },
+    { title: 'City', key: 'city', width: 140, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'city') },
+    { title: 'State', key: 'state', width: 140, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'state') },
+    { title: 'Remarks', key: 'remarks', width: 220, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'remarks') },
+    { title: 'WhatsApp Group', key: 'whatsappGroup', width: 180, render: (_: unknown, row: DashboardOperationDetailRow) => extraValue(row, 'whatsappGroup') },
+  ]
+
   const detailSections: Array<{ key: keyof DashboardSupportDetailsResponse; title: string; buttonLabel: string }> = [
     { key: 'chores', title: 'Chores - Till date open', buttonLabel: 'Chores' },
     { key: 'bugs', title: 'Bug - Till date pending', buttonLabel: 'Bug' },
     { key: 'features', title: 'Feature - Till date open', buttonLabel: 'Feature' },
+    { key: 'pendingFeatureApprovals', title: 'Pending Feature Approval', buttonLabel: 'Pending Feature Approval' },
     { key: 'responseDelay', title: 'Response Delay - Previous week', buttonLabel: 'Response Delay' },
     { key: 'completionDelay', title: 'Completion Delay - Previous week', buttonLabel: 'Completion Delay' },
   ]
   const activeDetailSection = detailSections.find((section) => section.key === activeSupportSection) ?? detailSections[0]
   const activeRows = supportDetails?.[activeDetailSection.key] ?? []
   const operationRows = operationDetails?.rows ?? []
+  const operationColumnBySection = {
+    clientToLead: clientToLeadColumns,
+    onboarding: onboardingColumns,
+    training: trainingColumns,
+    clientPayment: clientPaymentColumns,
+    dbClient: dbClientColumns,
+  } as const
+  const operationScrollBySection: Record<string, number> = {
+    clientToLead: 830,
+    onboarding: 920,
+    training: 1310,
+    clientPayment: 1280,
+    dbClient: 4200,
+  }
+  const sectionKey = operationDetails?.section || ''
+  const activeOperationColumns = operationColumnBySection[sectionKey as keyof typeof operationColumnBySection] || operationColumns
+  const operationScrollX = operationScrollBySection[sectionKey] || 1300
   const visibleSupportRows = activeRows.slice(0, supportVisibleRows)
   const visibleOperationRows = operationRows.slice(0, operationVisibleRows)
   const hasMoreSupportRows = supportVisibleRows < activeRows.length
   const hasMoreOperationRows = operationVisibleRows < operationRows.length
 
+  const loadMoreSupportRows = () => {
+    setSupportVisibleRows((count) => Math.min(count + SUPPORT_DETAIL_BATCH_SIZE, activeRows.length))
+  }
+
+  const loadMoreOperationRows = () => {
+    setOperationVisibleRows((count) => Math.min(count + SUPPORT_DETAIL_BATCH_SIZE, operationRows.length))
+  }
+
+  const shouldLoadMoreFromScroll = (el: HTMLDivElement) => {
+    const isNearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 60
+    const hasNoScrollableOverflow = el.scrollHeight <= el.clientHeight + 1
+    return isNearBottom || hasNoScrollableOverflow
+  }
+
   const handleSupportScroll = (event: UIEvent<HTMLDivElement>) => {
     const el = event.currentTarget
     if (!hasMoreSupportRows) return
-    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 60) {
-      setSupportVisibleRows((count) => Math.min(count + SUPPORT_DETAIL_BATCH_SIZE, activeRows.length))
+    if (shouldLoadMoreFromScroll(el)) {
+      loadMoreSupportRows()
     }
   }
 
   const handleOperationScroll = (event: UIEvent<HTMLDivElement>) => {
     const el = event.currentTarget
     if (!hasMoreOperationRows) return
-    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 60) {
-      setOperationVisibleRows((count) => Math.min(count + SUPPORT_DETAIL_BATCH_SIZE, operationRows.length))
+    if (shouldLoadMoreFromScroll(el)) {
+      loadMoreOperationRows()
+    }
+  }
+
+  const handleSupportWheel = (event: WheelEvent<HTMLDivElement>) => {
+    if (event.deltaY > 0 && hasMoreSupportRows && shouldLoadMoreFromScroll(event.currentTarget)) {
+      loadMoreSupportRows()
+    }
+  }
+
+  const handleOperationWheel = (event: WheelEvent<HTMLDivElement>) => {
+    if (event.deltaY > 0 && hasMoreOperationRows && shouldLoadMoreFromScroll(event.currentTarget)) {
+      loadMoreOperationRows()
     }
   }
 
@@ -324,7 +485,7 @@ export function OperationsOverview({ operations, user }: OperationsOverviewProps
         width={1100}
       >
         <Title level={5}>{activeDetailSection.title}</Title>
-        <div className="support-details-infinite-scroll" onScroll={handleSupportScroll}>
+        <div className="support-details-infinite-scroll" onScroll={handleSupportScroll} onWheel={handleSupportWheel}>
           <Table<DashboardSupportDetailRow>
             rowKey="id"
             loading={supportLoading}
@@ -349,15 +510,15 @@ export function OperationsOverview({ operations, user }: OperationsOverviewProps
         footer={null}
         width={1100}
       >
-        <div className="support-details-infinite-scroll" onScroll={handleOperationScroll}>
+        <div className="support-details-infinite-scroll" onScroll={handleOperationScroll} onWheel={handleOperationWheel}>
           <Table<DashboardOperationDetailRow>
             rowKey="id"
             loading={operationLoading}
             size="small"
-            columns={operationColumns}
+            columns={activeOperationColumns}
             dataSource={visibleOperationRows}
             pagination={false}
-            scroll={{ x: 1300 }}
+            scroll={{ x: operationScrollX }}
             locale={{ emptyText: operationLoading ? 'Loading preview data...' : 'No preview data found' }}
           />
           {hasMoreOperationRows && (

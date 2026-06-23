@@ -6339,6 +6339,7 @@ class DashboardSupportOpsModel(BaseModel):
     openChores: int = 0
     openBugs: int = 0
     openFeatures: int = 0
+    pendingFeatureApprovals: int = 0
     delayedResponse: int = 0
     delayedCompletion: int = 0
 
@@ -6369,6 +6370,7 @@ class DashboardTrainingOpsModel(BaseModel):
 
 class DashboardClientPaymentOpsModel(BaseModel):
     pending: int = 0
+    totalPendingAmount: int = 0
     ageingRisk: int = 0
     completedRegister: int = 0
 
@@ -6422,6 +6424,7 @@ class DashboardSupportDetailsResponseModel(BaseModel):
     chores: list[DashboardSupportDetailRowModel] = []
     bugs: list[DashboardSupportDetailRowModel] = []
     features: list[DashboardSupportDetailRowModel] = []
+    pendingFeatureApprovals: list[DashboardSupportDetailRowModel] = []
     responseDelay: list[DashboardSupportDetailRowModel] = []
     completionDelay: list[DashboardSupportDetailRowModel] = []
 
@@ -6439,6 +6442,7 @@ class DashboardOperationDetailRowModel(BaseModel):
     totalCompletionPct: int | None = None
     currentStage: str = ""
     targetUrl: str | None = None
+    extra: dict[str, Any] = {}
 
 
 class DashboardOperationDetailsResponseModel(BaseModel):
@@ -6449,6 +6453,7 @@ class DashboardOperationDetailsResponseModel(BaseModel):
 
 _DASHBOARD_SUMMARY_CACHE: TTLCache = TTLCache(maxsize=512, ttl=60)
 _DASHBOARD_OPERATION_DETAILS_CACHE: TTLCache = TTLCache(maxsize=64, ttl=30)
+_DASHBOARD_PENDING_PAYMENT_AMOUNT_CACHE: TTLCache = TTLCache(maxsize=1, ttl=60)
 _UNIVERSAL_DASHBOARD_ALLOWED_EMAILS = {"aman@industryprime.com", "rimpa@industryprime.com"}
 _DASHBOARD_ALL_PERMISSION_KEYS = (
     "support",
@@ -6579,6 +6584,21 @@ def _dashboard_count(table: str, build_query: Callable[[Any], Any] | None = None
         return 0
 
 
+def _dashboard_total_pending_invoice_amount() -> int:
+    """Sum pending Payment Management invoice amounts with the same bounded aggregate used by payment KPIs."""
+    cache_key = "pending"
+    cached = _DASHBOARD_PENDING_PAYMENT_AMOUNT_CACHE.get(cache_key)
+    if cached is not None:
+        return int(cached)
+    try:
+        total = int(_sum_payment_invoice_totals_combined(max_pages=_PAYMENT_SUMMARY_AGG_MAX_PAGES)["total_due"])
+        _DASHBOARD_PENDING_PAYMENT_AMOUNT_CACHE[cache_key] = total
+        return total
+    except Exception as e:
+        _log(f"dashboard/summary pending invoice amount: {e}")
+        return 0
+
+
 def _dashboard_scope_user_id(
     requested_user_id: str | None,
     auth_user_id: str,
@@ -6656,6 +6676,7 @@ def _dashboard_operation_row(
     total_completion_pct: int | float | None = None,
     current_stage: str | None = None,
     target_url: str | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> DashboardOperationDetailRowModel:
     rid = str(row.get("id") or row.get("payment_status_id") or row.get("client_payment_id") or "")
     ref = (reference or row.get("reference_no") or row.get("old_reference_no") or rid or "N/A")
@@ -6677,6 +6698,7 @@ def _dashboard_operation_row(
         totalCompletionPct=pct_out,
         currentStage=str(current_stage or row.get("current_stage") or "").strip(),
         targetUrl=target_url,
+        extra=extra or {},
     )
 
 
@@ -6792,13 +6814,21 @@ def _dashboard_operation_details(section: str) -> DashboardOperationDetailsRespo
         if key == "clientToLead":
             rows = (
                 supabase.table("leads")
-                .select("*")
+                .select("id,reference_no,company_name,stage,assigned_poc_id,status,created_at")
                 .order("created_at", desc=True)
                 .limit(200)
                 .execute()
                 .data
                 or []
             )
+            poc_ids = {row.get("assigned_poc_id") for row in rows if row.get("assigned_poc_id")}
+            poc_map: dict[str, str] = {}
+            if poc_ids:
+                try:
+                    pr = supabase.table("user_profiles").select("id,full_name").in_("id", list(poc_ids)).execute()
+                    poc_map = {str(p.get("id")): str(p.get("full_name") or "") for p in (pr.data or []) if p.get("id")}
+                except Exception as e:
+                    _log(f"dashboard/client-to-lead-preview poc: {e}")
             return DashboardOperationDetailsResponseModel(
                 section=key,
                 title="Client to Lead Preview",
@@ -6809,6 +6839,8 @@ def _dashboard_operation_details(section: str) -> DashboardOperationDetailsRespo
                         title=r.get("company_name") or r.get("name") or r.get("contact_name"),
                         company=r.get("company_name"),
                         status=r.get("status") or r.get("stage"),
+                        contact=poc_map.get(str(r.get("assigned_poc_id") or ""), ""),
+                        current_stage=r.get("stage"),
                         target_url=f"/client-to-lead/leads/{r.get('id')}",
                     )
                     for r in rows
@@ -6817,7 +6849,7 @@ def _dashboard_operation_details(section: str) -> DashboardOperationDetailsRespo
         if key == "onboarding":
             rows = (
                 supabase.table("onboarding_payment_status")
-                .select("id,timestamp,reference_no,company_name,payment_status,payment_received_date,poc_name")
+                .select("id,timestamp,reference_no,company_name,payment_status,payment_received_date,poc_name,poc_contact")
                 .order("timestamp", desc=True)
                 .limit(200)
                 .execute()
@@ -6836,6 +6868,11 @@ def _dashboard_operation_details(section: str) -> DashboardOperationDetailsRespo
                         status=status_map.get(r.get("id")) or r.get("payment_status"),
                         reason=f"POC: {r.get('poc_name') or '-'}",
                         target_url=f"/onboarding/payment-status?reference={r.get('reference_no') or ''}",
+                        extra={
+                            "paymentReceivedDate": r.get("payment_received_date"),
+                            "poc": r.get("poc_name"),
+                            "pocContact": r.get("poc_contact"),
+                        },
                     )
                     for r in rows
                 ],
@@ -6863,19 +6900,68 @@ def _dashboard_operation_details(section: str) -> DashboardOperationDetailsRespo
                 )
                 payment_map = {str(p.get("id")): p for p in pay if p.get("id")}
             assignment_map: dict[str, dict] = {}
+            trainer_ids: set[str] = set()
             if payment_ids:
                 try:
                     assignments = (
                         supabase.table("training_client_assignments")
-                        .select("payment_status_id,poc_name,trainer_user_id,created_at")
+                        .select("payment_status_id,poc_name,trainer_user_id,created_at,expected_day0")
                         .in_("payment_status_id", payment_ids)
                         .execute()
                         .data
                         or []
                     )
                     assignment_map = {str(a.get("payment_status_id")): a for a in assignments if a.get("payment_status_id")}
+                    trainer_ids = {str(a.get("trainer_user_id")) for a in assignments if a.get("trainer_user_id")}
                 except Exception as e:
                     _log(f"dashboard/operation-details training assignments: {e}")
+                    try:
+                        assignments = (
+                            supabase.table("training_client_assignments")
+                            .select("payment_status_id,poc_name,trainer_user_id,created_at")
+                            .in_("payment_status_id", payment_ids)
+                            .execute()
+                            .data
+                            or []
+                        )
+                        assignment_map = {str(a.get("payment_status_id")): a for a in assignments if a.get("payment_status_id")}
+                        trainer_ids = {str(a.get("trainer_user_id")) for a in assignments if a.get("trainer_user_id")}
+                    except Exception as fallback_e:
+                        _log(f"dashboard/operation-details training assignments fallback: {fallback_e}")
+            trainer_map: dict[str, str] = {}
+            if trainer_ids:
+                try:
+                    tr = supabase.table("user_profiles").select("id,full_name").in_("id", list(trainer_ids)).execute()
+                    trainer_map = {str(u.get("id")): str(u.get("full_name") or "") for u in (tr.data or []) if u.get("id")}
+                except Exception as e:
+                    _log(f"dashboard/operation-details training trainers: {e}")
+            feedback_map: dict[str, str] = {}
+            if payment_ids:
+                try:
+                    feedback_rows = (
+                        supabase.table("training_checklist_stages")
+                        .select("payment_status_id,data")
+                        .eq("stage_key", "feedback")
+                        .in_("payment_status_id", payment_ids)
+                        .execute()
+                        .data
+                        or []
+                    )
+                    for row in feedback_rows:
+                        pid = str(row.get("payment_status_id") or "")
+                        data = row.get("data") or {}
+                        if isinstance(data, dict):
+                            feedback_map[pid] = " | ".join(str(v).strip() for v in data.values() if str(v or "").strip())
+                except Exception as e:
+                    _log(f"dashboard/operation-details training feedback: {e}")
+            client_training_ref_map = {
+                str(r.get("payment_status_id")): f"CLT-{idx:04d}"
+                for idx, r in enumerate(
+                    sorted(setup_rows, key=lambda row: str(row.get("submitted_at") or "")),
+                    start=1,
+                )
+                if r.get("payment_status_id")
+            }
             return DashboardOperationDetailsResponseModel(
                 section=key,
                 title="Training Preview",
@@ -6888,6 +6974,19 @@ def _dashboard_operation_details(section: str) -> DashboardOperationDetailsRespo
                         status="Assigned" if assignment_map.get(str(r.get("payment_status_id"))) else "Pending Assignment",
                         reason=f"POC: {(assignment_map.get(str(r.get('payment_status_id'))) or payment_map.get(str(r.get('payment_status_id'))) or {}).get('poc_name') or '-'}",
                         target_url="/training/client-training",
+                        extra={
+                            "companyName": (payment_map.get(str(r.get("payment_status_id"))) or {}).get("company_name"),
+                            "pointOfContact": (
+                                assignment_map.get(str(r.get("payment_status_id")))
+                                or payment_map.get(str(r.get("payment_status_id")))
+                                or {}
+                            ).get("poc_name"),
+                            "clientTrainingRef": client_training_ref_map.get(str(r.get("payment_status_id") or "")),
+                            "onbRef": (payment_map.get(str(r.get("payment_status_id"))) or {}).get("reference_no"),
+                            "expectedDay0": (assignment_map.get(str(r.get("payment_status_id"))) or {}).get("expected_day0"),
+                            "trainer": trainer_map.get(str((assignment_map.get(str(r.get("payment_status_id"))) or {}).get("trainer_user_id") or "")),
+                            "trainingFeedback": feedback_map.get(str(r.get("payment_status_id") or "")),
+                        },
                     )
                     for r in setup_rows
                 ],
@@ -6904,6 +7003,7 @@ def _dashboard_operation_details(section: str) -> DashboardOperationDetailsRespo
                 .data
                 or []
             )
+            _enrich_client_payment_list_items(rows)
             return DashboardOperationDetailsResponseModel(
                 section=key,
                 title="Client Payment Preview",
@@ -6915,6 +7015,14 @@ def _dashboard_operation_details(section: str) -> DashboardOperationDetailsRespo
                         status="Paid" if r.get("payment_received_date") else "Pending",
                         reason=str(r.get("invoice_number") or r.get("stage") or ""),
                         target_url=f"/onboarding/client-payment?reference={r.get('reference_no') or ''}",
+                        extra={
+                            "invoiceDate": r.get("invoice_date"),
+                            "invoiceAmount": r.get("invoice_amount"),
+                            "invoiceNumber": r.get("invoice_number"),
+                            "stage": r.get("stage"),
+                            "agingDays": r.get("aging_days"),
+                            "genre": r.get("genre"),
+                        },
                     )
                     for r in rows
                 ],
@@ -6923,7 +7031,7 @@ def _dashboard_operation_details(section: str) -> DashboardOperationDetailsRespo
             rows = (
                 supabase.table("db_client_client_onb")
                 .select(
-                    "id,reference_no,organization_name,company_name,contact_person,status,client_location_city,client_location_state"
+                    "id,reference_no,status,organization_name,company_name,contact_person,mobile_no,email_id,paid_divisions,division_abbreviation,name_of_divisions_cost_details,amount_paid_per_division,total_amount_paid_per_month,payment_frequency,client_since,client_till,client_duration,total_amount_paid_till_date,tds_percent,client_location_city,client_location_state,remarks,whatsapp_group_details"
                 )
                 .order("reference_no", desc=True)
                 .limit(200)
@@ -6947,6 +7055,27 @@ def _dashboard_operation_details(section: str) -> DashboardOperationDetailsRespo
                             if str(v or "").strip()
                         ),
                         target_url=f"/db-client/client-onb?reference={r.get('reference_no') or ''}",
+                        extra={
+                            "organizationName": r.get("organization_name"),
+                            "contactPerson": r.get("contact_person"),
+                            "mobileNo": r.get("mobile_no"),
+                            "emailId": r.get("email_id"),
+                            "paidDivisions": r.get("paid_divisions"),
+                            "divisionAbbreviation": r.get("division_abbreviation"),
+                            "nameOfDivisionsCostDetails": r.get("name_of_divisions_cost_details"),
+                            "amountPaidPerDivision": r.get("amount_paid_per_division"),
+                            "totalAmountPaidPerMonth": r.get("total_amount_paid_per_month"),
+                            "paymentFrequency": r.get("payment_frequency"),
+                            "clientSince": r.get("client_since"),
+                            "clientTill": r.get("client_till"),
+                            "clientDuration": r.get("client_duration"),
+                            "totalAmountPaidTillDate": r.get("total_amount_paid_till_date"),
+                            "tdsPercent": r.get("tds_percent"),
+                            "city": r.get("client_location_city"),
+                            "state": r.get("client_location_state"),
+                            "remarks": r.get("remarks"),
+                            "whatsappGroup": r.get("whatsapp_group_details"),
+                        },
                     )
                     for r in rows
                 ],
@@ -6966,6 +7095,7 @@ def _dashboard_fetch_user_support_details(user_id: str) -> DashboardSupportDetai
     response_start, response_end = _dashboard_prior_week_range()
     chore_bug_rows: list[dict] = []
     feature_rows: list[dict] = []
+    pending_feature_approval_rows: list[dict] = []
     week_rows: list[dict] = []
 
     try:
@@ -6989,6 +7119,18 @@ def _dashboard_fetch_user_support_details(user_id: str) -> DashboardSupportDetai
         feature_rows = feature_q.order("created_at", desc=True).limit(500).execute().data or []
     except Exception as e:
         _log(f"dashboard/support-details feature: {e}")
+
+    try:
+        pending_feature_q = (
+            supabase.table("tickets")
+            .select(cols)
+            .eq("type", "feature")
+            .is_("approval_status", "null")
+        )
+        pending_feature_q = _exclude_repeat_children_from_list(pending_feature_q)
+        pending_feature_approval_rows = pending_feature_q.order("created_at", desc=True).limit(500).execute().data or []
+    except Exception as e:
+        _log(f"dashboard/support-details pending-feature-approval: {e}")
 
     try:
         week_q = (
@@ -7025,6 +7167,9 @@ def _dashboard_fetch_user_support_details(user_id: str) -> DashboardSupportDetai
         chores=[_dashboard_support_detail_row(t) for t in chore_bug_rows if t.get("type") == "chore"],
         bugs=[_dashboard_support_detail_row(t) for t in chore_bug_rows if t.get("type") == "bug"],
         features=[_dashboard_support_detail_row(t) for t in feature_rows],
+        pendingFeatureApprovals=[
+            _dashboard_support_detail_row(t, "Pending feature approval") for t in pending_feature_approval_rows
+        ],
         responseDelay=response_delay,
         completionDelay=completion_delay,
     )
@@ -7049,6 +7194,13 @@ def _dashboard_count_open_features() -> int:
             .or_("staging_planned.is.null,live_review_status.eq.completed")
             .or_("live_status.is.null,live_status.neq.completed")
         ),
+    )
+
+
+def _dashboard_count_pending_feature_approvals() -> int:
+    return _dashboard_count(
+        "tickets",
+        lambda q: _exclude_repeat_children_from_list(q.eq("type", "feature").is_("approval_status", "null")),
     )
 
 
@@ -7139,13 +7291,11 @@ def dashboard_summary(
     week_start, week_end = _dashboard_date_filters(month, week)
     open_statuses = ["pending", "open", "in_progress", "in progress", "staging"]
 
-    checklist_due = _dashboard_count(
-        "checklist_tasks",
-        lambda q: q.eq("doer_id", scoped_user_id or auth_user_id),
-    )
+    my_work_user_id = scoped_user_id or auth_user_id
+    checklist_due = len(_checklist_occurrences_for_user(my_work_user_id, today, today, only_uncompleted=True))
     delegated_assigned = _dashboard_count(
         "delegation_tasks",
-        lambda q: q.eq("assignee_id", scoped_user_id or auth_user_id).neq("status", "completed"),
+        lambda q: q.eq("assignee_id", my_work_user_id).in_("status", ["pending", "in_progress"]).eq("due_date", today.isoformat()),
     )
     delegated_by_me = _dashboard_count(
         "delegation_tasks",
@@ -7154,6 +7304,7 @@ def dashboard_summary(
     open_chores = _dashboard_count_open_chore_bug("chore")
     pending_bug_till_date = _dashboard_count_open_chore_bug("bug")
     open_features = _dashboard_count_open_features()
+    pending_feature_approvals = _dashboard_count_pending_feature_approvals()
     support_open = open_chores + pending_bug_till_date + open_features
     delayed_response, delayed_completion = _dashboard_support_delay_counts()
     pending_approval_features = _dashboard_count(
@@ -7172,6 +7323,7 @@ def dashboard_summary(
             openChores=open_chores,
             openBugs=pending_bug_till_date,
             openFeatures=open_features,
+            pendingFeatureApprovals=pending_feature_approvals,
             delayedResponse=delayed_response,
             delayedCompletion=delayed_completion,
         ) if permissions.support else None,
@@ -7181,8 +7333,8 @@ def dashboard_summary(
             lowPerformance=0,
         ) if permissions.success else None,
         clientToLead=DashboardClientToLeadOpsModel(
-            newLeads=_dashboard_count("leads", lambda q: q.gte("created_at", week_start.isoformat()).lte("created_at", week_end.isoformat())),
-            followUpDue=0,
+            newLeads=_dashboard_count("leads", lambda q: q.eq("status", "Open")),
+            followUpDue=_dashboard_count("leads"),
             closed=_dashboard_count("leads", lambda q: q.eq("status", "Closed")),
         ) if permissions.clientToLead else None,
         onboarding=DashboardOnboardingOpsModel(
@@ -7196,7 +7348,11 @@ def dashboard_summary(
             completed=0,
         ) if permissions.training else None,
         clientPayment=DashboardClientPaymentOpsModel(
-            pending=_dashboard_count("onboarding_client_payment", lambda q: q.is_("payment_received_date", "null")),
+            pending=_dashboard_count(
+                "onboarding_client_payment",
+                lambda q: _ocp_query_exclude_marked_na(q.is_("payment_received_date", "null")),
+            ),
+            totalPendingAmount=_dashboard_total_pending_invoice_amount(),
             ageingRisk=0,
             completedRegister=_dashboard_count("onboarding_client_payment", lambda q: q.not_.is_("payment_received_date", "null")),
         ) if permissions.clientPayment else None,
@@ -8165,6 +8321,7 @@ _PAYMENT_SUMMARY_CACHE_TTL_SEC = 60
 
 def _invalidate_payment_summary_cache() -> None:
     _PAYMENT_SUMMARY_CACHE.clear()
+    _DASHBOARD_PENDING_PAYMENT_AMOUNT_CACHE.clear()
 
 
 def _sum_payment_invoice_totals_combined(*, max_pages: int = _PAYMENT_SUMMARY_AGG_MAX_PAGES) -> dict[str, int]:
