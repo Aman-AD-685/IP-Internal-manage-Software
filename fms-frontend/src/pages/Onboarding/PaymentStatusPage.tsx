@@ -24,6 +24,7 @@ import { onboardingApi, type PaymentStatusRecord } from '../../api/onboarding'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
 import { DEFAULT_INFINITE_CHUNK, useInfiniteScrollChunk } from '../../hooks/useInfiniteScrollChunk'
 import { OperationsSectionTabs } from '../../components/common/OperationsSectionTabs'
+import { useSearchParams } from 'react-router-dom'
 
 const { Title } = Typography
 const { TextArea } = Input
@@ -357,6 +358,7 @@ const FINAL_SETUP_FIELDS: { key: string; label: string; type: 'dropdown' | 'rema
 ]
 
 export function PaymentStatusPage() {
+  const [searchParams] = useSearchParams()
   const [form] = Form.useForm()
   const [preOnboardingForm] = Form.useForm()
   const [preChecklistForm] = Form.useForm()
@@ -438,6 +440,13 @@ export function PaymentStatusPage() {
   useEffect(() => {
     loadRecords()
   }, [])
+
+  useEffect(() => {
+    const target = (searchParams.get('open') || searchParams.get('reference') || '').trim()
+    if (!target || !records.length || drawerOpen) return
+    const record = records.find((row) => row.id === target || row.reference_no === target)
+    if (record) handleRowClick(record)
+  }, [drawerOpen, records, searchParams])
 
   const handleSubmit = () => {
     form.validateFields().then((values) => {

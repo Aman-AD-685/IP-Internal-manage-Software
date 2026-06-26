@@ -5,6 +5,40 @@
     <link rel="icon" type="image/png" href="/logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
+    <!--
+      PERF: open the network connections to the API + Supabase before the JS bundle
+      parses, so DNS + TLS handshake overlaps with bundle download (saves ~100–300ms
+      on the first API call). Keep these in sync with .env.production / Supabase URL.
+    -->
+    <link rel="preconnect" href="https://ip-internal-manage-software.onrender.com" crossorigin />
+    <link rel="dns-prefetch" href="https://ip-internal-manage-software.onrender.com" />
+    <link rel="preconnect" href="https://geqcgxassdkrymzsjpoj.supabase.co" crossorigin />
+    <link rel="dns-prefetch" href="https://geqcgxassdkrymzsjpoj.supabase.co" />
+    <!--
+      PERF: wake the Render backend as early as possible. On the free tier the
+      container sleeps after ~15 min idle and takes 10–60s to cold-start; every
+      dashboard call blocks on that. Firing /health here (before the ~1.5MB JS
+      bundle even parses) overlaps the wake-up with bundle download + auth, so the
+      backend is already warming by the time the dashboard needs data.
+      Fire-and-forget, no-cors, skipped on localhost (dev uses a local backend).
+    -->
+    <script>
+      (function () {
+        try {
+          var host = window.location.hostname || "";
+          var isLocal = host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0";
+          if (isLocal) return;
+          var api =
+            (window.__FMS_API_BASE_URL__ && window.__FMS_API_BASE_URL__.trim()) ||
+            "https://ip-internal-manage-software.onrender.com";
+          api = api.replace(/\/+$/, "");
+          if (!/^https?:\/\//.test(api)) return;
+          // keepalive lets the request survive the page handing off to the SPA.
+          fetch(api + "/health", { mode: "no-cors", cache: "no-store", keepalive: true }).catch(function () {});
+        } catch (e) {}
+      })();
+    </script>
+
     <!-- Primary SEO (Industry Prime / industryprime / FMS) -->
     <title>Industry Prime — IP Internal Management Software | FMS Onboarding &amp; Operations</title>
     <meta

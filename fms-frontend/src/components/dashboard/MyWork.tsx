@@ -8,19 +8,29 @@ const { Text, Title } = Typography
 
 interface MyWorkProps {
   myWork: DashboardMyWork
+  selectedUser?: { id: string; full_name: string }
 }
 
-export function MyWork({ myWork }: MyWorkProps) {
+export function MyWork({ myWork, selectedUser }: MyWorkProps) {
   const navigate = useNavigate()
+  const checklistHref = selectedUser?.id
+    ? `${ROUTES.CHECKLIST}?userId=${encodeURIComponent(selectedUser.id)}`
+    : ROUTES.CHECKLIST
+  const delegationHref = selectedUser?.id
+    ? `${ROUTES.DELEGATION}?assignee_id=${encodeURIComponent(selectedUser.id)}`
+    : ROUTES.DELEGATION
+
   return (
-    <Card className="universal-dashboard-panel">
+    <Card className="universal-dashboard-panel universal-dashboard-work-panel">
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         <div>
           <Text type="secondary">My Work</Text>
-          <Title level={4}>Checklist & Delegation</Title>
+          <Title level={4}>
+            Checklist & Delegation{selectedUser?.full_name ? ` - ${selectedUser.full_name}` : ''}
+          </Title>
         </div>
-        <Progress percent={myWork.completedPct} strokeColor="#0f766e" />
-        <Row gutter={[12, 12]}>
+        <Progress percent={myWork.completedPct} strokeColor="#7C5DB0" />
+        <Row gutter={[12, 12]} className="universal-dashboard-work-stats">
           <Col xs={12}>
             <Statistic title="Today pending Checklist" value={myWork.checklistDueToday} />
           </Col>
@@ -29,10 +39,10 @@ export function MyWork({ myWork }: MyWorkProps) {
           </Col>
         </Row>
         <Space wrap>
-          <Button icon={<CheckSquareOutlined />} onClick={() => navigate(ROUTES.CHECKLIST)}>
+          <Button type="primary" icon={<CheckSquareOutlined />} onClick={() => navigate(checklistHref)}>
             Checklist
           </Button>
-          <Button icon={<FileDoneOutlined />} onClick={() => navigate(ROUTES.DELEGATION)}>
+          <Button icon={<FileDoneOutlined />} onClick={() => navigate(delegationHref)}>
             Delegation
           </Button>
         </Space>

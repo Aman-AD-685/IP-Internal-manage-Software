@@ -111,10 +111,11 @@ export const ChecklistPage = () => {
   // Default user filter to logged-in user (admins see their tasks first; can change to another user)
   useEffect(() => {
     if (user?.id && !initialChecklistUserSet.current) {
-      setSelectedUserId(user.id)
+      const userIdFromUrl = new URLSearchParams(location.search).get('userId')?.trim()
+      setSelectedUserId(isAdmin && userIdFromUrl ? userIdFromUrl : user.id)
       initialChecklistUserSet.current = true
     }
-  }, [user?.id])
+  }, [isAdmin, location.search, user?.id])
 
   // Single batch load when we have an effective user (avoids double load; ~1s target)
   useEffect(() => {

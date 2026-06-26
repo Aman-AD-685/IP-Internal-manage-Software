@@ -29,6 +29,7 @@ import {
 import { sortPerformanceRefOptions } from '../../utils/performanceRefs'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
 import { OperationsSectionTabs } from '../../components/common/OperationsSectionTabs'
+import { useSearchParams } from 'react-router-dom'
 const { Title, Text } = Typography
 
 /* List endpoint batches Supabase calls; allow headroom for cold DB / network. */
@@ -110,6 +111,7 @@ interface FollowupFeature {
 }
 
 export const PerformanceMonitoringPage = () => {
+  const [searchParams] = useSearchParams()
   const [form] = Form.useForm()
   const [trainingForm] = Form.useForm()
   const [followupForm] = Form.useForm()
@@ -132,6 +134,7 @@ export const PerformanceMonitoringPage = () => {
   const [followupClicksByTf, setFollowupClicksByTf] = useState<
     Record<string, { count: number; events: Array<{ id: string; clicked_at: string }> }>
   >({})
+  const openedDeepLinkRef = useRef('')
   const [featuresLocked, setFeaturesLocked] = useState(false)
   const [detailsData, setDetailsData] = useState<TicketDetails | null>(null)
   const [detailsLoading, setDetailsLoading] = useState(false)
@@ -684,6 +687,15 @@ export const PerformanceMonitoringPage = () => {
       setDetailsLoading(false)
     }
   }
+
+  useEffect(() => {
+    const target = (searchParams.get('open') || searchParams.get('reference') || '').trim()
+    if (!target || openedDeepLinkRef.current === target || detailModalOpen || !items.length) return
+    const record = items.find((row) => row.id === target || row.reference_no === target)
+    if (!record) return
+    openedDeepLinkRef.current = target
+    void openViewDetails(record)
+  }, [detailModalOpen, items, searchParams])
 
   const renderActionNaControls = (record: POCItem) => {
     if (canRestoreCompany(record)) {

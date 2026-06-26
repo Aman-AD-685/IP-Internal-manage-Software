@@ -19,6 +19,8 @@ const { Text, Title } = Typography
 
 interface KpiOverviewProps {
   user: DashboardUserContext
+  selectedUserName?: string
+  selectedUserEmail?: string
 }
 
 const clampPercent = (value: unknown) => {
@@ -47,7 +49,7 @@ function personFromIdentity(email?: string, name?: string): DashboardKpiPerson |
   return DASHBOARD_KPI_NAMES.find((person) => haystack.includes(person.toLowerCase())) ?? null
 }
 
-export function KpiOverview({ user }: KpiOverviewProps) {
+export function KpiOverview({ user, selectedUserName, selectedUserEmail }: KpiOverviewProps) {
   const navigate = useNavigate()
   const { user: authUser } = useAuth()
   const [data, setData] = useState<DashboardKpiResponse | null>(null)
@@ -56,6 +58,10 @@ export function KpiOverview({ user }: KpiOverviewProps) {
   const userRole = (authUser?.role ?? user.role) as UserRole
   const sectionPermissions = authUser?.section_permissions
   const selectedPerson = useMemo(() => {
+    const filterPerson = personFromIdentity(selectedUserEmail, selectedUserName)
+    if (filterPerson && canViewDashboardKpiPerson(filterPerson, userRole, sectionPermissions)) {
+      return filterPerson
+    }
     const identityPerson = personFromIdentity(authUser?.email, authUser?.full_name || authUser?.display_name || user.name)
     if (identityPerson && canViewDashboardKpiPerson(identityPerson, userRole, sectionPermissions)) {
       return identityPerson
@@ -65,7 +71,16 @@ export function KpiOverview({ user }: KpiOverviewProps) {
       return explicitPerson
     }
     return DASHBOARD_KPI_NAMES.find((person) => canViewDashboardKpiPerson(person, userRole, sectionPermissions)) ?? null
-  }, [authUser?.display_name, authUser?.email, authUser?.full_name, sectionPermissions, user.name, userRole])
+  }, [
+    authUser?.display_name,
+    authUser?.email,
+    authUser?.full_name,
+    sectionPermissions,
+    selectedUserEmail,
+    selectedUserName,
+    user.name,
+    userRole,
+  ])
 
   const filters = useMemo(() => {
     const defaults = getDefaultPreviousWeekFilter()
@@ -114,15 +129,15 @@ export function KpiOverview({ user }: KpiOverviewProps) {
   const bars = useMemo(() => {
     if (!data) return []
     const next = [
-      { label: 'Checklist', value: clampPercent(data.checklist?.weeklyPercentage), color: '#2563eb' },
-      { label: 'Delegation', value: clampPercent(data.delegation?.weeklyPercentage), color: '#7c3aed' },
-      { label: 'Support FMS', value: clampPercent(data.supportFMS?.weeklyPercentage), color: '#ea580c' },
+      { label: 'Checklist', value: clampPercent(data.checklist?.weeklyPercentage), color: '#7C5DB0' },
+      { label: 'Delegation', value: clampPercent(data.delegation?.weeklyPercentage), color: '#5E4189' },
+      { label: 'Support FMS', value: clampPercent(data.supportFMS?.weeklyPercentage), color: '#6B6E85' },
     ]
     if (data.successKpi) {
       next.push({
         label: 'Success / Training / Social KPI',
         value: clampPercent(data.successKpi.overallPercentage),
-        color: '#0d9488',
+        color: '#9B86CF',
       })
     }
     return next
@@ -139,7 +154,7 @@ export function KpiOverview({ user }: KpiOverviewProps) {
   const dashboardHref = selectedPerson ? `${ROUTES.DASHBOARD_KPI}?person=${encodeURIComponent(selectedPerson)}` : ROUTES.DASHBOARD_KPI
 
   return (
-    <Card className="universal-dashboard-panel">
+    <Card className="universal-dashboard-panel universal-dashboard-kpi-panel">
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         <div className="universal-dashboard-section-heading">
           <div>
@@ -148,7 +163,7 @@ export function KpiOverview({ user }: KpiOverviewProps) {
           </div>
           {selectedPerson && (
             <Button type="primary" onClick={() => navigate(dashboardHref)}>
-              Open KPI Dashboard
+              Open KPI
             </Button>
           )}
         </div>
@@ -160,17 +175,17 @@ export function KpiOverview({ user }: KpiOverviewProps) {
           <Empty description={error || 'No KPI dashboard data found.'} />
         ) : (
           <>
-            <Row gutter={[16, 16]}>
+            <Row gutter={[16, 16]} className="universal-dashboard-kpi-rings">
               <Col xs={12}>
-                <Progress type="circle" percent={weekly} strokeColor="#059669" />
+                <Progress type="circle" percent={weekly} strokeColor={{ '0%': '#7C5DB0', '100%': '#9B86CF' }} />
                 <Text className="universal-dashboard-progress-label">Weekly</Text>
               </Col>
               <Col xs={12}>
-                <Progress type="circle" percent={monthly} strokeColor="#2563eb" />
+                <Progress type="circle" percent={monthly} strokeColor={{ '0%': '#6B6E85', '100%': '#9B9EB2' }} />
                 <Text className="universal-dashboard-progress-label">Monthly</Text>
               </Col>
             </Row>
-            <Space direction="vertical" style={{ width: '100%' }}>
+            <Space direction="vertical" className="universal-dashboard-kpi-bars" style={{ width: '100%' }}>
               {bars.map((bar) => (
                 <div key={bar.label}>
                   <div className="universal-dashboard-bar-label">

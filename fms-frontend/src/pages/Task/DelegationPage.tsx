@@ -67,10 +67,11 @@ export const DelegationPage = () => {
   // Default task filter to logged-in user (so first load shows "my tasks"); admins can change to another user or All
   useEffect(() => {
     if (canManage && user?.id && !initialUserFilterSet.current) {
-      setUserFilter(user.id)
+      const assigneeFromUrl = new URLSearchParams(location.search).get('assignee_id')?.trim()
+      setUserFilter(assigneeFromUrl || user.id)
       initialUserFilterSet.current = true
     }
-  }, [canManage, user?.id])
+  }, [canManage, location.search, user?.id])
 
   const loadTasks = useCallback(() => {
     const params: { status?: string; assignee_id?: string } = {}
@@ -135,7 +136,7 @@ export const DelegationPage = () => {
       submission_date: fmt(t.submission_date),
       document: t.has_document ? t.has_document.charAt(0).toUpperCase() + t.has_document.slice(1) : '',
       submitted_attachment: t.document_url || '',
-      submitted_by: t.submitted_by_name || (t.submitted_by ? String(t.submitted_by).slice(0, 8) : ''),
+      submitted_by: t.assignee_name || t.submitted_by_name || (t.assignee_id ? String(t.assignee_id).slice(0, 8) : ''),
       status: t.status || 'pending',
     }))
     return {
@@ -341,9 +342,9 @@ export const DelegationPage = () => {
     },
     {
       title: 'Submitted By',
-      dataIndex: 'submitted_by_name',
+      dataIndex: 'assignee_name',
       key: 'submitted_by',
-      render: (n: string, r: DelegationTask) => n || r.submitted_by?.slice(0, 8) || '-',
+      render: (n: string, r: DelegationTask) => n || r.submitted_by_name || r.assignee_id?.slice(0, 8) || '-',
     },
     {
       title: 'Status',

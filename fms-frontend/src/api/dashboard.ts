@@ -8,6 +8,7 @@ import type {
 } from '../types/dashboard'
 import {
   API_CACHE_TTL_MS,
+  genericLogicalKey,
   sessionApiCacheGet,
   sessionApiCacheRemove,
   sessionApiCacheSet,
@@ -84,6 +85,67 @@ export interface Stage2RemarkNotificationResponse {
   expires_hours: number
 }
 
+export interface DashboardAttendanceLeaveUserSummary {
+  userId: string
+  name: string
+  attendance: {
+    present: number
+    absent: number
+    workingDays?: number
+    dataUntil?: string | null
+    presentDates?: string[]
+    absentDates?: string[]
+  }
+  leave: {
+    days: number
+    dates?: string[]
+  }
+}
+
+export interface DashboardAttendanceLeaveSummaryResponse {
+  ok: boolean
+  month: string
+  year: number
+  from: string
+  to: string
+  monthEnd?: string
+  users: Record<string, DashboardAttendanceLeaveUserSummary>
+}
+
+export interface DashboardUserWorkSummaryItem {
+  id: string
+  referenceNo: string
+  title: string
+  date: string
+  status: string
+}
+
+export interface DashboardUserWorkSummary {
+  userId: string
+  name: string
+  range: {
+    from: string
+    to: string
+  }
+  checklist: {
+    count: number
+    items: DashboardUserWorkSummaryItem[]
+  }
+  delegation: {
+    count: number
+    items: DashboardUserWorkSummaryItem[]
+  }
+}
+
+export interface DashboardUserWorkSummaryResponse {
+  ok: boolean
+  range: {
+    from: string
+    to: string
+  }
+  users: Record<string, DashboardUserWorkSummary>
+}
+
 export interface SuccessPerformanceListItem {
   id: string
   reference_no?: string
@@ -102,7 +164,27 @@ export const dashboardApi = {
     const params = Object.fromEntries(
       Object.entries(filters).filter(([, value]) => value != null && String(value).trim() !== ''),
     )
+    const key = genericLogicalKey('dashboard:summary', params)
+    const cached = sessionApiCacheGet<DashboardSummaryResponse>(key)
+    if (cached) return cached
     const r = await apiClient.get<DashboardSummaryResponse>('/dashboard/summary', { params })
+    sessionApiCacheSet(key, r.data, API_CACHE_TTL_MS.dashboardSummary)
+    return r.data
+  },
+
+  getAttendanceLeaveSummary: async (body: {
+    users: { id: string; full_name: string }[]
+    month?: string
+    year?: number
+  }): Promise<DashboardAttendanceLeaveSummaryResponse> => {
+    const r = await apiClient.post<DashboardAttendanceLeaveSummaryResponse>('/dashboard/attendance-leave-summary', body)
+    return r.data
+  },
+
+  getUserWorkSummary: async (body: {
+    users: { id: string; full_name: string }[]
+  }): Promise<DashboardUserWorkSummaryResponse> => {
+    const r = await apiClient.post<DashboardUserWorkSummaryResponse>('/dashboard/user-work-summary', body)
     return r.data
   },
 

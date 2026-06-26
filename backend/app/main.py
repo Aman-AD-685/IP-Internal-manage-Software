@@ -221,6 +221,7 @@ from app.improvement_suggestions_routes import improvement_router
 from app.soft_suggestions_routes import soft_suggestions_router
 from app.system_lock_routes import system_lock_router
 from app.ws_routes import ws_router
+from app.attendance_sync_routes import attendance_sync_router
 
 app.include_router(feature_approval_reminder_router)
 app.include_router(feature_approval_reminder_router, prefix="/api")
@@ -238,6 +239,8 @@ app.include_router(system_lock_router)
 app.include_router(system_lock_router, prefix="/api")
 app.include_router(ws_router)
 app.include_router(ws_router, prefix="/api")
+app.include_router(attendance_sync_router)
+app.include_router(attendance_sync_router, prefix="/api")
 
 
 @app.on_event("startup")
@@ -559,8 +562,12 @@ def _get_app_release_broadcast() -> dict:
     """Public release key for new-feature refresh prompt (cached)."""
     from app.release_sync import build_app_release_broadcast
 
+    now = time.time()
+    cached = _APP_RELEASE_CACHE.get("payload")
+    if cached is not None and now - float(_APP_RELEASE_CACHE.get("ts") or 0) < _APP_RELEASE_CACHE_TTL_SEC:
+        return cached
     payload = build_app_release_broadcast(supabase)
-    _APP_RELEASE_CACHE["ts"] = time.time()
+    _APP_RELEASE_CACHE["ts"] = now
     _APP_RELEASE_CACHE["payload"] = payload
     return payload
 
@@ -2521,6 +2528,115 @@ _STAGE_2_EDIT_KEYS = {"status_2", "actual_2"}
 _STAGE_3_EDIT_KEYS = {"status_3", "actual_3"}
 _STAGE_4_EDIT_KEYS = {"status_4", "actual_4"}
 _FEATURE_STAGE_2_KEYS = {"live_status", "live_actual", "live_planned"}
+_TICKET_STAGE_EDIT_KEYS = (
+    _STAGE_1_EDIT_KEYS
+    | _STAGE_2_EDIT_KEYS
+    | _STAGE_3_EDIT_KEYS
+    | _STAGE_4_EDIT_KEYS
+    | {
+        "planned_2",
+        "planned_3",
+        "planned_4",
+        "status",
+        "quality_solution",
+    }
+)
+_TICKET_CORE_EDIT_KEYS = {
+    "title",
+    "description",
+    "priority",
+    "assignee_id",
+    "resolution_notes",
+    "remarks",
+    "company_id",
+    "page_id",
+    "division_id",
+    "division_other",
+    "user_name",
+    "communicated_through",
+    "submitted_by",
+    "query_arrival_at",
+    "quality_of_response",
+    "customer_questions",
+    "query_response_at",
+    "why_feature",
+    "attachment_url",
+}
+_APPROVAL_EDIT_KEYS = {
+    "approval_status",
+    "approval_actual_at",
+    "unapproval_actual_at",
+}
+_STAGING_WORKFLOW_EDIT_KEYS = {
+    "staging_review_status",
+    "staging_review_actual",
+    "live_status",
+    "live_actual",
+    "live_planned",
+    "live_review_status",
+    "live_review_actual",
+    "live_review_planned",
+}
+
+
+def _ticket_base_edit_section(ticket: dict) -> str:
+    ticket_type = (ticket.get("type") or "").strip().lower()
+    return "feature" if ticket_type == "feature" else "chores_bugs"
+
+
+def _require_ticket_section_edit(user_id: str, section_key: str) -> None:
+    from app.section_permissions_util import require_section_edit
+
+    label = SECTION_LABELS.get(section_key, section_key)
+    require_section_edit(
+        user_id,
+        section_key,
+        detail=f"Edit access required for {label}. View-only users cannot change stage/status.",
+    )
+
+
+def _require_ticket_update_edit_access(user_id: str, ticket_id: str, data: dict) -> dict:
+    changed = {str(k) for k in data.keys()}
+    guarded = (
+        _TICKET_STAGE_EDIT_KEYS
+        | _TICKET_CORE_EDIT_KEYS
+        | _APPROVAL_EDIT_KEYS
+        | _STAGING_WORKFLOW_EDIT_KEYS
+        | {"staging_planned"}
+    )
+    if not (changed & guarded):
+        current = supabase.table("tickets").select("id, type, staging_planned, status_2").eq("id", ticket_id).single().execute()
+        if not current.data:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        return current.data
+
+    current = (
+        supabase.table("tickets")
+        .select("id, type, staging_planned, status_2")
+        .eq("id", ticket_id)
+        .single()
+        .execute()
+    )
+    if not current.data:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    ticket = current.data
+    required_sections: set[str] = set()
+
+    if changed & _APPROVAL_EDIT_KEYS:
+        required_sections.add("approval_status")
+
+    staging_changed = changed & _STAGING_WORKFLOW_EDIT_KEYS
+    if staging_changed and ticket.get("staging_planned"):
+        required_sections.add("staging")
+    elif staging_changed:
+        required_sections.add(_ticket_base_edit_section(ticket))
+
+    if changed & (_TICKET_STAGE_EDIT_KEYS | _TICKET_CORE_EDIT_KEYS | {"staging_planned"}):
+        required_sections.add(_ticket_base_edit_section(ticket))
+
+    for section_key in sorted(required_sections):
+        _require_ticket_section_edit(user_id, section_key)
+    return ticket
 
 
 @api_router.put("/tickets/{ticket_id}")
@@ -2544,6 +2660,7 @@ def update_ticket(ticket_id: str, payload: UpdateTicketRequest, auth: dict = Dep
             data[k] = v
     if "priority" in data:
         data["priority"] = _normalize_ticket_priority(data.get("priority"))
+    current_ticket = _require_ticket_update_edit_access(auth["id"], ticket_id, data)
     # Keep denormalized display columns in sync when IDs are edited from ticket modal.
     try:
         if data.get("company_id"):
@@ -2648,7 +2765,7 @@ def update_ticket(ticket_id: str, payload: UpdateTicketRequest, auth: dict = Dep
     # Level 3 (user): one-time edit for Stage 1, 3, 4. Stage 2 stays editable multiple times for all users.
     if role == "user":
         updated = r.data[0]
-        ticket_type = updated.get("type") or (supabase.table("tickets").select("type").eq("id", ticket_id).single().execute().data or {}).get("type")
+        ticket_type = updated.get("type") or current_ticket.get("type")
         if ticket_type in ("chore", "bug") and (data.keys() & (_STAGE_1_EDIT_KEYS | _STAGE_3_EDIT_KEYS | _STAGE_4_EDIT_KEYS)):
             _mark_level3_edit_used(ticket_id, auth["id"])
         if ticket_type == "feature" and (data.keys() & _FEATURE_STAGE_2_KEYS):
@@ -2659,9 +2776,10 @@ def update_ticket(ticket_id: str, payload: UpdateTicketRequest, auth: dict = Dep
 @api_router.post("/tickets/{ticket_id}/mark-staging")
 def mark_ticket_staging(ticket_id: str, auth: dict = Depends(get_current_user)):
     """Mark a ticket as Staging: set Stage 1 planned and status. Ticket will appear only in Staging section."""
-    r = supabase.table("tickets").select("id, staging_planned").eq("id", ticket_id).single().execute()
+    r = supabase.table("tickets").select("id, type, staging_planned").eq("id", ticket_id).single().execute()
     if not r.data:
         raise HTTPException(status_code=404, detail="Ticket not found")
+    _require_ticket_section_edit(auth["id"], _ticket_base_edit_section(r.data))
     if r.data.get("staging_planned"):
         raise HTTPException(status_code=400, detail="Ticket is already in Staging")
     role = _get_role_from_profile(auth["id"])
@@ -2700,6 +2818,7 @@ def promote_ticket_to_feature(
     if not r.data:
         raise HTTPException(status_code=404, detail="Ticket not found")
     row = r.data
+    _require_ticket_section_edit(auth["id"], "chores_bugs")
     ticket_type = (row.get("type") or "").strip().lower()
     if ticket_type not in ("chore", "bug"):
         raise HTTPException(status_code=400, detail="Only Chores or Bug tickets can be shifted to Feature")
@@ -2764,6 +2883,7 @@ def staging_back(ticket_id: str, auth: dict = Depends(get_current_user)):
     r = supabase.table("tickets").select("id").eq("id", ticket_id).single().execute()
     if not r.data:
         raise HTTPException(status_code=404, detail="Ticket not found")
+    _require_ticket_section_edit(auth["id"], "staging")
     data = {
         "staging_planned": None,
         "staging_review_actual": None,
@@ -2920,9 +3040,10 @@ class SubmitQualitySolutionRequest(BaseModel):
 @api_router.post("/tickets/{ticket_id}/quality-solution")
 def submit_quality_solution(ticket_id: str, payload: SubmitQualitySolutionRequest, auth: dict = Depends(get_current_user)):
     """Submit Quality of Solution (Chores & Bugs). Links by Reference No, sets submitted_by and submitted_at."""
-    r = supabase.table("tickets").select("id, quality_solution").eq("id", ticket_id).single().execute()
+    r = supabase.table("tickets").select("id, type, quality_solution").eq("id", ticket_id).single().execute()
     if not r.data:
         raise HTTPException(status_code=404, detail="Ticket not found")
+    _require_ticket_section_edit(auth["id"], _ticket_base_edit_section(r.data))
     if r.data.get("quality_solution"):
         raise HTTPException(status_code=400, detail="Quality solution already submitted")
     profile = supabase.table("user_profiles").select("full_name").eq("id", auth["id"]).single().execute()
@@ -2965,9 +3086,10 @@ class Stage2RemarkRequest(BaseModel):
 @api_router.post("/tickets/{ticket_id}/stage2-remarks")
 def create_stage2_remark(ticket_id: str, payload: Stage2RemarkRequest, auth: dict = Depends(get_current_user)):
     """Add Stage 2 remark. All users can add (3-4 per ticket recommended)."""
-    r = supabase.table("tickets").select("id").eq("id", ticket_id).single().execute()
+    r = supabase.table("tickets").select("id, type").eq("id", ticket_id).single().execute()
     if not r.data:
         raise HTTPException(status_code=404, detail="Ticket not found")
+    _require_ticket_section_edit(auth["id"], _ticket_base_edit_section(r.data))
     text = (payload.remark_text or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="Remark text is required")
@@ -2992,6 +3114,10 @@ def update_stage2_remark(
     auth: dict = Depends(get_current_user), current: dict = Depends(get_current_user_with_role),
 ):
     """Update Stage 2 remark. Only Master Admin or the remark author can edit."""
+    ticket = supabase.table("tickets").select("id, type").eq("id", ticket_id).single().execute()
+    if not ticket.data:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    _require_ticket_section_edit(auth["id"], _ticket_base_edit_section(ticket.data))
     try:
         r = supabase.table("ticket_stage2_remarks").select("id, added_by").eq("id", remark_id).eq("ticket_id", ticket_id).single().execute()
     except Exception:
@@ -3229,6 +3355,8 @@ def invalidate_dashboard_read_caches() -> None:
     _DASH_TRENDS_CACHE.clear()
     _DASH_BOOTSTRAP_CACHE.clear()
     _SUPPORT_DASH_CACHE.clear()
+    _DASHBOARD_SUMMARY_CACHE.clear()
+    _DASHBOARD_PROFILE_CONTEXT_CACHE.clear()
     _invalidate_ttl_cache_key_prefix("dash:")
     _invalidate_ttl_cache_key_prefix("dash:soumya:")
 
@@ -3251,14 +3379,6 @@ def dashboard_metrics(auth: dict = Depends(get_current_user)):
     types_chores_bugs = ["chore", "bug"]
     types_feature = ["feature"]
 
-    # Current month: total Chores & Bug tickets created this month
-    try:
-        q = supabase.table("tickets").select("id", count="exact").in_("type", types_chores_bugs).gte("created_at", month_start.isoformat())
-        r = q.execute()
-        all_tickets = r.count or 0
-    except Exception:
-        all_tickets = 0
-
     pending_statuses = ["open", "in_progress", "on_hold"]
 
     def _stage4_completed(t: dict) -> bool:
@@ -3273,24 +3393,91 @@ def dashboard_metrics(auth: dict = Depends(get_current_user)):
         qs = t.get("quality_solution")
         return qs is not None and qs != "" and str(qs).lower() not in ("null", "none")
 
-    # Pending till date: count queries only (target &lt;1s vs loading all tickets).
-    pending_till_date = _count_open_queue_tickets(types_chores_bugs)
-    total_pending_bug_till_date = _count_open_queue_tickets(types_chores_bugs, ticket_type="bug")
-    pending_till_date_exclude_demo_c = _count_open_queue_tickets(types_chores_bugs, demo_c_mode="exclude")
-    pending_chores_include_demo_c = _count_open_queue_tickets(types_chores_bugs, demo_c_mode="chore_demo_only")
+    # ------------------------------------------------------------------
+    # PERF: all of the queries below are INDEPENDENT read-only round-trips
+    # to Supabase. Running them sequentially made this endpoint wait on
+    # ~10 network round-trips back to back (the main cause of slow first
+    # paint when the per-user cache is cold). Fire them in parallel so the
+    # endpoint waits on the slowest single query instead of their sum.
+    # (Same ThreadPoolExecutor pattern already used in _enrich_tickets_with_lookups.)
+    # ------------------------------------------------------------------
+    def _fetch_all_tickets_count() -> int:
+        try:
+            r = (
+                supabase.table("tickets")
+                .select("id", count="exact")
+                .in_("type", types_chores_bugs)
+                .gte("created_at", month_start.isoformat())
+                .execute()
+            )
+            return r.count or 0
+        except Exception:
+            return 0
 
-    # Last week Chores & Bug tickets (for response_delay / completion_delay)
-    try:
-        q = (
-            supabase.table("tickets")
-            .select("id, assignee_id, created_at, status_4, actual_4, status, type")
-            .in_("type", types_chores_bugs)
-            .gte("created_at", week_start.isoformat())
-        )
-        r = q.execute()
-        week_tickets = r.data or []
-    except Exception:
-        week_tickets = []
+    def _fetch_week_tickets() -> list:
+        try:
+            r = (
+                supabase.table("tickets")
+                .select("id, assignee_id, created_at, status_4, actual_4, status, type")
+                .in_("type", types_chores_bugs)
+                .gte("created_at", week_start.isoformat())
+                .execute()
+            )
+            return r.data or []
+        except Exception:
+            return []
+
+    def _staging_metrics_base():
+        b = supabase.table("tickets").select("id", count="exact")
+        b = b.or_("staging_planned.not.is.null,status_2.eq.staging")
+        b = b.or_("live_review_status.is.null,live_review_status.neq.completed")
+        return b
+
+    def _fetch_staging_feature() -> int:
+        try:
+            rf = _staging_metrics_base().eq("type", "feature").execute()
+            return int(rf.count) if rf.count is not None else len(rf.data or [])
+        except Exception:
+            return 0
+
+    def _fetch_staging_cb() -> int:
+        try:
+            rcb = _staging_metrics_base().in_("type", ["chore", "bug"]).execute()
+            return int(rcb.count) if rcb.count is not None else len(rcb.data or [])
+        except Exception:
+            return 0
+
+    _metric_jobs = {
+        "all_tickets": _fetch_all_tickets_count,
+        "pending_till_date": lambda: _count_open_queue_tickets(types_chores_bugs),
+        "total_pending_bug_till_date": lambda: _count_open_queue_tickets(types_chores_bugs, ticket_type="bug"),
+        "pending_till_date_exclude_demo_c": lambda: _count_open_queue_tickets(types_chores_bugs, demo_c_mode="exclude"),
+        "pending_chores_include_demo_c": lambda: _count_open_queue_tickets(types_chores_bugs, demo_c_mode="chore_demo_only"),
+        "feature_excluding_demo_c": lambda: _count_open_queue_tickets(types_feature, demo_c_mode="exclude"),
+        "feature_with_demo_c": lambda: _count_open_queue_tickets(types_feature, demo_c_mode="include"),
+        "week_tickets": _fetch_week_tickets,
+        "staging_pending_feature": _fetch_staging_feature,
+        "staging_pending_chores_bugs": _fetch_staging_cb,
+    }
+    _metric_res: dict[str, object] = {}
+    with ThreadPoolExecutor(max_workers=min(10, len(_metric_jobs))) as _pool:
+        _futs = {name: _pool.submit(fn) for name, fn in _metric_jobs.items()}
+        for name, fut in _futs.items():
+            try:
+                _metric_res[name] = fut.result()
+            except Exception:
+                _metric_res[name] = [] if name == "week_tickets" else 0
+
+    all_tickets = _metric_res["all_tickets"]
+    pending_till_date = _metric_res["pending_till_date"]
+    total_pending_bug_till_date = _metric_res["total_pending_bug_till_date"]
+    pending_till_date_exclude_demo_c = _metric_res["pending_till_date_exclude_demo_c"]
+    pending_chores_include_demo_c = _metric_res["pending_chores_include_demo_c"]
+    feature_excluding_demo_c = _metric_res["feature_excluding_demo_c"]
+    feature_with_demo_c = _metric_res["feature_with_demo_c"]
+    staging_pending_feature = _metric_res["staging_pending_feature"]
+    staging_pending_chores_bugs = _metric_res["staging_pending_chores_bugs"]
+    week_tickets = _metric_res["week_tickets"] or []
 
     total_last_week = len(week_tickets)
     pending_last_week = sum(1 for t in week_tickets if t.get("status") in pending_statuses)
@@ -3319,28 +3506,6 @@ def dashboard_metrics(auth: dict = Depends(get_current_user)):
             return False
     completion_delay = sum(1 for t in week_tickets if _completion_delay_ticket(t))
 
-    # In Staging: same rules as Support → Staging (GET /tickets?section=staging), not staging_deployments.
-    staging_pending_feature = 0
-    staging_pending_chores_bugs = 0
-    try:
-
-        def _staging_metrics_base():
-            b = supabase.table("tickets").select("id", count="exact")
-            b = b.or_("staging_planned.not.is.null,status_2.eq.staging")
-            b = b.or_("live_review_status.is.null,live_review_status.neq.completed")
-            return b
-
-        rf = _staging_metrics_base().eq("type", "feature").execute()
-        staging_pending_feature = int(rf.count) if rf.count is not None else len(rf.data or [])
-        rcb = _staging_metrics_base().in_("type", ["chore", "bug"]).execute()
-        staging_pending_chores_bugs = int(rcb.count) if rcb.count is not None else len(rcb.data or [])
-    except Exception:
-        pass
-
-    # Feature pending split by Demo C / non Demo C (count queries).
-    feature_excluding_demo_c = _count_open_queue_tickets(types_feature, demo_c_mode="exclude")
-    feature_with_demo_c = _count_open_queue_tickets(types_feature, demo_c_mode="include")
-
     # -----------------------------------------------------------------------
     # Custom dashboard fields for specific emails
     # -----------------------------------------------------------------------
@@ -3358,7 +3523,19 @@ def dashboard_metrics(auth: dict = Depends(get_current_user)):
     custom_full_emails = {"ad@ip.com", "ayush@industryprime.com"}
     custom_payment_only_emails = {"ea@industryprime.com"}
     custom_emails = custom_full_emails | custom_payment_only_emails
-    if auth_email in custom_emails:
+
+    def _dashboard_custom_payment_metrics() -> dict[str, int]:
+        out = {
+            "custom_received_monthly": 0,
+            "custom_received_quarterly": 0,
+            "custom_received_half_yearly": 0,
+            "custom_received_yearly": 0,
+            "custom_total_due": 0,
+            "custom_total_due_quarter": 0,
+            "custom_raised_quarter": 0,
+            "custom_raised_all": 0,
+            "custom_received_in_fy_quarter": 0,
+        }
         try:
             from datetime import date as date_cls
             from datetime import timedelta
@@ -3368,23 +3545,32 @@ def dashboard_metrics(auth: dict = Depends(get_current_user)):
             q_start, q_end = _pa.quarter_date_bounds(fy, q)
             recv_window_start = today - timedelta(days=365)
 
-            custom_total_due = _sum_unpaid_client_payment_excluding_na()
-            pay_rows = _fetch_client_payment_rows_for_metrics()
+            def _fetch_receive_by_cp_id() -> dict[str, dict]:
+                receive_by_cp_id: dict[str, dict] = {}
+                try:
+                    rr = (
+                        supabase.table("onboarding_client_payment_receive")
+                        .select("client_payment_id,amount,payment_date")
+                        .limit(5000)
+                        .execute()
+                    )
+                    for rec in rr.data or []:
+                        cid = str(rec.get("client_payment_id") or "").strip()
+                        if cid:
+                            receive_by_cp_id[cid] = rec
+                except Exception as e:
+                    _log(f"dashboard payment receive rows: {e}")
+                return receive_by_cp_id
 
-            receive_by_cp_id: dict[str, dict] = {}
-            try:
-                rr = (
-                    supabase.table("onboarding_client_payment_receive")
-                    .select("client_payment_id,amount,payment_date")
-                    .limit(5000)
-                    .execute()
-                )
-                for rec in rr.data or []:
-                    cid = str(rec.get("client_payment_id") or "").strip()
-                    if cid:
-                        receive_by_cp_id[cid] = rec
-            except Exception as e:
-                _log(f"dashboard payment receive rows: {e}")
+            # These are independent scans; overlap them so custom dashboard cards do not
+            # add their round-trips after the main support metrics finish.
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                f_due = pool.submit(_sum_unpaid_client_payment_excluding_na)
+                f_rows = pool.submit(_fetch_client_payment_rows_for_metrics)
+                f_recv = pool.submit(_fetch_receive_by_cp_id)
+                out["custom_total_due"] = int(f_due.result() or 0)
+                pay_rows = f_rows.result() or []
+                receive_by_cp_id = f_recv.result() or {}
 
             for row in pay_rows:
                 amt = _parse_invoice_amount(row.get("invoice_amount"))
@@ -3392,12 +3578,12 @@ def dashboard_metrics(auth: dict = Depends(get_current_user)):
                 inv_d = _pa._parse_date(row.get("invoice_date")) or _pa._parse_date(row.get("timestamp"))
                 is_na = _client_payment_row_marked_na(row)
                 if not is_na:
-                    custom_raised_all += amt
+                    out["custom_raised_all"] += amt
 
                 if inv_d and q_start <= inv_d <= q_end and not is_na:
-                    custom_raised_quarter += amt
+                    out["custom_raised_quarter"] += amt
                     if not is_paid:
-                        custom_total_due_quarter += amt
+                        out["custom_total_due_quarter"] += amt
 
                 if is_paid or is_na:
                     continue
@@ -3408,32 +3594,56 @@ def dashboard_metrics(auth: dict = Depends(get_current_user)):
 
                 g = _normalize_client_payment_genre(row.get("genre"))
                 if g == "M":
-                    custom_received_monthly += amt
+                    out["custom_received_monthly"] += amt
                 elif g == "Q":
-                    custom_received_quarterly += amt
+                    out["custom_received_quarterly"] += amt
                 elif g == "HY":
-                    custom_received_half_yearly += amt
+                    out["custom_received_half_yearly"] += amt
                 elif g == "Y":
-                    custom_received_yearly += amt
+                    out["custom_received_yearly"] += amt
 
             # Align dashboard Payment card totals with Client Payment Overall card (carry-forward logic).
             kpis = _compute_payment_ageing_kpis(pay_rows, None, receive_by_cp_id)
-            custom_raised_quarter = int((kpis.get("overall_in_quarter") or {}).get("raised") or custom_raised_quarter)
-            custom_received_in_fy_quarter = int((kpis.get("overall_in_quarter") or {}).get("received") or 0)
+            out["custom_raised_quarter"] = int(
+                (kpis.get("overall_in_quarter") or {}).get("raised") or out["custom_raised_quarter"]
+            )
+            out["custom_received_in_fy_quarter"] = int((kpis.get("overall_in_quarter") or {}).get("received") or 0)
         except Exception as e:
             _log(f"dashboard payment metrics: {e}")
+        return out
 
-        if auth_email in custom_full_emails:
-            try:
-                rdel = (
-                    supabase.table("delegation_tasks")
-                    .select("id", count="exact")
-                    .in_("status", ["pending", "in_progress"])
-                    .execute()
-                )
-                custom_pending_delegation = rdel.count or len(rdel.data or [])
-            except Exception:
-                custom_pending_delegation = 0
+    def _dashboard_custom_pending_delegation() -> int:
+        try:
+            rdel = (
+                supabase.table("delegation_tasks")
+                .select("id", count="exact")
+                .in_("status", ["pending", "in_progress"])
+                .execute()
+            )
+            return int(rdel.count or len(rdel.data or []))
+        except Exception:
+            return 0
+
+    if auth_email in custom_emails:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            f_payment = pool.submit(_dashboard_custom_payment_metrics)
+            f_delegation = (
+                pool.submit(_dashboard_custom_pending_delegation)
+                if auth_email in custom_full_emails
+                else None
+            )
+            custom_payment = f_payment.result() or {}
+            custom_received_monthly = custom_payment.get("custom_received_monthly", 0)
+            custom_received_quarterly = custom_payment.get("custom_received_quarterly", 0)
+            custom_received_half_yearly = custom_payment.get("custom_received_half_yearly", 0)
+            custom_received_yearly = custom_payment.get("custom_received_yearly", 0)
+            custom_total_due = custom_payment.get("custom_total_due", 0)
+            custom_total_due_quarter = custom_payment.get("custom_total_due_quarter", 0)
+            custom_raised_quarter = custom_payment.get("custom_raised_quarter", 0)
+            custom_raised_all = custom_payment.get("custom_raised_all", 0)
+            custom_received_in_fy_quarter = custom_payment.get("custom_received_in_fy_quarter", 0)
+            if f_delegation is not None:
+                custom_pending_delegation = f_delegation.result()
 
     payload = {
         "all_tickets": all_tickets,
@@ -5166,11 +5376,12 @@ def _warm_dashboard_kpi_cache_once() -> None:
 
 
 def _start_dashboard_kpi_warmer() -> None:
-    if os.getenv("KPI_WARM_ENABLED", "1").strip() == "0":
+    if os.getenv("KPI_WARM_ENABLED", "0").strip() != "1":
         return
 
     def _loop() -> None:
         while True:
+            time.sleep(max(30, int(os.getenv("KPI_WARM_INITIAL_DELAY_SEC", "30"))))
             try:
                 _warm_dashboard_kpi_cache_once()
             except Exception as e:
@@ -6417,6 +6628,8 @@ class DashboardSupportDetailRowModel(BaseModel):
     company: str = ""
     status: str = ""
     reason: str = ""
+    currentStage: str = ""
+    stageStatus: str = ""
     createdAt: str | None = None
 
 
@@ -6452,6 +6665,7 @@ class DashboardOperationDetailsResponseModel(BaseModel):
 
 
 _DASHBOARD_SUMMARY_CACHE: TTLCache = TTLCache(maxsize=512, ttl=60)
+_DASHBOARD_PROFILE_CONTEXT_CACHE: TTLCache = TTLCache(maxsize=256, ttl=60)
 _DASHBOARD_OPERATION_DETAILS_CACHE: TTLCache = TTLCache(maxsize=64, ttl=30)
 _DASHBOARD_PENDING_PAYMENT_AMOUNT_CACHE: TTLCache = TTLCache(maxsize=1, ttl=60)
 _UNIVERSAL_DASHBOARD_ALLOWED_EMAILS = {"aman@industryprime.com", "rimpa@industryprime.com"}
@@ -6549,15 +6763,21 @@ def _dashboard_display_name(row: dict, auth: dict | None = None) -> str:
 
 
 def _dashboard_profile_context(user_id: str, auth: dict | None = None) -> tuple[str, str, list[dict], list[str]]:
+    cache_key = (user_id, str((auth or {}).get("email") or ""))
+    cached = _DASHBOARD_PROFILE_CONTEXT_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
     profile = (
         supabase.table("user_profiles")
-        .select("id, full_name, display_name, role_id")
+        .select("id, full_name, display_name, role_id, roles(name)")
         .eq("id", user_id)
         .single()
         .execute()
     )
     row = profile.data or {}
-    role = _get_role_from_profile(user_id)
+    role_name = (row.get("roles") or {}).get("name") if isinstance(row.get("roles"), dict) else None
+    role = _map_role(role_name)
     try:
         perm_r = (
             supabase.table("user_section_permissions")
@@ -6569,7 +6789,10 @@ def _dashboard_profile_context(user_id: str, auth: dict | None = None) -> tuple[
     except Exception:
         section_permissions = _build_section_permissions_list(role, [])
     name = _dashboard_display_name(row, auth)
-    return name, role, section_permissions, _dashboard_user_company_ids(user_id)
+    company_ids = _dashboard_user_company_ids(user_id) if os.getenv("DASHBOARD_LOAD_COMPANY_IDS", "0") == "1" else []
+    context = (name, role, section_permissions, company_ids)
+    _DASHBOARD_PROFILE_CONTEXT_CACHE[cache_key] = context
+    return context
 
 
 def _dashboard_count(table: str, build_query: Callable[[Any], Any] | None = None) -> int:
@@ -6649,7 +6872,46 @@ def _dashboard_prior_week_range() -> tuple[date, date]:
     return start, end
 
 
+def _dashboard_support_stage(ticket: dict) -> tuple[str, str]:
+    ticket_type = str(ticket.get("type") or "").strip().lower()
+    if ticket_type == "feature":
+        approval_status = ticket.get("approval_status")
+        status_2 = str(ticket.get("status_2") or "").strip().lower()
+        live_status = str(ticket.get("live_status") or "").strip().lower()
+        if approval_status is None:
+            return "Approval Pending", "-"
+        approval = str(approval_status or "").strip().lower()
+        if approval in {"rejected", "hold", "unapproved"}:
+            return f"Approval ({approval})", approval
+        if status_2 == "na":
+            return "NA", "na"
+        if status_2 != "completed":
+            return "Stage 1", status_2 or "pending"
+        if live_status != "completed":
+            return "Stage 2", live_status or "pending"
+        return "Completed", "completed"
+
+    status_1 = str(ticket.get("status_1") or "").strip().lower()
+    status_2 = str(ticket.get("status_2") or "").strip().lower()
+    status_3 = str(ticket.get("status_3") or "").strip().lower()
+    status_4 = str(ticket.get("status_4") or "").strip().lower()
+    if status_2 == "na":
+        return "NA", "na"
+    if not status_1:
+        return "Stage 1", "-"
+    if status_1 == "yes":
+        return "Stage 4", status_4 or "-"
+    if status_1 == "no" and not status_2:
+        return "Stage 2", "-"
+    if status_2 == "completed" and not status_3:
+        return "Stage 3", "-"
+    if status_2 == "completed" or status_1 == "yes":
+        return "Stage 4", status_4 or "-"
+    return "Stage 2", status_2 or "-"
+
+
 def _dashboard_support_detail_row(ticket: dict, reason: str = "") -> DashboardSupportDetailRowModel:
+    current_stage, stage_status = _dashboard_support_stage(ticket)
     return DashboardSupportDetailRowModel(
         id=str(ticket.get("id") or ""),
         referenceNo=(ticket.get("reference_no") or "").strip() or "N/A",
@@ -6658,6 +6920,8 @@ def _dashboard_support_detail_row(ticket: dict, reason: str = "") -> DashboardSu
         company=(ticket.get("company_name") or "").strip(),
         status=(ticket.get("status") or ticket.get("status_4") or "").strip(),
         reason=reason,
+        currentStage=current_stage,
+        stageStatus=stage_status,
         createdAt=ticket.get("created_at"),
     )
 
@@ -6778,8 +7042,9 @@ def _dashboard_success_preview_rows(limit: int = 200) -> list[dict]:
 
 def _dashboard_fetch_user_support_details(user_id: str) -> DashboardSupportDetailsResponseModel:
     cols = (
-        "id,reference_no,title,type,status,status_4,company_name,created_by,assignee_id,created_at,"
-        "query_arrival_at,query_response_at,actual_4,planned_2,actual_2,actual_1,status_2,quality_solution"
+        "id,reference_no,title,type,status,status_1,status_2,status_3,status_4,approval_status,live_status,"
+        "company_name,created_by,assignee_id,created_at,query_arrival_at,query_response_at,"
+        "actual_1,planned_2,actual_2,planned_3,actual_3,planned_4,actual_4,quality_solution"
     )
 
 
@@ -6804,7 +7069,7 @@ def _dashboard_operation_details(section: str) -> DashboardOperationDetailsRespo
                         contact=r.get("contact"),
                         total_completion_pct=r.get("total_percentage"),
                         current_stage=r.get("current_stage"),
-                        target_url="/success/performance",
+                        target_url=f"/success/performance?open={r.get('id')}",
                     )
                     for r in rows
                 ],
@@ -6841,7 +7106,7 @@ def _dashboard_operation_details(section: str) -> DashboardOperationDetailsRespo
                         status=r.get("status") or r.get("stage"),
                         contact=poc_map.get(str(r.get("assigned_poc_id") or ""), ""),
                         current_stage=r.get("stage"),
-                        target_url=f"/client-to-lead/leads/{r.get('id')}",
+                        target_url=f"/client-to-lead/leads/{r.get('reference_no') or r.get('id')}",
                     )
                     for r in rows
                 ],
@@ -6867,7 +7132,7 @@ def _dashboard_operation_details(section: str) -> DashboardOperationDetailsRespo
                         company=r.get("company_name"),
                         status=status_map.get(r.get("id")) or r.get("payment_status"),
                         reason=f"POC: {r.get('poc_name') or '-'}",
-                        target_url=f"/onboarding/payment-status?reference={r.get('reference_no') or ''}",
+                        target_url=f"/onboarding/payment-status?open={r.get('id')}",
                         extra={
                             "paymentReceivedDate": r.get("payment_received_date"),
                             "poc": r.get("poc_name"),
@@ -6973,7 +7238,7 @@ def _dashboard_operation_details(section: str) -> DashboardOperationDetailsRespo
                         company=(payment_map.get(str(r.get("payment_status_id"))) or {}).get("company_name"),
                         status="Assigned" if assignment_map.get(str(r.get("payment_status_id"))) else "Pending Assignment",
                         reason=f"POC: {(assignment_map.get(str(r.get('payment_status_id'))) or payment_map.get(str(r.get('payment_status_id'))) or {}).get('poc_name') or '-'}",
-                        target_url="/training/client-training",
+                        target_url=f"/training/client-training?open={r.get('payment_status_id')}",
                         extra={
                             "companyName": (payment_map.get(str(r.get("payment_status_id"))) or {}).get("company_name"),
                             "pointOfContact": (
@@ -6997,6 +7262,7 @@ def _dashboard_operation_details(section: str) -> DashboardOperationDetailsRespo
                     supabase.table("onboarding_client_payment")
                     .select(_ocp_list_select_columns())
                 )
+                .is_("payment_received_date", "null")
                 .order("timestamp", desc=True)
                 .limit(200)
                 .execute()
@@ -7014,7 +7280,7 @@ def _dashboard_operation_details(section: str) -> DashboardOperationDetailsRespo
                         company=r.get("company_name"),
                         status="Paid" if r.get("payment_received_date") else "Pending",
                         reason=str(r.get("invoice_number") or r.get("stage") or ""),
-                        target_url=f"/onboarding/client-payment?reference={r.get('reference_no') or ''}",
+                        target_url=f"/onboarding/client-payment?open={r.get('id')}",
                         extra={
                             "invoiceDate": r.get("invoice_date"),
                             "invoiceAmount": r.get("invoice_amount"),
@@ -7054,7 +7320,7 @@ def _dashboard_operation_details(section: str) -> DashboardOperationDetailsRespo
                             for v in (r.get("contact_person"), r.get("client_location_city"), r.get("client_location_state"))
                             if str(v or "").strip()
                         ),
-                        target_url=f"/db-client/client-onb?reference={r.get('reference_no') or ''}",
+                        target_url=f"/db-client/client-onb?open={r.get('id')}",
                         extra={
                             "organizationName": r.get("organization_name"),
                             "contactPerson": r.get("contact_person"),
@@ -7268,49 +7534,105 @@ def dashboard_summary(
 ):
     _require_universal_dashboard_access(auth)
     auth_user_id = str(auth["id"])
+    requested_user_id = str(userId or "").strip()
+    summary_cache_key = (auth_user_id, requested_user_id, month or "", week or "", section or "")
+    cached_payload = _DASHBOARD_SUMMARY_CACHE.get(summary_cache_key)
+    if cached_payload is not None:
+        return cached_payload
+
     name, role_raw, section_permissions, company_ids = _dashboard_profile_context(auth_user_id, auth)
     dashboard_role = _dashboard_role_for_contract(role_raw)
     permissions = _dashboard_effective_permissions(role_raw, section_permissions)
-    # This dashboard is intentionally user-id scoped for every role.
+    # Master Admin can inspect another user's My Work/KPI slice; other roles stay self-scoped.
     permissions.manageUsers = False
-    permissions.globalFilters = False
-    scoped_user_id = auth_user_id
+    permissions.globalFilters = dashboard_role == "master_admin"
+    scoped_user_id = requested_user_id if permissions.globalFilters and requested_user_id else auth_user_id
     scoped_company_id = None
-    scope_key = {
-        "auth": auth_user_id,
-        "role": dashboard_role,
-        "user": scoped_user_id,
-        "company": scoped_company_id,
-        "month": month or "",
-        "week": week or "",
-        "section": section or "",
-    }
-    _ = scope_key  # kept explicit for future audit logging; summary itself is real-time.
-
     today = datetime.now(timezone.utc).date()
-    week_start, week_end = _dashboard_date_filters(month, week)
-    open_statuses = ["pending", "open", "in_progress", "in progress", "staging"]
-
     my_work_user_id = scoped_user_id or auth_user_id
-    checklist_due = len(_checklist_occurrences_for_user(my_work_user_id, today, today, only_uncompleted=True))
-    delegated_assigned = _dashboard_count(
-        "delegation_tasks",
-        lambda q: q.eq("assignee_id", my_work_user_id).in_("status", ["pending", "in_progress"]).eq("due_date", today.isoformat()),
-    )
-    delegated_by_me = _dashboard_count(
-        "delegation_tasks",
-        lambda q: q.eq("submitted_by", scoped_user_id or auth_user_id),
-    )
-    open_chores = _dashboard_count_open_chore_bug("chore")
-    pending_bug_till_date = _dashboard_count_open_chore_bug("bug")
-    open_features = _dashboard_count_open_features()
-    pending_feature_approvals = _dashboard_count_pending_feature_approvals()
+    jobs = {
+        "checklist_due": lambda: _dashboard_checklist_due_today(my_work_user_id, today),
+        "delegated_assigned": lambda: _dashboard_count(
+            "delegation_tasks",
+            lambda q: q.eq("assignee_id", my_work_user_id)
+            .in_("status", ["pending", "in_progress"])
+            .eq("due_date", today.isoformat()),
+        ),
+        "delegated_by_me": lambda: _dashboard_count(
+            "delegation_tasks",
+            lambda q: q.eq("submitted_by", scoped_user_id or auth_user_id),
+        ),
+        "open_chores": lambda: _dashboard_count_open_chore_bug("chore"),
+        "pending_bug_till_date": lambda: _dashboard_count_open_chore_bug("bug"),
+        "open_features": _dashboard_count_open_features,
+        "pending_feature_approvals": _dashboard_count_pending_feature_approvals,
+        "delayed_counts": _dashboard_support_delay_counts,
+        "pending_approval_features": lambda: _dashboard_count(
+            "tickets",
+            lambda q: _dashboard_ticket_scope(q.eq("type", "feature").is_("approval_status", "null"), scoped_user_id, None),
+        ),
+    }
+    if permissions.success:
+        jobs["success_active"] = lambda: _dashboard_count(
+            "performance_monitoring", lambda q: q.eq("completion_status", "in_progress")
+        )
+        jobs["success_completed"] = lambda: _dashboard_count(
+            "performance_monitoring", lambda q: q.eq("completion_status", "completed")
+        )
+    if permissions.clientToLead:
+        jobs["leads_open"] = lambda: _dashboard_count("leads", lambda q: q.eq("status", "Open"))
+        jobs["leads_total"] = lambda: _dashboard_count("leads")
+        jobs["leads_closed"] = lambda: _dashboard_count("leads", lambda q: q.eq("status", "Closed"))
+    if permissions.onboarding:
+        jobs["onboarding_active"] = lambda: _dashboard_count("onboarding_payment_status")
+    if permissions.training:
+        jobs["training_scheduled"] = lambda: _dashboard_count("training_client_assignments")
+    if permissions.clientPayment:
+        jobs["client_payment_pending"] = lambda: _dashboard_count(
+            "onboarding_client_payment",
+            lambda q: _ocp_query_exclude_marked_na(q.is_("payment_received_date", "null")),
+        )
+        jobs["client_payment_total_pending_amount"] = _dashboard_total_pending_invoice_amount
+        jobs["client_payment_completed"] = lambda: _dashboard_count(
+            "onboarding_client_payment", lambda q: q.not_.is_("payment_received_date", "null")
+        )
+    if permissions.dbClient:
+        jobs["db_client_active"] = lambda: _dashboard_count("db_client_client_onb", lambda q: q.neq("status", "inactive"))
+        jobs["db_client_inactive"] = lambda: _dashboard_count("db_client_client_onb", lambda q: q.eq("status", "inactive"))
+    if permissions.manageUsers:
+        jobs["users_active"] = lambda: _dashboard_count("user_profiles", lambda q: q.eq("is_active", True))
+        jobs["users_inactive"] = lambda: _dashboard_count("user_profiles", lambda q: q.eq("is_active", False))
+
+    def _timed_summary_job(key: str, fn: Callable[[], Any]) -> Any:
+        started = time.perf_counter()
+        try:
+            return fn()
+        finally:
+            if os.getenv("DASHBOARD_SUMMARY_DEBUG", "0") == "1":
+                _log(f"dashboard/summary job {key} {round((time.perf_counter() - started) * 1000, 2)}ms")
+
+    results: dict[str, Any] = {}
+    with ThreadPoolExecutor(max_workers=min(16, len(jobs))) as pool:
+        futures = {key: pool.submit(_timed_summary_job, key, fn) for key, fn in jobs.items()}
+        for key, future in futures.items():
+            try:
+                results[key] = future.result()
+            except Exception as e:
+                _log(f"dashboard/summary {key}: {e}")
+
+    def _summary_result(key: str, default: Any = 0) -> Any:
+        return results.get(key, default)
+
+    checklist_due = int(_summary_result("checklist_due"))
+    delegated_assigned = int(_summary_result("delegated_assigned"))
+    delegated_by_me = int(_summary_result("delegated_by_me"))
+    open_chores = int(_summary_result("open_chores"))
+    pending_bug_till_date = int(_summary_result("pending_bug_till_date"))
+    open_features = int(_summary_result("open_features"))
+    pending_feature_approvals = int(_summary_result("pending_feature_approvals"))
     support_open = open_chores + pending_bug_till_date + open_features
-    delayed_response, delayed_completion = _dashboard_support_delay_counts()
-    pending_approval_features = _dashboard_count(
-        "tickets",
-        lambda q: _dashboard_ticket_scope(q.eq("type", "feature").is_("approval_status", "null"), scoped_user_id, None),
-    )
+    delayed_response, delayed_completion = _summary_result("delayed_counts", (0, 0))
+    pending_approval_features = int(_summary_result("pending_approval_features"))
 
     checklist_pct = 0 if checklist_due else 100
     delegation_pct = max(0, min(100, 100 - min(delegated_assigned * 5, 100)))
@@ -7328,37 +7650,34 @@ def dashboard_summary(
             delayedCompletion=delayed_completion,
         ) if permissions.support else None,
         success=DashboardSuccessOpsModel(
-            active=_dashboard_count("performance_monitoring", lambda q: q.eq("completion_status", "in_progress")),
-            completed=_dashboard_count("performance_monitoring", lambda q: q.eq("completion_status", "completed")),
+            active=int(_summary_result("success_active")),
+            completed=int(_summary_result("success_completed")),
             lowPerformance=0,
         ) if permissions.success else None,
         clientToLead=DashboardClientToLeadOpsModel(
-            newLeads=_dashboard_count("leads", lambda q: q.eq("status", "Open")),
-            followUpDue=_dashboard_count("leads"),
-            closed=_dashboard_count("leads", lambda q: q.eq("status", "Closed")),
+            newLeads=int(_summary_result("leads_open")),
+            followUpDue=int(_summary_result("leads_total")),
+            closed=int(_summary_result("leads_closed")),
         ) if permissions.clientToLead else None,
         onboarding=DashboardOnboardingOpsModel(
-            active=_dashboard_count("onboarding_payment_status"),
+            active=int(_summary_result("onboarding_active")),
             stuckStage=0,
             pendingSetup=0,
         ) if permissions.onboarding else None,
         training=DashboardTrainingOpsModel(
-            scheduled=_dashboard_count("training_client_assignments"),
+            scheduled=int(_summary_result("training_scheduled")),
             pending=0,
             completed=0,
         ) if permissions.training else None,
         clientPayment=DashboardClientPaymentOpsModel(
-            pending=_dashboard_count(
-                "onboarding_client_payment",
-                lambda q: _ocp_query_exclude_marked_na(q.is_("payment_received_date", "null")),
-            ),
-            totalPendingAmount=_dashboard_total_pending_invoice_amount(),
+            pending=int(_summary_result("client_payment_pending")),
+            totalPendingAmount=int(_summary_result("client_payment_total_pending_amount")),
             ageingRisk=0,
-            completedRegister=_dashboard_count("onboarding_client_payment", lambda q: q.not_.is_("payment_received_date", "null")),
+            completedRegister=int(_summary_result("client_payment_completed")),
         ) if permissions.clientPayment else None,
         dbClient=DashboardDbClientOpsModel(
-            active=_dashboard_count("db_client_client_onb", lambda q: q.neq("status", "inactive")),
-            inactive=_dashboard_count("db_client_client_onb", lambda q: q.eq("status", "inactive")),
+            active=int(_summary_result("db_client_active")),
+            inactive=int(_summary_result("db_client_inactive")),
             missingFollowUp=0,
         ) if permissions.dbClient else None,
     )
@@ -7366,8 +7685,8 @@ def dashboard_summary(
     management = None
     if permissions.manageUsers:
         management = DashboardManagementModel(
-            activeUsers=_dashboard_count("user_profiles", lambda q: q.eq("is_active", True)),
-            inactiveUsers=_dashboard_count("user_profiles", lambda q: q.eq("is_active", False)),
+            activeUsers=int(_summary_result("users_active")),
+            inactiveUsers=int(_summary_result("users_inactive")),
             usersOverdue=0,
             usersLowKpi=0,
             companiesAtRisk=pending_approval_features,
@@ -7407,6 +7726,7 @@ def dashboard_summary(
         operations=operations,
         management=management,
     )
+    _DASHBOARD_SUMMARY_CACHE[summary_cache_key] = payload
     return payload
 
 
@@ -7964,6 +8284,37 @@ def client_onb_status_column_check(auth: dict = Depends(get_current_user)):
                 "hint": "Run docs/SUPABASE_DB_CLIENT_CLIENT_ONB_ADD_STATUS.sql in the Supabase SQL Editor, then refresh.",
             }
         return {"ok": False, "hint": err[:240]}
+
+
+@api_router.get("/db-client/client-onb/{row_id}")
+def get_db_client_client_onb(row_id: str, auth: dict = Depends(get_current_user)):
+    """Load one Client ONB row so dashboard deep links can open the exact record."""
+    try:
+        r = (
+            supabase.table("db_client_client_onb")
+            .select("*")
+            .eq("id", row_id)
+            .limit(1)
+            .execute()
+        )
+        row = (r.data or [None])[0]
+        if not row:
+            raise HTTPException(404, "Client ONB row not found")
+        st = row.get("status")
+        row["status"] = str(st).strip().lower() if st and str(st).strip().lower() in ("active", "inactive") else "active"
+        if not row.get("client_duration"):
+            cs, ct = row.get("client_since"), row.get("client_till")
+            if cs and ct:
+                try:
+                    row["client_duration"] = _format_client_duration_days(date.fromisoformat(str(cs)[:10]), date.fromisoformat(str(ct)[:10]))
+                except Exception:
+                    pass
+        return row
+    except HTTPException:
+        raise
+    except Exception as e:
+        _log(f"db client onb detail: {e}")
+        raise HTTPException(400, str(e)[:200])
 
 
 @api_router.post("/db-client/client-onb")
@@ -9801,6 +10152,30 @@ def client_payment_payment_summary(auth: dict = Depends(get_current_user)):
         content=payload,
         headers={"Cache-Control": "no-store, no-cache, max-age=0, must-revalidate"},
     )
+
+
+@api_router.get("/onboarding/client-payment/{client_payment_id}")
+def get_client_payment(client_payment_id: str, auth: dict = Depends(get_current_user)):
+    """Load one Raised Invoice row so dashboard deep links can open the exact invoice drawer."""
+    try:
+        r = (
+            supabase.table("onboarding_client_payment")
+            .select(_ocp_list_select_columns())
+            .eq("id", client_payment_id)
+            .limit(1)
+            .execute()
+        )
+        row = (r.data or [None])[0]
+        if not row:
+            raise HTTPException(404, "Raised Invoice not found")
+        items = [row]
+        _enrich_client_payment_list_items(items)
+        return items[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        _log(f"client payment detail: {e}")
+        raise HTTPException(400, str(e)[:200])
 
 
 @api_router.put("/onboarding/client-payment/{client_payment_id}")
@@ -14134,6 +14509,12 @@ def update_section_permissions(
         except Exception:
             supabase.table("user_section_permissions").delete().eq("user_id", user_id).eq("section_key", item.section_key).execute()
             supabase.table("user_section_permissions").insert(row).execute()
+    try:
+        from app.section_permissions_util import clear_user_section_permissions_cache
+
+        clear_user_section_permissions_cache(user_id)
+    except Exception:
+        pass
     return {"message": "Section permissions updated"}
 
 
@@ -14255,6 +14636,10 @@ def _parse_iso_date(val: Any) -> date | None:
 
 def _get_holidays_for_year(year: int) -> set[date]:
     """Return set of holiday dates for the year from checklist_holidays table."""
+    cached = _CHECKLIST_HOLIDAYS_CACHE.get(year)
+    if cached is not None:
+        return cached
+
     out: set[date] = set()
     try:
         r = supabase.table("checklist_holidays").select("holiday_date").eq("year", year).execute()
@@ -14264,6 +14649,7 @@ def _get_holidays_for_year(year: int) -> set[date]:
                 out.add(d)
     except Exception as e:
         _log(f"checklist holidays load: {e}")
+    _CHECKLIST_HOLIDAYS_CACHE[year] = out
     return out
 
 
@@ -14317,6 +14703,7 @@ def _get_checklist_departments() -> list[str]:
 
 
 _CHECKLIST_NA_SUPPORTED: bool | None = None
+_CHECKLIST_HOLIDAYS_CACHE: TTLCache = TTLCache(maxsize=8, ttl=3600)
 
 
 def _checklist_na_table_missing(err: str) -> bool:
@@ -14456,7 +14843,7 @@ def _checklist_occurrences_for_user(
             pass
     na_pairs = _fetch_checklist_na_pairs(task_ids, range_start, range_end)
     holidays_set: set[date] = set()
-    for yr in (range_start.year, range_end.year):
+    for yr in {range_start.year, range_end.year}:
         holidays_set.update(_get_holidays_for_year(yr))
     is_holiday = lambda d, h=holidays_set: d in h
     doer_map: dict = {}
@@ -14495,6 +14882,93 @@ def _checklist_occurrences_for_user(
             })
     occurrences.sort(key=lambda x: (x["occurrence_date"], x["task_name"]))
     return occurrences
+
+
+def _dashboard_checklist_due_today(user_id: str, today: date) -> int:
+    """Fast dashboard count for today's uncompleted checklist items."""
+    from app.checklist_utils import get_occurrence_dates_in_range
+
+    cols = "id, frequency, start_date, na_from_date, marked_na"
+    try:
+        tasks = supabase.table("checklist_tasks").select(cols).eq("doer_id", user_id).execute().data or []
+    except Exception:
+        tasks = (
+            supabase.table("checklist_tasks")
+            .select("id, frequency, start_date, na_from_date")
+            .eq("doer_id", user_id)
+            .execute()
+            .data
+            or []
+        )
+    task_ids = [t["id"] for t in tasks if t.get("id")]
+    completed_task_ids: set[str] = set()
+
+    def _completed_task_ids() -> set[str]:
+        if not task_ids:
+            return set()
+        try:
+            rows = (
+                supabase.table("checklist_completions")
+                .select("task_id, completed_at")
+                .in_("task_id", task_ids)
+                .eq("occurrence_date", today.isoformat())
+                .execute()
+                .data
+                or []
+            )
+            return {str(row.get("task_id")) for row in rows if row.get("task_id") and row.get("completed_at")}
+        except Exception:
+            return set()
+
+    def _na_pairs_for_today() -> set[tuple[str, str]]:
+        if not task_ids:
+            return set()
+        try:
+            rows = (
+                supabase.table("checklist_occurrence_na")
+                .select("task_id, occurrence_date")
+                .in_("task_id", task_ids)
+                .eq("occurrence_date", today.isoformat())
+                .execute()
+                .data
+                or []
+            )
+            return {
+                (str(row.get("task_id")), str(row.get("occurrence_date"))[:10])
+                for row in rows
+                if row.get("task_id") and row.get("occurrence_date")
+            }
+        except Exception:
+            return set()
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        completed_future = pool.submit(_completed_task_ids)
+        na_future = pool.submit(_na_pairs_for_today)
+        holidays_future = pool.submit(_get_holidays_for_year, today.year)
+        completed_task_ids = completed_future.result()
+        na_pairs = na_future.result()
+        holidays = holidays_future.result()
+
+    count = 0
+    for task in tasks:
+        if _checklist_row_marked_na(task):
+            continue
+        task_id = str(task.get("id") or "")
+        if not task_id or task_id in completed_task_ids or (task_id, today.isoformat()) in na_pairs:
+            continue
+        start = _parse_iso_date(task.get("start_date"))
+        if not start:
+            continue
+        dates = get_occurrence_dates_in_range(
+            start,
+            task.get("frequency", "D"),
+            today,
+            today,
+            lambda d, h=holidays: d in h,
+        )
+        if dates:
+            count += 1
+    return count
 
 
 @api_router.get("/checklist/departments")
@@ -14878,6 +15352,22 @@ class CreateDelegationTaskRequest(BaseModel):
     submitted_by: str | None = None
 
 
+class DashboardWorkSummaryUser(BaseModel):
+    id: str
+    full_name: str
+
+
+class DashboardWorkSummaryRequest(BaseModel):
+    users: list[DashboardWorkSummaryUser]
+
+
+def _previous_week_range_ist() -> tuple[date, date]:
+    today = datetime.now(timezone(timedelta(hours=5, minutes=30))).date()
+    this_week_monday = today - timedelta(days=today.weekday())
+    start = this_week_monday - timedelta(days=7)
+    return start, start + timedelta(days=6)
+
+
 @api_router.get("/delegation/users")
 def list_delegation_users(auth: dict = Depends(get_current_user), current: dict = Depends(get_current_user_with_role)):
     """List active users for Submitted By / assignee dropdowns (all authenticated users)."""
@@ -14893,6 +15383,92 @@ def list_delegation_users(auth: dict = Depends(get_current_user), current: dict 
         return {"users": r.data or []}
     except Exception:
         return {"users": []}
+
+
+@api_router.post("/dashboard/user-work-summary")
+def dashboard_user_work_summary(
+    payload: DashboardWorkSummaryRequest,
+    auth: dict = Depends(get_current_user),
+    current: dict = Depends(get_current_user_with_role),
+):
+    """Previous-week pending Checklist + Delegation summary for dashboard user cards."""
+    if current.get("role") not in ("admin", "master_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    range_start, range_end = _previous_week_range_ist()
+    user_items = [item.model_dump() for item in payload.users]
+    user_ids = [str(item.get("id") or "") for item in user_items if str(item.get("id") or "").strip()]
+    out = {
+        str(item.get("id")): {
+            "userId": str(item.get("id")),
+            "name": item.get("full_name") or "",
+            "range": {"from": range_start.isoformat(), "to": range_end.isoformat()},
+            "checklist": {"count": 0, "items": []},
+            "delegation": {"count": 0, "items": []},
+        }
+        for item in user_items
+        if str(item.get("id") or "").strip()
+    }
+
+    for user_id in user_ids:
+        try:
+            checklist_rows = _checklist_occurrences_for_user(
+                user_id,
+                range_start,
+                range_end,
+                only_uncompleted=True,
+            )
+            out[user_id]["checklist"] = {
+                "count": len(checklist_rows),
+                "items": [
+                    {
+                        "id": row.get("task_id"),
+                        "referenceNo": row.get("reference_no") or "",
+                        "title": row.get("task_name") or "",
+                        "date": row.get("occurrence_date") or "",
+                        "status": "Pending",
+                    }
+                    for row in checklist_rows[:100]
+                ],
+            }
+        except Exception as e:
+            _log(f"dashboard user checklist summary: {e}")
+
+    try:
+        if user_ids:
+            r = (
+                supabase.table("delegation_tasks")
+                .select("id,title,reference_no,status,due_date,delegation_on,assignee_id,submitted_by")
+                .in_("assignee_id", user_ids)
+                .in_("status", ["pending", "in_progress"])
+                .gte("due_date", range_start.isoformat())
+                .lte("due_date", range_end.isoformat())
+                .order("due_date", desc=False)
+                .limit(1000)
+                .execute()
+            )
+            for task in r.data or []:
+                uid = str(task.get("assignee_id") or "")
+                if uid not in out:
+                    continue
+                item = {
+                    "id": task.get("id"),
+                    "referenceNo": task.get("reference_no") or "",
+                    "title": task.get("title") or "",
+                    "date": task.get("due_date") or task.get("delegation_on") or "",
+                    "status": (task.get("status") or "pending").replace("_", " ").title(),
+                }
+                out[uid]["delegation"]["items"].append(item)
+            for uid in out:
+                out[uid]["delegation"]["count"] = len(out[uid]["delegation"]["items"])
+    except Exception as e:
+        _log(f"dashboard user delegation summary: {e}")
+
+    return {
+        "ok": True,
+        "range": {"from": range_start.isoformat(), "to": range_end.isoformat()},
+        "users": out,
+    }
 
 
 @api_router.get("/delegation/tasks")

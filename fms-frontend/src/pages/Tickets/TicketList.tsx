@@ -151,7 +151,7 @@ function unwrapTicketListPayload(
 
 export const TicketList = () => {
   const navigate = useNavigate()
-  const { canAccessApproval, isUser, isMasterAdmin } = useRole()
+  const { canAccessApproval, isUser, isMasterAdmin, canEditSectionByKey } = useRole()
   const [loading, setLoading] = useState(true)
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [allTicketsForStageFilter, setAllTicketsForStageFilter] = useState<Ticket[]>([])
@@ -166,11 +166,14 @@ export const TicketList = () => {
   const totalRef = useRef(0)
   const scrollRootRef = useRef<HTMLDivElement>(null)
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null)
+  const openedQueryTicketRef = useRef('')
   const [searchParams] = useSearchParams()
   const location = useLocation()
   const typeFromUrl = searchParams.get('type') || new URLSearchParams(location.search).get('type') || ''
   const sectionFromUrl = searchParams.get('section') || new URLSearchParams(location.search).get('section') || ''
   const viewFromUrl = searchParams.get('view') === 'approval'
+  const returnToFromUrl = searchParams.get('returnTo') || ''
+  const safeReturnTo = returnToFromUrl.startsWith('/') && !returnToFromUrl.startsWith('//') ? returnToFromUrl : ''
   const isApprovalSection = viewFromUrl || sectionFromUrl === 'approval-status'
   const isRegisterSection = sectionFromUrl === 'register-of-tickets'
   const showStageFilter = sectionFromUrl === 'chores-bugs'
@@ -232,6 +235,18 @@ export const TicketList = () => {
     sectionFromUrl === 'rejected-tickets' ||
     sectionFromUrl === 'solutions' ||
     isRegisterChoresBugsMode
+  const currentTicketEditSectionKey =
+    isApprovalSection || isFeatureHoldView
+      ? 'approval_status'
+      : sectionFromUrl === 'chores-bugs'
+        ? 'chores_bugs'
+        : typeFromUrl === 'feature' || sectionFromUrl === 'completed-feature'
+          ? 'feature'
+          : sectionFromUrl === ''
+            ? 'all_tickets'
+            : null
+  const currentSectionViewOnly =
+    currentTicketEditSectionKey != null && !canEditSectionByKey(currentTicketEditSectionKey)
 
   /** Safety guard: Chores & Bugs sections must never show Feature rows. */
   const keepOnlyChoresAndBugs = (list: Ticket[]): Ticket[] =>
@@ -273,6 +288,24 @@ export const TicketList = () => {
       navigate(location.pathname + location.search, { replace: true, state: {} })
     }
   }, [sectionFromUrl, location.state, location.pathname, location.search, navigate])
+
+  useEffect(() => {
+    const openId = (searchParams.get('open') || searchParams.get('ticketId') || '').trim()
+    if (!openId || openedQueryTicketRef.current === openId) return
+    openedQueryTicketRef.current = openId
+    setDrawerInitialTicket(null)
+    setDrawerTicketId(openId)
+    setDrawerTicketType(searchParams.get('ticketType') || typeFromUrl || null)
+    ticketsApi
+      .get(openId)
+      .then((ticket) => {
+        if (ticket) {
+          setDrawerInitialTicket(ticket as Ticket)
+          setDrawerTicketType((ticket as Ticket).type ?? searchParams.get('ticketType') ?? typeFromUrl ?? null)
+        }
+      })
+      .catch(() => {})
+  }, [searchParams, typeFromUrl])
 
   useLayoutEffect(() => {
     const t = searchParams.get('type') || ''
@@ -1006,6 +1039,16 @@ export const TicketList = () => {
     setDrawerTicketType(record.type ?? null)
     ticketsApi.get(record.id).catch(() => {})
   }, [])
+
+  const closeTicketDrawer = useCallback(() => {
+    setDrawerTicketId(null)
+    setDrawerTicketType(null)
+    setDrawerInitialTicket(null)
+    if (safeReturnTo) {
+      openedQueryTicketRef.current = ''
+      navigate(safeReturnTo)
+    }
+  }, [navigate, safeReturnTo])
 
   const prefetchTicketDetail = useCallback((ticketId: string) => {
     ticketsApi.get(ticketId).catch(() => {})
@@ -1958,13 +2001,10 @@ export const TicketList = () => {
           ticketId={drawerTicketId}
           initialTicket={drawerInitialTicket}
           open={!!drawerTicketId}
-          onClose={() => {
-            setDrawerTicketId(null)
-            setDrawerTicketType(null)
-            setDrawerInitialTicket(null)
-          }}
+          onClose={closeTicketDrawer}
           onUpdate={() => void refreshLoadedTickets()}
           readOnly={
+            currentSectionViewOnly ||
             sectionFromUrl === 'completed-chores-bugs' ||
             sectionFromUrl === 'solutions' ||
             sectionFromUrl === 'register-of-tickets'
@@ -1974,13 +2014,10 @@ export const TicketList = () => {
         <TicketDetailDrawer
           ticketId={drawerTicketId}
           open={!!drawerTicketId}
-          onClose={() => {
-            setDrawerTicketId(null)
-            setDrawerTicketType(null)
-            setDrawerInitialTicket(null)
-          }}
+          onClose={closeTicketDrawer}
           onUpdate={() => void refreshLoadedTickets()}
           readOnly={
+            currentSectionViewOnly ||
             sectionFromUrl === 'completed-feature' ||
             sectionFromUrl === 'register-of-tickets' ||
             ((isApprovalSection || isFeatureHoldView) && isUser && !isMasterAdmin)

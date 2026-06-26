@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { Card, Typography, Tag, Descriptions, Button, Space, message } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import { ticketsApi } from '../../api/tickets'
@@ -21,8 +21,11 @@ function isStagingTicket(t: Ticket): boolean {
 export const TicketDetail = () => {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [loading, setLoading] = useState(true)
   const [ticket, setTicket] = useState<Ticket | null>(null)
+  const returnTo = searchParams.get('returnTo') || ''
+  const safeReturnTo = returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : ''
 
   useEffect(() => {
     if (id) {
@@ -68,7 +71,7 @@ export const TicketDetail = () => {
   return (
     <div>
       <Space style={{ marginBottom: 16 }} wrap>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(ROUTES.TICKETS)}>
+        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(safeReturnTo || ROUTES.TICKETS)}>
           Back
         </Button>
         <Title level={2} className="page-main-heading" style={{ margin: 0 }}>

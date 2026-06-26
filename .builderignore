@@ -1,0 +1,39 @@
+# Dependencies and generated output
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+build/
+coverage/
+.vite/
+
+# Secrets and local environment
+.env
+.env.*
+**/.env
+**/.env.*
+backend/.env
+backend\.env
+
+# Logs and caches
+*.log
+backend_errors.log
+backend/backend_errors.log
+backend\backend_errors.log
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Git and editor metadata
+.git/
+.cursor/skills/pre-push-compound-review/daily-journal/
+.cursor\skills\pre-push-compound-review\daily-journal\
+
+# Build analysis artifacts
+stats.html
+**/stats.html
+
+# Large generated frontend assets
+fms-frontend/dist/
+fms-frontend\dist\
