@@ -6668,7 +6668,6 @@ _DASHBOARD_SUMMARY_CACHE: TTLCache = TTLCache(maxsize=512, ttl=60)
 _DASHBOARD_PROFILE_CONTEXT_CACHE: TTLCache = TTLCache(maxsize=256, ttl=60)
 _DASHBOARD_OPERATION_DETAILS_CACHE: TTLCache = TTLCache(maxsize=64, ttl=30)
 _DASHBOARD_PENDING_PAYMENT_AMOUNT_CACHE: TTLCache = TTLCache(maxsize=1, ttl=60)
-_UNIVERSAL_DASHBOARD_ALLOWED_EMAILS = {"aman@industryprime.com", "rimpa@industryprime.com"}
 _DASHBOARD_ALL_PERMISSION_KEYS = (
     "support",
     "success",
@@ -6684,9 +6683,8 @@ _DASHBOARD_ALL_PERMISSION_KEYS = (
 
 
 def _require_universal_dashboard_access(auth: dict) -> None:
-    email = str(auth.get("email") or "").strip().lower()
-    if email not in _UNIVERSAL_DASHBOARD_ALLOWED_EMAILS:
-        raise HTTPException(status_code=403, detail="Universal Dashboard is not enabled for this user.")
+    if not auth.get("id"):
+        raise HTTPException(status_code=401, detail="Authentication required")
 
 
 def _dashboard_has_section(perms: list[dict], *section_keys: str) -> bool:

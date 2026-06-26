@@ -28,7 +28,6 @@ import { FmsWebSocketProvider } from "./components/common/FmsWebSocketProvider"
 import { SystemLockProvider } from "./components/common/SystemLockProvider"
 
 const UniversalDashboard = lazy(() => import("./components/dashboard/Dashboard").then((m) => ({ default: m.Dashboard })))
-const LegacyDashboard = lazy(() => import("./pages/Dashboard").then((m) => ({ default: m.Dashboard })))
 const DashboardKPIPage = lazy(() => import("./pages/Dashboard/DashboardKPIPage").then((m) => ({ default: m.DashboardKPIPage })))
 const TicketList = lazy(() => import("./pages/Tickets/TicketList").then((m) => ({ default: m.TicketList })))
 const TicketDetail = lazy(() => import("./pages/Tickets/TicketDetail").then((m) => ({ default: m.TicketDetail })))
@@ -100,16 +99,8 @@ function CatchAllRedirect() {
   )
 }
 
-const UNIVERSAL_DASHBOARD_ALLOWED_EMAILS = new Set([
-  "aman@industryprime.com",
-  "rimpa@industryprime.com",
-])
-
 function DashboardRoute() {
-  const { user } = useAuth()
-  const email = (user?.email || "").trim().toLowerCase()
-  const DashboardComponent = UNIVERSAL_DASHBOARD_ALLOWED_EMAILS.has(email) ? UniversalDashboard : LegacyDashboard
-  return <DashboardComponent />
+  return <UniversalDashboard />
 }
 
 function AppTitle() {
