@@ -151,12 +151,50 @@ const clampPercent = (value: unknown) => {
   return Math.max(0, Math.min(100, Math.round(n)))
 }
 
+const averagePercent = (values: Array<number | null>) => {
+  const valid = values.filter((value): value is number => value != null && Number.isFinite(value))
+  if (!valid.length) return null
+  return clampPercent(valid.reduce((sum, value) => sum + value, 0) / valid.length)
+}
+
+const souvikCompositeToPercent = (value: unknown) => {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return null
+  return clampPercent(n * 10)
+}
+
+const formatDateIso = (date: Date) => {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+const monthStartMondayIso = (date: Date) => {
+  const first = new Date(date.getFullYear(), date.getMonth(), 1)
+  const day = first.getDay()
+  first.setDate(first.getDate() + (day === 0 ? -6 : 1 - day))
+  return formatDateIso(first)
+}
+
 async function loadKpiOnlySummary(person: DashboardKpiPerson): Promise<KpiOnlySummary> {
   const { MONTHS, dashboardKpiApi } = await import('../../api/dashboardKpi')
   if (person === 'Souvik') {
-    const res = await dashboardKpiApi.getSouvikKpi()
-    const score = clampPercent(res.composite_score)
-    return { weekly: score, monthly: score }
+    const today = new Date()
+    const [weekRes, monthRes] = await Promise.all([
+      dashboardKpiApi.getSouvikKpi(),
+      dashboardKpiApi.getSouvikWeeklyLog(monthStartMondayIso(today), 6),
+    ])
+    const weekly = clampPercent(weekRes.weekly_percentage) ?? souvikCompositeToPercent(weekRes.composite_score)
+    const monthly = averagePercent(
+      (monthRes.rows ?? [])
+        .filter((row) => {
+          const weekDate = new Date(`${row.week_from}T00:00:00`)
+          return row.has_data && weekDate.getMonth() === today.getMonth() && weekDate.getFullYear() === today.getFullYear()
+        })
+        .map((row) => clampPercent(row.weekly_percentage) ?? souvikCompositeToPercent(row.composite_score)),
+    )
+    return { weekly, monthly: monthly ?? weekly }
   }
 
   const defaults = getDefaultPreviousWeekFilter()

@@ -494,6 +494,7 @@ export interface SouvikKpiWeekResponse {
   day_dates: string[]
   areas: SouvikKpiArea[]
   composite_score: number
+  weekly_percentage: number
   grade: string
   status: 'green' | 'amber' | 'red'
   area_scores: Record<string, number>
@@ -509,6 +510,7 @@ export interface SouvikWeeklyLogRow {
   accounts_score: number
   ea_score: number
   composite_score: number | null
+  weekly_percentage: number | null
   grade: string
   auto_comment: string
   is_current_week: boolean

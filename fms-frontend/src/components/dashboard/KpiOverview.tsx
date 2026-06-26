@@ -35,6 +35,37 @@ const average = (values: number[]) => {
   return clampPercent(valid.reduce((sum, value) => sum + value, 0) / valid.length)
 }
 
+const averageNullable = (values: Array<number | null>) => {
+  const valid = values.filter((value): value is number => value != null && Number.isFinite(value))
+  if (!valid.length) return 0
+  return clampPercent(valid.reduce((sum, value) => sum + value, 0) / valid.length)
+}
+
+const souvikCompositeToPercent = (value: unknown) => {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return null
+  return clampPercent(n * 10)
+}
+
+const formatDateIso = (date: Date) => {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+const monthStartMondayIso = (date: Date) => {
+  const first = new Date(date.getFullYear(), date.getMonth(), 1)
+  const day = first.getDay()
+  first.setDate(first.getDate() + (day === 0 ? -6 : 1 - day))
+  return formatDateIso(first)
+}
+
+interface SouvikOverviewSummary {
+  weekly: number
+  monthly: number
+}
+
 function explicitKpiGrant(sectionPermissions?: SectionPermission[]): DashboardKpiPerson | null {
   for (const person of DASHBOARD_KPI_NAMES) {
     const key = DASHBOARD_KPI_PERSON_SECTION_KEY[person]
@@ -53,6 +84,7 @@ export function KpiOverview({ user, selectedUserName, selectedUserEmail }: KpiOv
   const navigate = useNavigate()
   const { user: authUser } = useAuth()
   const [data, setData] = useState<DashboardKpiResponse | null>(null)
+  const [souvikOverview, setSouvikOverview] = useState<SouvikOverviewSummary | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const userRole = (authUser?.role ?? user.role) as UserRole
@@ -94,6 +126,7 @@ export function KpiOverview({ user, selectedUserName, selectedUserEmail }: KpiOv
   useEffect(() => {
     if (!selectedPerson || selectedPerson === 'Soumya') {
       setData(null)
+      setSouvikOverview(null)
       setLoading(false)
       setError(null)
       return
@@ -101,6 +134,49 @@ export function KpiOverview({ user, selectedUserName, selectedUserEmail }: KpiOv
     let cancelled = false
     setLoading(true)
     setError(null)
+    setSouvikOverview(null)
+    if (selectedPerson === 'Souvik') {
+      const today = new Date()
+      Promise.all([
+        dashboardKpiApi.getSouvikKpi(),
+        dashboardKpiApi.getSouvikWeeklyLog(monthStartMondayIso(today), 6),
+      ])
+        .then(([weekRes, monthRes]) => {
+          if (cancelled) return
+          const weekly = clampPercent(weekRes.weekly_percentage) || souvikCompositeToPercent(weekRes.composite_score) || 0
+          const monthly =
+            averageNullable(
+              (monthRes.rows ?? [])
+                .filter((row) => {
+                  const weekDate = new Date(`${row.week_from}T00:00:00`)
+                  return (
+                    row.has_data &&
+                    weekDate.getMonth() === today.getMonth() &&
+                    weekDate.getFullYear() === today.getFullYear()
+                  )
+                })
+                .map((row) =>
+                  row.weekly_percentage != null
+                    ? clampPercent(row.weekly_percentage)
+                    : souvikCompositeToPercent(row.composite_score),
+                ),
+            ) || weekly
+          setData(null)
+          setSouvikOverview({ weekly, monthly })
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setData(null)
+            setError('Could not load Souvik KPI dashboard data.')
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false)
+        })
+      return () => {
+        cancelled = true
+      }
+    }
     dashboardKpiApi
       .getData({ name: selectedPerson, ...filters })
       .then((res) => {
@@ -127,6 +203,9 @@ export function KpiOverview({ user, selectedUserName, selectedUserEmail }: KpiOv
   }, [filters, selectedPerson])
 
   const bars = useMemo(() => {
+    if (selectedPerson === 'Souvik' && souvikOverview) {
+      return [{ label: 'Souvik EA KPI', value: souvikOverview.weekly, color: '#7C5DB0' }]
+    }
     if (!data) return []
     const next = [
       { label: 'Checklist', value: clampPercent(data.checklist?.weeklyPercentage), color: '#7C5DB0' },
@@ -141,16 +220,20 @@ export function KpiOverview({ user, selectedUserName, selectedUserEmail }: KpiOv
       })
     }
     return next
-  }, [data])
+  }, [data, selectedPerson, souvikOverview])
 
-  const weekly = average(bars.map((bar) => bar.value))
-  const monthly = data
-    ? average([
-        clampPercent(data.monthlyPercentages?.checklist),
-        clampPercent(data.monthlyPercentages?.delegation),
-        clampPercent(data.monthlyPercentages?.supportFMS),
-      ])
-    : 0
+  const weekly = selectedPerson === 'Souvik' ? souvikOverview?.weekly ?? 0 : average(bars.map((bar) => bar.value))
+  const monthly =
+    selectedPerson === 'Souvik'
+      ? souvikOverview?.monthly ?? 0
+      : data
+        ? average([
+            clampPercent(data.monthlyPercentages?.checklist),
+            clampPercent(data.monthlyPercentages?.delegation),
+            clampPercent(data.monthlyPercentages?.supportFMS),
+          ])
+        : 0
+  const hasOverview = selectedPerson === 'Souvik' ? !!souvikOverview : !!data
   const dashboardHref = selectedPerson ? `${ROUTES.DASHBOARD_KPI}?person=${encodeURIComponent(selectedPerson)}` : ROUTES.DASHBOARD_KPI
 
   return (
@@ -171,7 +254,7 @@ export function KpiOverview({ user, selectedUserName, selectedUserEmail }: KpiOv
           <Spin />
         ) : !selectedPerson ? (
           <Empty description="No KPI dashboard is assigned for this user." />
-        ) : error || !data ? (
+        ) : error || !hasOverview ? (
           <Empty description={error || 'No KPI dashboard data found.'} />
         ) : (
           <>
