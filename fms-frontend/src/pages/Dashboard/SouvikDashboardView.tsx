@@ -471,7 +471,16 @@ export function SouvikDashboardView() {
                           '—'
                         ),
                     },
-                    { title: 'Auto Comment', dataIndex: 'auto_comment', key: 'comment', ellipsis: true },
+                    { title: 'Auto Comment', dataIndex: 'auto_comment', key: 'comment', ellipsis: true, width: 240 },
+                    {
+                      title: 'Weekly KPI %',
+                      dataIndex: 'weekly_percentage',
+                      key: 'weekly_percentage',
+                      align: 'center',
+                      width: 120,
+                      fixed: 'right',
+                      render: (v: number | null) => (v != null ? <strong>{v}%</strong> : '—'),
+                    },
                   ]}
                 />
               </Card>

@@ -319,6 +319,7 @@ def _compute_week_from_daymap(
 
     composite = _round1(composite)
     week_end = week_start + timedelta(days=_DAYS_IN_WEEK - 1)
+    weekly_percentage = max(0, min(100, round(composite * 10)))
     return {
         "success": True,
         "week_start": week_start.isoformat(),
@@ -328,6 +329,7 @@ def _compute_week_from_daymap(
         "day_dates": [d.isoformat() for d in day_dates],
         "areas": areas_out,
         "composite_score": composite,
+        "weekly_percentage": weekly_percentage,
         "grade": grade_for_composite(composite),
         "status": grade_status(composite),
         "area_scores": {k: area_avg_scores.get(k, 0.0) for k in area_avg_scores},
@@ -357,6 +359,7 @@ def get_souvik_weekly_log(first_monday: date, weeks: int = 52) -> dict[str, Any]
         we = ws + timedelta(days=_DAYS_IN_WEEK - 1)
         wk = _compute_week_from_daymap(ws, day_map)
         has_data = wk["composite_score"] > 0
+        weekly_percentage = max(0, min(100, round(wk["composite_score"] * 10))) if has_data else None
         rows.append(
             {
                 "week_from": ws.isoformat(),
@@ -367,6 +370,7 @@ def get_souvik_weekly_log(first_monday: date, weeks: int = 52) -> dict[str, Any]
                 "accounts_score": wk["area_scores"].get("accounts", 0.0),
                 "ea_score": wk["area_scores"].get("ea", 0.0),
                 "composite_score": wk["composite_score"] if has_data else None,
+                "weekly_percentage": weekly_percentage,
                 "grade": grade_for_composite(wk["composite_score"]) if has_data else "",
                 "auto_comment": _auto_comment(wk["area_scores"], wk["composite_score"]) if has_data else "—",
                 "is_current_week": ws == today_monday,
