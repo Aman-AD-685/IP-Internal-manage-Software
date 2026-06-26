@@ -137,7 +137,7 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
   }
 
   const handleApprove = async () => {
-    if (!ticketId) return
+    if (!ticketId || readOnly) return
     setApprovalActionLoading(true)
     try {
       await ticketsApi.update(ticketId, { approval_status: 'approved' })
@@ -160,7 +160,7 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
   }
 
   const handleRejectSubmit = async () => {
-    if (!ticketId || !rejectRemarks.trim()) {
+    if (!ticketId || readOnly || !rejectRemarks.trim()) {
       message.error('Remarks are required when rejecting a feature request')
       return
     }
@@ -191,7 +191,7 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
   }
 
   const handleHoldSubmit = async () => {
-    if (!ticketId || !holdRemarks.trim()) {
+    if (!ticketId || readOnly || !holdRemarks.trim()) {
       message.error('Hold remarks are required')
       return
     }
@@ -217,7 +217,7 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
   }
 
   const handleBackToPending = async () => {
-    if (!ticketId) return
+    if (!ticketId || readOnly) return
     setApprovalActionLoading(true)
     try {
       await ticketsApi.update(ticketId, { approval_status: null })
@@ -234,7 +234,7 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
   }
 
   const handleSubmitSolution = async () => {
-    if (!ticketId || !solutionText.trim()) {
+    if (!ticketId || readOnly || !solutionText.trim()) {
       message.error('Quality of Solution is required')
       return
     }
@@ -361,7 +361,7 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
                     </div>
                   )}
                 </Descriptions.Item>
-                {approvalMode && (!isUser || isMasterAdmin) && (ticket.approval_status == null || ticket.approval_status === undefined) && (
+                {approvalMode && !readOnly && (!isUser || isMasterAdmin) && (ticket.approval_status == null || ticket.approval_status === undefined) && (
                   <Descriptions.Item label="Actions">
                     <Space wrap>
                       <Button
@@ -391,7 +391,7 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
                     </Space>
                   </Descriptions.Item>
                 )}
-                {approvalMode && (!isUser || isMasterAdmin) && ticket.approval_status === 'hold' && (
+                {approvalMode && !readOnly && (!isUser || isMasterAdmin) && ticket.approval_status === 'hold' && (
                   <Descriptions.Item label="Actions">
                     <Button
                       icon={<UndoOutlined />}

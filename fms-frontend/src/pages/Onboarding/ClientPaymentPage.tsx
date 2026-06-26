@@ -181,6 +181,7 @@ export function ClientPaymentPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const compRegisterNextPageRef = useRef(1)
   const openListNextPageRef = useRef(1)
+  const openedDeepLinkRef = useRef('')
   const completedSection = location.pathname.includes('/completed/')
     ? location.pathname.split('/completed/')[1]?.split('/')[0] || null
     : null
@@ -614,6 +615,32 @@ export function ClientPaymentPage() {
       .catch(() => message.error('Could not load invoice details'))
       .finally(() => setDrawerStatusLoading(false))
   }
+
+  useEffect(() => {
+    const target = (searchParams.get('open') || searchParams.get('reference') || '').trim()
+    if (!target || openedDeepLinkRef.current === target || detailOpen) return
+    const openRecord = (record: ClientPaymentRecord) => {
+      openedDeepLinkRef.current = target
+      setSelectedRecord(record)
+      setDetailOpen(true)
+      loadDrawerData(record)
+    }
+    const local = records.find((row) => row.id === target || row.reference_no === target)
+    if (local) {
+      openRecord(local)
+      return
+    }
+    if (!searchParams.get('open')) return
+    apiClient
+      .get<ClientPaymentRecord>(`${listBasePath}/${encodeURIComponent(target)}`)
+      .then((res) => {
+        const record = res.data
+        if (!record?.id) return
+        setRecords((prev) => (prev.some((row) => row.id === record.id) ? prev : [record, ...prev]))
+        openRecord(record)
+      })
+      .catch(() => message.warning('Could not open invoice from dashboard.'))
+  }, [detailOpen, listBasePath, records, searchParams])
 
   const loadSentDetails = (openModal: boolean, options?: { silent?: boolean }) => {
     if (!selectedRecord) return

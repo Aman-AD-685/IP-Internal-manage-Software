@@ -137,6 +137,8 @@ export interface DashboardSupportDetailRow {
   company: string
   status: string
   reason: string
+  currentStage: string
+  stageStatus: string
   createdAt: string | null
 }
 

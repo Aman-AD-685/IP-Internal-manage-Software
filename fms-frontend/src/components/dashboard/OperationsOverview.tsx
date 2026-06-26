@@ -1,4 +1,4 @@
-import { Button, Card, Col, Empty, Modal, Row, Space, Table, Typography } from 'antd'
+import { Button, Card, Empty, Modal, Space, Table, Typography } from 'antd'
 import {
   BankOutlined,
   CustomerServiceOutlined,
@@ -27,6 +27,9 @@ import { OperationTile, type OperationMetric } from './OperationTile'
 
 const { Text, Title } = Typography
 const SUPPORT_DETAIL_BATCH_SIZE = 7
+const UNIVERSAL_TILE_ACCENT = '#8B7FC9'
+const UNIVERSAL_TILE_ACCENT_END = '#6B5DB0'
+const UNIVERSAL_TILE_TINT = 'rgba(139, 127, 201, 0.12)'
 
 const extraValue = (row: DashboardOperationDetailRow, key: string) => {
   const value = row.extra?.[key]
@@ -34,6 +37,18 @@ const extraValue = (row: DashboardOperationDetailRow, key: string) => {
 }
 
 const formatInrAmount = (value: number | undefined) => `₹${Number(value || 0).toLocaleString('en-IN')}`
+const DASHBOARD_RETURN_TO = `${ROUTES.DASHBOARD}#accessible-sections`
+
+const supportTicketUrl = (row: DashboardSupportDetailRow) => {
+  const params = new URLSearchParams()
+  const type = String(row.type || '').toLowerCase()
+  if (type === 'feature') params.set('type', 'feature')
+  else params.set('section', 'chores-bugs')
+  params.set('open', row.id)
+  if (type) params.set('ticketType', type)
+  params.set('returnTo', DASHBOARD_RETURN_TO)
+  return `${ROUTES.TICKETS}?${params.toString()}`
+}
 
 interface OperationsOverviewProps {
   operations: DashboardOperations
@@ -45,6 +60,8 @@ interface OperationConfig {
   permissionKey: keyof DashboardPermissions
   label: string
   color: string
+  colorEnd: string
+  tint: string
   route: string
   icon: ReactNode
   metrics: (operations: DashboardOperations) => OperationMetric[]
@@ -55,7 +72,9 @@ const OPERATION_CONFIG: OperationConfig[] = [
     key: 'support',
     permissionKey: 'support',
     label: 'Support',
-    color: '#2563eb',
+    color: UNIVERSAL_TILE_ACCENT,
+    colorEnd: UNIVERSAL_TILE_ACCENT_END,
+    tint: UNIVERSAL_TILE_TINT,
     route: ROUTES.TICKETS,
     icon: <CustomerServiceOutlined />,
     metrics: (ops) => [
@@ -68,23 +87,12 @@ const OPERATION_CONFIG: OperationConfig[] = [
     ],
   },
   {
-    key: 'success',
-    permissionKey: 'success',
-    label: 'Success',
-    color: '#0d9488',
-    route: ROUTES.SUCCESS_PERFORMANCE,
-    icon: <RiseOutlined />,
-    metrics: (ops) => [
-      { label: 'Active', value: ops.success?.active ?? 0 },
-      { label: 'Completed', value: ops.success?.completed ?? 0 },
-      { label: 'Low Performance', value: ops.success?.lowPerformance ?? 0 },
-    ],
-  },
-  {
     key: 'clientToLead',
     permissionKey: 'clientToLead',
     label: 'Client to Lead',
-    color: '#db2777',
+    color: UNIVERSAL_TILE_ACCENT,
+    colorEnd: UNIVERSAL_TILE_ACCENT_END,
+    tint: UNIVERSAL_TILE_TINT,
     route: ROUTES.LEADS,
     icon: <TeamOutlined />,
     metrics: (ops) => [
@@ -94,10 +102,27 @@ const OPERATION_CONFIG: OperationConfig[] = [
     ],
   },
   {
+    key: 'success',
+    permissionKey: 'success',
+    label: 'Success',
+    color: UNIVERSAL_TILE_ACCENT,
+    colorEnd: UNIVERSAL_TILE_ACCENT_END,
+    tint: UNIVERSAL_TILE_TINT,
+    route: ROUTES.SUCCESS_PERFORMANCE,
+    icon: <RiseOutlined />,
+    metrics: (ops) => [
+      { label: 'Active', value: ops.success?.active ?? 0 },
+      { label: 'Completed', value: ops.success?.completed ?? 0 },
+      { label: 'Low Performance', value: ops.success?.lowPerformance ?? 0 },
+    ],
+  },
+  {
     key: 'onboarding',
     permissionKey: 'onboarding',
     label: 'Onboarding',
-    color: '#7c3aed',
+    color: UNIVERSAL_TILE_ACCENT,
+    colorEnd: UNIVERSAL_TILE_ACCENT_END,
+    tint: UNIVERSAL_TILE_TINT,
     route: ROUTES.ONBOARDING_PAYMENT_STATUS,
     icon: <BankOutlined />,
     metrics: (ops) => [
@@ -110,7 +135,9 @@ const OPERATION_CONFIG: OperationConfig[] = [
     key: 'training',
     permissionKey: 'training',
     label: 'Training',
-    color: '#d97706',
+    color: UNIVERSAL_TILE_ACCENT,
+    colorEnd: UNIVERSAL_TILE_ACCENT_END,
+    tint: UNIVERSAL_TILE_TINT,
     route: ROUTES.TRAINING_CLIENT,
     icon: <ReadOutlined />,
     metrics: (ops) => [
@@ -123,7 +150,9 @@ const OPERATION_CONFIG: OperationConfig[] = [
     key: 'clientPayment',
     permissionKey: 'clientPayment',
     label: 'Client Payment',
-    color: '#ea580c',
+    color: UNIVERSAL_TILE_ACCENT,
+    colorEnd: UNIVERSAL_TILE_ACCENT_END,
+    tint: UNIVERSAL_TILE_TINT,
     route: ROUTES.CLIENT_PAYMENT,
     icon: <DollarOutlined />,
     metrics: (ops) => [
@@ -137,7 +166,9 @@ const OPERATION_CONFIG: OperationConfig[] = [
     key: 'dbClient',
     permissionKey: 'dbClient',
     label: 'DB Client',
-    color: '#b45309',
+    color: UNIVERSAL_TILE_ACCENT,
+    colorEnd: UNIVERSAL_TILE_ACCENT_END,
+    tint: UNIVERSAL_TILE_TINT,
     route: ROUTES.DB_CLIENT_CLIENT_ONB,
     icon: <DatabaseOutlined />,
     metrics: (ops) => [
@@ -217,15 +248,17 @@ export function OperationsOverview({ operations, user }: OperationsOverviewProps
       fixed: 'left' as const,
       width: 140,
       render: (value: string, row: DashboardSupportDetailRow | DashboardOperationDetailRow) => {
-        const targetUrl = 'targetUrl' in row ? row.targetUrl : `/tickets/${row.id}`
+        const targetUrl = 'targetUrl' in row
+          ? row.targetUrl
+          : supportTicketUrl(row)
         return <Typography.Link onClick={() => targetUrl && navigate(targetUrl)}>{value}</Typography.Link>
       },
     },
     { title: 'Title', dataIndex: 'title', key: 'title', width: 220 },
     { title: 'Type', dataIndex: 'type', key: 'type', width: 100 },
     { title: 'Company', dataIndex: 'company', key: 'company', width: 180 },
-    { title: 'Status', dataIndex: 'status', key: 'status', width: 140 },
-    { title: 'Reason', dataIndex: 'reason', key: 'reason', width: 220 },
+    { title: 'Current Stage', dataIndex: 'currentStage', key: 'currentStage', width: 150 },
+    { title: 'Status', dataIndex: 'stageStatus', key: 'stageStatus', width: 140 },
   ]
 
   const operationColumns = [
@@ -437,29 +470,26 @@ export function OperationsOverview({ operations, user }: OperationsOverviewProps
   }
 
   return (
-    <Card className="universal-dashboard-panel">
-      <div className="universal-dashboard-section-heading">
-        <div>
-          <Text type="secondary">Operations Overview</Text>
-          <Title level={4}>Accessible sections</Title>
-        </div>
-      </div>
+    <Card id="accessible-sections" className="universal-dashboard-panel">
       {visible.length === 0 ? (
         <Empty description="No operations sections are enabled for this user." />
       ) : (
-        <Row gutter={[16, 16]}>
+        <div className="universal-dashboard-operations-grid">
           {visible.map((item) => (
-            <Col xs={24} md={12} xl={8} key={item.key}>
+            <div key={item.key}>
               <OperationTile
+                tileKey={String(item.key)}
                 title={item.label}
                 accent={item.color}
+                accentEnd={item.colorEnd}
+                tint={item.tint}
                 icon={item.icon}
                 metrics={item.metrics(operations)}
                 onClick={item.key === 'support' ? openSupportDetails : () => openOperationDetails(String(item.key))}
               />
-            </Col>
+            </div>
           ))}
-        </Row>
+        </div>
       )}
       <Modal
         title={

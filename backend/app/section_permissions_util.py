@@ -48,6 +48,15 @@ def get_merged_section_permissions(user_id: str) -> list[dict]:
     return merged
 
 
+def clear_user_section_permissions_cache(user_id: str | None = None) -> None:
+    """Clear permission cache after Master Admin changes a user's section grants."""
+    with _PERMISSION_CACHE_LOCK:
+        if user_id:
+            _PERMISSION_CACHE.pop(user_id, None)
+        else:
+            _PERMISSION_CACHE.clear()
+
+
 def can_view_section_from_list(perms: list[dict], section_key: str) -> bool:
     p = next((x for x in perms if x.get("section_key") == section_key), None)
     return bool(p and p.get("can_view"))

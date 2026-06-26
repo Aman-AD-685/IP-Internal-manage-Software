@@ -275,7 +275,7 @@ const stagingTicketColumns = [
 ]
 
 export const StagingList = () => {
-  const { isUser, isMasterAdmin } = useRole()
+  const { isUser, canEditSectionByKey } = useRole()
   const scopeHint = isUser
     ? 'Includes staging tickets you submitted, created within the selected date range.'
     : 'Includes all staging tickets created within the selected date range.'
@@ -570,7 +570,7 @@ export const StagingList = () => {
           setDrawerTicketId(null)
           void fetchStagingTickets()
         }}
-        readOnly={isUser && !isMasterAdmin}
+        readOnly={!canEditSectionByKey('staging')}
       />
     </div>
   )

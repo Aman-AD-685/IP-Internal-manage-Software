@@ -9,6 +9,7 @@ const PREFIX = 'fms_api_cache:v1'
 type CacheEnvelope = { exp: number; payload: unknown }
 
 export const API_CACHE_TTL_MS = {
+  dashboardSummary: 10 * 60 * 1000,
   dashboardMetrics: 30 * 60 * 1000,
   dashboardTrends: 30 * 60 * 1000,
   dashboardDetail: 60 * 1000,
@@ -81,6 +82,23 @@ export function sessionApiCacheGet<T>(logicalKey: string): T | null {
       return null
     }
     if (Date.now() > env.exp) {
+      ss.removeItem(fullKey(logicalKey))
+      return null
+    }
+    return env.payload as T
+  } catch {
+    return null
+  }
+}
+
+export function sessionApiCacheGetStale<T>(logicalKey: string): T | null {
+  const ss = sessionStore()
+  if (!ss) return null
+  try {
+    const raw = ss.getItem(fullKey(logicalKey))
+    if (!raw) return null
+    const env = JSON.parse(raw) as CacheEnvelope
+    if (!('payload' in env)) {
       ss.removeItem(fullKey(logicalKey))
       return null
     }

@@ -161,7 +161,7 @@ export const ChoresBugsDetailDrawer = ({
   }, [open, ticketId, initialTicket])
 
   const handleUpdate = async (updates: Partial<Ticket>) => {
-    if (!ticketId) return
+    if (!ticketId || readOnly) return
     setSaving(true)
     try {
       await ticketsApi.update(ticketId, updates)
@@ -188,7 +188,7 @@ export const ChoresBugsDetailDrawer = ({
   }
 
   const handleAddRemark = async () => {
-    if (!ticketId || !newRemarkText.trim()) return
+    if (!ticketId || readOnly || !newRemarkText.trim()) return
     setAddingRemark(true)
     try {
       await ticketsApi.addStage2Remark(ticketId, newRemarkText.trim())
@@ -207,7 +207,7 @@ export const ChoresBugsDetailDrawer = ({
   }
 
   const handleUpdateRemark = async (remarkId: string) => {
-    if (!ticketId || !editingRemarkText.trim()) return
+    if (!ticketId || readOnly || !editingRemarkText.trim()) return
     setUpdatingRemark(true)
     try {
       await ticketsApi.updateStage2Remark(ticketId, remarkId, editingRemarkText.trim())
@@ -347,7 +347,7 @@ export const ChoresBugsDetailDrawer = ({
   }
 
   const handleSubmitSolution = async () => {
-    if (!ticketId || !solutionText.trim()) {
+    if (!ticketId || readOnly || !solutionText.trim()) {
       message.error('Quality of Solution is required')
       return
     }
@@ -445,7 +445,7 @@ export const ChoresBugsDetailDrawer = ({
   const canPromoteToFeature = !readOnly && !inStaging && (ticket?.type === 'chore' || ticket?.type === 'bug')
 
   const handlePromoteToFeature = async () => {
-    if (!ticketId) return
+    if (!ticketId || readOnly) return
     const why = promoteWhyFeature.trim()
     if (!why) {
       message.warning('Please explain why this should be a Feature')

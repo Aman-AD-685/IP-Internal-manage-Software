@@ -1,5 +1,5 @@
 import { Card, Space, Typography } from 'antd'
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 
 const { Text, Title } = Typography
 
@@ -9,20 +9,27 @@ export interface OperationMetric {
 }
 
 interface OperationTileProps {
+  tileKey?: string
   title: string
   icon: ReactNode
   accent: string
+  accentEnd?: string
+  tint?: string
   metrics: OperationMetric[]
   onClick?: () => void
 }
 
-export function OperationTile({ title, icon, accent, metrics, onClick }: OperationTileProps) {
+export function OperationTile({ tileKey, title, icon, accent, accentEnd, tint, metrics, onClick }: OperationTileProps) {
   return (
     <Card
       hoverable={Boolean(onClick)}
       onClick={onClick}
-      className="universal-dashboard-operation-tile"
-      style={{ borderColor: `${accent}33`, background: `${accent}10` }}
+      className={`universal-dashboard-operation-tile ${tileKey === 'support' ? 'universal-dashboard-operation-tile-support' : 'universal-dashboard-operation-tile-standard'}`}
+      style={{
+        '--tile-accent': accent,
+        '--tile-accent-end': accentEnd || accent,
+        '--tile-tint': tint || 'rgba(99, 102, 181, 0.22)',
+      } as CSSProperties}
     >
       <Space align="start" size="middle">
         <span className="universal-dashboard-icon-chip" style={{ background: `${accent}22`, color: accent }}>
@@ -32,8 +39,8 @@ export function OperationTile({ title, icon, accent, metrics, onClick }: Operati
           <Text className="universal-dashboard-tile-label">{title}</Text>
           <div className="universal-dashboard-tile-metrics">
             {metrics.map((metric) => (
-              <div key={metric.label}>
-                <Title level={4} style={{ color: accent }}>
+              <div className="universal-dashboard-tile-metric" key={metric.label}>
+                <Title level={4}>
                   {metric.value}
                 </Title>
                 <Text type="secondary">{metric.label}</Text>

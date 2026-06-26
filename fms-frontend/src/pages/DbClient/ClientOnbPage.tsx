@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Card,
@@ -24,6 +24,7 @@ import { useRole } from '../../hooks/useRole'
 import { CLIENT_ONB_ADD_STATUS_SQL } from './clientOnbAddStatusSql'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
 import { OperationsSectionTabs } from '../../components/common/OperationsSectionTabs'
+import { useSearchParams } from 'react-router-dom'
 
 const { Title } = Typography
 const { TextArea } = Input
@@ -105,6 +106,7 @@ function toPayload(values: FormValues): Record<string, string | null | undefined
 }
 
 export function ClientOnbPage({ mode = 'active' }: { mode?: ClientOnbPageMode }) {
+  const [searchParams] = useSearchParams()
   const isInactivePage = mode === 'inactive'
   const { canEditSectionByKey, isMasterAdmin } = useRole()
   const canEdit = canEditSectionByKey('db_client')
@@ -123,6 +125,7 @@ export function ClientOnbPage({ mode = 'active' }: { mode?: ClientOnbPageMode })
   const [inactiveDetailSaving, setInactiveDetailSaving] = useState(false)
   const [statusColumnOk, setStatusColumnOk] = useState<boolean | null>(null)
   const [statusColumnHint, setStatusColumnHint] = useState('')
+  const openedDeepLinkRef = useRef('')
 
   const runStatusColumnCheck = useCallback(() => {
     dbClientOnbApi
@@ -214,6 +217,30 @@ export function ClientOnbPage({ mode = 'active' }: { mode?: ClientOnbPageMode })
     setInactiveDetailRow(row)
     setStatusDraft(normalizeStatus(row.status))
   }, [])
+
+  useEffect(() => {
+    const target = (searchParams.get('open') || searchParams.get('reference') || '').trim()
+    if (!target || openedDeepLinkRef.current === target || statusModalRow || inactiveDetailRow) return
+    const openRow = (row: ClientOnbRecord) => {
+      openedDeepLinkRef.current = target
+      if (normalizeStatus(row.status) === 'inactive') openInactiveDetail(row)
+      else openStatusModal(row)
+    }
+    const local = records.find((row) => row.id === target || row.reference_no === target)
+    if (local) {
+      openRow(local)
+      return
+    }
+    if (!searchParams.get('open')) return
+    dbClientOnbApi
+      .get(target)
+      .then((row) => {
+        if (!row?.id) return
+        setRecords((prev) => (prev.some((item) => item.id === row.id) ? prev : [row, ...prev]))
+        openRow(row)
+      })
+      .catch(() => message.warning('Could not open DB Client row from dashboard.'))
+  }, [inactiveDetailRow, openInactiveDetail, openStatusModal, records, searchParams, statusModalRow])
 
   const handleSubmit = () => {
     form.validateFields().then((values) => {

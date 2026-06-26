@@ -77,6 +77,9 @@ export const dbClientOnbApi = {
     return r.data
   },
 
+  get: (id: string) =>
+    apiClient.get<ClientOnbRecord>(API_ENDPOINTS.DB_CLIENT.CLIENT_ONB_UPDATE(id)).then((r) => r.data),
+
   create: async (payload: ClientOnbPayload) => {
     const r = await apiClient.post<ClientOnbRecord>(API_ENDPOINTS.DB_CLIENT.CLIENT_ONB_LIST, payload)
     sessionApiCacheClearLogicalPrefix('db-client:onb:list')

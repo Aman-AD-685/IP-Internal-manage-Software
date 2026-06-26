@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { Typography, Card, Table, message, Button, Modal, Form, Select, Space, Drawer, Descriptions, Input } from 'antd'
 import { SearchOutlined } from '@ant-design/icons'
 import { CheckCircleOutlined, FormOutlined, EditOutlined } from '@ant-design/icons'
@@ -13,6 +13,7 @@ import {
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
 import { DEFAULT_INFINITE_CHUNK, useInfiniteScrollChunk } from '../../hooks/useInfiniteScrollChunk'
 import { OperationsSectionTabs } from '../../components/common/OperationsSectionTabs'
+import { useSearchParams } from 'react-router-dom'
 
 const { Title } = Typography
 
@@ -37,6 +38,7 @@ const DAY0_FIELDS: { key: string; label: string }[] = [
 ]
 
 export function ClientTrainingPage() {
+  const [searchParams] = useSearchParams()
   const [loading, setLoading] = useState(true)
   const [items, setItems] = useState<TrainingClientRecord[]>([])
   const [selectedClient, setSelectedClient] = useState<TrainingClientRecord | null>(null)
@@ -61,6 +63,7 @@ export function ClientTrainingPage() {
   const [filterOnbRef, setFilterOnbRef] = useState<string | undefined>(undefined)
   const [filterPoc, setFilterPoc] = useState<string | undefined>(undefined)
   const [filterTrainer, setFilterTrainer] = useState<string | undefined>(undefined)
+  const openedDeepLinkRef = useRef('')
 
   useEffect(() => {
     trainingApi.getStagesConfig().then(setStagesConfig).catch(() => setStagesConfig(null))
@@ -104,6 +107,20 @@ export function ClientTrainingPage() {
       })
       .finally(() => setDay0SummaryLoading(false))
   }
+
+  useEffect(() => {
+    const target = (searchParams.get('open') || searchParams.get('reference') || '').trim()
+    if (!target || openedDeepLinkRef.current === target || detailOpen || !items.length) return
+    const record = items.find(
+      (row) =>
+        row.payment_status_id === target ||
+        row.client_reference_no === target ||
+        row.onboarding_reference_no === target,
+    )
+    if (!record) return
+    openedDeepLinkRef.current = target
+    openDetails(record)
+  }, [detailOpen, items, searchParams])
 
   const openDay0Checklist = () => {
     if (!selectedClient) return

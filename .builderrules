@@ -1,0 +1,28 @@
+# Builder.io Visual Copilot rules
+
+## Project
+- This repository is a React 18 + Vite + TypeScript app in `fms-frontend/`.
+- The UI system is Ant Design v5 with custom industrial styling. Do not introduce Tailwind, shadcn/ui, Radix, or a new design system unless explicitly requested.
+- Reuse `antd` components and `@ant-design/icons` before creating custom primitives.
+- Use the existing theme tokens in `fms-frontend/src/theme/industrialTheme.ts` and CSS variables from `fms-frontend/src/styles/industrial-ui.css`.
+
+## Generated Code
+- Prefer small, focused TypeScript React function components with explicit props interfaces.
+- Place dashboard-related components under `fms-frontend/src/components/dashboard/`.
+- Place page-level UI under the matching folder in `fms-frontend/src/pages/`.
+- Keep business logic and API calls in existing `src/api/`, `src/hooks/`, and `src/utils/` modules instead of embedding fetch logic in generated components.
+- Do not change authentication, routing, permissions, or protected route logic unless the task explicitly asks for it.
+- Preserve existing data contracts and TypeScript types in `fms-frontend/src/types/`.
+
+## Styling
+- Match the industrial UI: light layout, blue primary `#60A5FA`, orange accent `#F59E0B`, slate text, 12px card radius, clean tables, and dense operations-dashboard spacing.
+- Use plain CSS classes in existing feature CSS files or a nearby CSS file imported by the component.
+- Avoid inline style blocks except for dynamic values that are already runtime-dependent.
+- Keep layouts responsive for mobile, tablet, and desktop.
+- Add clear focus states for clickable cards, buttons, tabs, and custom controls.
+
+## Quality
+- Generated components must compile with the repo's TypeScript setup.
+- Avoid generated placeholder copy, marketing language, lorem ipsum, or AI/tool references in the UI.
+- Do not modify `.env`, credentials, logs, build artifacts, `dist/`, `__pycache__/`, or backend files when generating frontend UI.
+- Keep diffs minimal and compatible with the current app structure.
