@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import os
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from app.attendance_sync_service import (
+    get_attendance_sync_public_status,
     get_attendance_sync_status,
     get_monthly_attendance_leave_summary,
     run_attendance_sync,
@@ -42,11 +43,24 @@ def _extract_bearer(request: Request) -> str:
 
 def _cron_or_admin(
     request: Request,
+    x_cron_secret: str | None = Header(None, alias="X-Cron-Secret"),
+    authorization: str | None = Header(None, alias="Authorization"),
+    secret: str | None = Query(None, description="Cron secret; prefer X-Cron-Secret header in production."),
     auth: dict | None = Depends(get_current_user_optional),
 ) -> dict:
-    hdr = (request.headers.get("X-Cron-Secret") or request.headers.get("x-cron-secret") or "").strip()
-    bearer = _extract_bearer(request)
-    query_secret = (request.query_params.get("secret") or "").strip()
+    hdr = (
+        x_cron_secret
+        or request.headers.get("X-Cron-Secret")
+        or request.headers.get("x-cron-secret")
+        or ""
+    ).strip()
+    bearer = ""
+    auth_hdr = (authorization or "").strip()
+    if auth_hdr.lower().startswith("bearer "):
+        bearer = auth_hdr[7:].strip()
+    else:
+        bearer = _extract_bearer(request)
+    query_secret = (secret or request.query_params.get("secret") or "").strip()
     for key in (
         "ATTENDANCE_SYNC_CRON_SECRET",
         "SCHEDULER_CRON_SECRET",
@@ -69,10 +83,20 @@ def attendance_sync_ping():
 
 
 @attendance_sync_router.get("/attendance-sync/status")
-def attendance_sync_status(
+def attendance_sync_status():
+    """Read-only public sync status for Swagger/production health checks.
+
+    The actual sync trigger remains protected by _cron_or_admin.
+    """
+    return get_attendance_sync_public_status()
+
+
+@attendance_sync_router.get("/attendance-sync/status/details")
+def attendance_sync_status_details(
     limit: int = 10,
     _ctx: dict = Depends(_cron_or_admin),
 ):
+    """Detailed run history for Admin/Cron diagnostics."""
     return get_attendance_sync_status(limit=limit)
 
 
