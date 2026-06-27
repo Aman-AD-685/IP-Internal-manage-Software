@@ -304,6 +304,22 @@ def get_attendance_sync_status(limit: int = 10) -> dict[str, Any]:
     return {"ok": True, "runs": runs.data or []}
 
 
+def get_attendance_sync_public_status() -> dict[str, Any]:
+    """Public health payload without source/table/error internals."""
+    runs = (
+        supabase.table("attendance_sync_runs")
+        .select("started_at,finished_at,status,rows_read,rows_upserted")
+        .order("started_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    latest = (runs.data or [None])[0]
+    return {
+        "ok": True,
+        "latest": latest,
+    }
+
+
 def _norm_name(value: Any) -> str:
     cleaned = str(value or "").strip().lower().replace("dashboard", " ")
     return " ".join(cleaned.split())
