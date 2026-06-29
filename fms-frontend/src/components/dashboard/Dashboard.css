@@ -320,7 +320,31 @@
   background: var(--dash-purple-box);
 }
 
+.universal-dashboard-work-stat-button {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.universal-dashboard-work-stat-button:disabled {
+  cursor: default;
+}
+
+.universal-dashboard-work-stat-button .ant-statistic {
+  margin-bottom: 6px;
+}
+
 .universal-dashboard-work-stats .ant-col:nth-child(2) .ant-statistic {
+  border-color: var(--dash-gray-box-border);
+  background: var(--dash-gray-box);
+}
+
+.universal-dashboard-work-stats .ant-col:nth-child(4) .ant-statistic {
   border-color: var(--dash-gray-box-border);
   background: var(--dash-gray-box);
 }

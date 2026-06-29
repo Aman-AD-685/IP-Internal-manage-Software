@@ -1,6 +1,7 @@
 import { Button, Card, Col, Progress, Row, Space, Statistic, Typography } from 'antd'
 import { CheckSquareOutlined, FileDoneOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
+import type { DashboardAttendanceLeaveUserSummary } from '../../api/dashboard'
 import type { DashboardMyWork } from '../../types/dashboard'
 import { ROUTES } from '../../utils/constants'
 
@@ -9,9 +10,11 @@ const { Text, Title } = Typography
 interface MyWorkProps {
   myWork: DashboardMyWork
   selectedUser?: { id: string; full_name: string }
+  attendanceSummary?: DashboardAttendanceLeaveUserSummary
+  onOpenAttendanceSummary?: (kind: 'attendance' | 'leave') => void
 }
 
-export function MyWork({ myWork, selectedUser }: MyWorkProps) {
+export function MyWork({ myWork, selectedUser, attendanceSummary, onOpenAttendanceSummary }: MyWorkProps) {
   const navigate = useNavigate()
   const checklistHref = selectedUser?.id
     ? `${ROUTES.CHECKLIST}?userId=${encodeURIComponent(selectedUser.id)}`
@@ -36,6 +39,28 @@ export function MyWork({ myWork, selectedUser }: MyWorkProps) {
           </Col>
           <Col xs={12}>
             <Statistic title="Today pending Delegation" value={myWork.assignedToMe} />
+          </Col>
+          <Col xs={12}>
+            <button
+              type="button"
+              className="universal-dashboard-work-stat-button"
+              onClick={() => onOpenAttendanceSummary?.('attendance')}
+              disabled={!attendanceSummary}
+            >
+              <Statistic title="Attendance Present" value={attendanceSummary?.attendance.present ?? 0} />
+              <Text type="secondary">Working {attendanceSummary?.attendance.workingDays ?? 0}</Text>
+            </button>
+          </Col>
+          <Col xs={12}>
+            <button
+              type="button"
+              className="universal-dashboard-work-stat-button"
+              onClick={() => onOpenAttendanceSummary?.('leave')}
+              disabled={!attendanceSummary}
+            >
+              <Statistic title="Absent" value={attendanceSummary?.attendance.absent ?? 0} />
+              <Text type="secondary">Leave {attendanceSummary?.leave.days ?? 0}</Text>
+            </button>
           </Col>
         </Row>
         <Space wrap>
