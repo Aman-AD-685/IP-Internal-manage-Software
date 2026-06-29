@@ -59,7 +59,7 @@ export function MyWork({ myWork, selectedUser, attendanceSummary, onOpenAttendan
               disabled={!attendanceSummary}
             >
               <Statistic title="Absent" value={attendanceSummary?.attendance.absent ?? 0} />
-              <Text type="secondary">Leave {attendanceSummary?.leave.days ?? 0}</Text>
+              <Text type="secondary">Days this month</Text>
             </button>
           </Col>
         </Row>
