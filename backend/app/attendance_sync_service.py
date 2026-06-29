@@ -367,11 +367,15 @@ def _name_matches(row_name: Any, user_name: str) -> bool:
     right = _norm_name(user_name)
     if not left or not right:
         return False
-    if left == right or left in right or right in left:
+    if left == right:
         return True
-    left_tokens = {part for part in left.split() if len(part) >= 3}
-    right_tokens = {part for part in right.split() if len(part) >= 3}
-    return bool(left_tokens & right_tokens)
+    left_parts = [part for part in left.split() if len(part) >= 3]
+    right_parts = [part for part in right.split() if len(part) >= 3]
+    if len(left_parts) == 1 and left_parts[0] in right_parts:
+        return True
+    if len(right_parts) == 1 and right_parts[0] in left_parts:
+        return True
+    return len(set(left_parts) & set(right_parts)) >= 2
 
 
 def _payload_name(payload: dict[str, Any]) -> str:
@@ -390,9 +394,22 @@ def _attendance_status(payload: dict[str, Any]) -> str | None:
         if payload.get(key) is not None:
             raw = str(payload.get(key)).strip().lower()
             break
-    if raw in ("p", "present", "prs", "presented", "ot", "overtime"):
+    if raw in (
+        "p",
+        "present",
+        "prs",
+        "presented",
+        "sf",
+        "ok",
+        "late",
+        "lt",
+        "ot",
+        "overtime",
+        "wfh",
+        "work from home",
+    ):
         return "P"
-    if raw in ("a", "absent", "abs"):
+    if raw in ("a", "absent", "abs", "lop"):
         return "A"
     if raw.startswith("present"):
         return "P"

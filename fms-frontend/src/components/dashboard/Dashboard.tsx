@@ -269,7 +269,6 @@ function AdminUserOverviewCards({
         const weeklyKpi = kpiSummaries[item.id]?.weekly
         const monthlyKpi = kpiSummaries[item.id]?.monthly
         const attendance = attendanceLeaveSummaries[item.id]?.attendance
-        const leave = attendanceLeaveSummaries[item.id]?.leave
 
         return (
           <Card className="universal-dashboard-user-card" key={item.id}>
@@ -326,7 +325,7 @@ function AdminUserOverviewCards({
                   className="universal-dashboard-user-card-metric-clickable"
                   onClick={() => onOpenWorkSummary('leave', item)}
                 >
-                  <Text type="secondary">Leave</Text>
+                  <Text type="secondary">Absent</Text>
                   <Title level={4}>{attendance?.absent ?? 0}</Title>
                   <Text type="secondary">Days this month</Text>
                 </button>
@@ -540,7 +539,7 @@ export function Dashboard() {
         ? 'Delegation'
         : activeWorkSummary?.kind === 'attendance'
           ? 'Attendance'
-          : 'Leave'
+          : 'Absent'
 
   useEffect(() => {
     if (!summary || window.location.hash !== '#accessible-sections') return
