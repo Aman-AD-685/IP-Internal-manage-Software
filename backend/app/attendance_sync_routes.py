@@ -34,11 +34,45 @@ def _role(user_id: str) -> str:
     return _get_role_from_profile(user_id)
 
 
+def _trusted_user_name(user_id: str, fallback: str | None = None) -> str:
+    from app.supabase_client import supabase
+
+    try:
+        profile = (
+            supabase.table("user_profiles")
+            .select("full_name,display_name")
+            .eq("id", user_id)
+            .single()
+            .execute()
+        )
+        row = profile.data or {}
+        name = (row.get("full_name") or row.get("display_name") or "").strip()
+        if name:
+            return name
+    except Exception:
+        pass
+    return (fallback or "Current User").strip() or "Current User"
+
+
 def _extract_bearer(request: Request) -> str:
     auth_hdr = (request.headers.get("Authorization") or request.headers.get("authorization") or "").strip()
     if auth_hdr.lower().startswith("bearer "):
         return auth_hdr[7:].strip()
     return ""
+
+
+def _normalize_cron_secret_value(value: str | None) -> str:
+    """Accept either raw secret or pasted ENV-style `NAME=value` strings."""
+    raw = (value or "").strip()
+    for key in (
+        "ATTENDANCE_SYNC_CRON_SECRET",
+        "SCHEDULER_CRON_SECRET",
+        "CHECKLIST_CRON_SECRET",
+    ):
+        prefix = f"{key}="
+        if raw.startswith(prefix):
+            return raw[len(prefix):].strip()
+    return raw
 
 
 def _cron_or_admin(
@@ -60,7 +94,9 @@ def _cron_or_admin(
         bearer = auth_hdr[7:].strip()
     else:
         bearer = _extract_bearer(request)
-    query_secret = (secret or request.query_params.get("secret") or "").strip()
+    hdr = _normalize_cron_secret_value(hdr)
+    bearer = _normalize_cron_secret_value(bearer)
+    query_secret = _normalize_cron_secret_value(secret or request.query_params.get("secret"))
     for key in (
         "ATTENDANCE_SYNC_CRON_SECRET",
         "SCHEDULER_CRON_SECRET",
@@ -105,10 +141,18 @@ def dashboard_attendance_leave_summary(
     body: AttendanceLeaveSummaryBody,
     auth: dict | None = Depends(get_current_user_optional),
 ):
-    if not auth or _role(auth["id"]) not in ("admin", "master_admin"):
-        raise HTTPException(status_code=403, detail="Admin access required")
+    if not auth:
+        raise HTTPException(status_code=403, detail="Authentication required")
+    users = [item.model_dump() for item in body.users]
+    if _role(auth["id"]) not in ("admin", "master_admin"):
+        if len(users) != 1 or users[0].get("id") != auth["id"]:
+            raise HTTPException(status_code=403, detail="Can only view your own attendance summary")
+        users = [{
+            "id": auth["id"],
+            "full_name": _trusted_user_name(auth["id"], auth.get("email")),
+        }]
     return get_monthly_attendance_leave_summary(
-        users=[item.model_dump() for item in body.users],
+        users=users,
         month=body.month,
         year=body.year,
     )

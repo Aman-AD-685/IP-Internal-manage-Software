@@ -458,6 +458,11 @@ export function Dashboard() {
     })
   }, [canShowUserOverview, users])
 
+  const attendanceSummaryUsers = useMemo(() => {
+    if (canShowUserOverview) return adminDashboardUsers
+    return selectedDashboardUser ? [selectedDashboardUser] : []
+  }, [adminDashboardUsers, canShowUserOverview, selectedDashboardUser])
+
   useEffect(() => {
     if (!canShowUserOverview || !adminDashboardUsers.length) {
       setUserKpiSummaries({})
@@ -485,13 +490,13 @@ export function Dashboard() {
   }, [adminDashboardUsers, canShowUserOverview])
 
   useEffect(() => {
-    if (!canShowUserOverview || !adminDashboardUsers.length) {
+    if (!attendanceSummaryUsers.length) {
       setAttendanceLeaveSummaries({})
       return
     }
     let cancelled = false
     dashboardApi
-      .getAttendanceLeaveSummary({ users: adminDashboardUsers })
+      .getAttendanceLeaveSummary({ users: attendanceSummaryUsers })
       .then((res) => {
         if (!cancelled) setAttendanceLeaveSummaries(res.users || {})
       })
@@ -501,7 +506,7 @@ export function Dashboard() {
     return () => {
       cancelled = true
     }
-  }, [adminDashboardUsers, canShowUserOverview])
+  }, [attendanceSummaryUsers])
 
   useEffect(() => {
     if (!canShowUserOverview || !adminDashboardUsers.length) {
@@ -577,7 +582,16 @@ export function Dashboard() {
             <Suspense fallback={<DashboardChunkFallback />}>
               <Row gutter={[16, 16]}>
                 <Col xs={24} lg={12}>
-                  <MyWork myWork={summary.myWork} selectedUser={selectedDashboardUser ?? undefined} />
+                  <MyWork
+                    myWork={summary.myWork}
+                    selectedUser={selectedDashboardUser ?? undefined}
+                    attendanceSummary={
+                      selectedDashboardUser ? attendanceLeaveSummaries[selectedDashboardUser.id] : undefined
+                    }
+                    onOpenAttendanceSummary={(kind) => {
+                      if (selectedDashboardUser) setActiveWorkSummary({ kind, user: selectedDashboardUser })
+                    }}
+                  />
                 </Col>
                 <Col xs={24} lg={12}>
                   <KpiOverview user={summary.user} selectedUserName={selectedDashboardUser?.full_name} />
