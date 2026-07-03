@@ -62,9 +62,23 @@ async function fetchFullList<T>(path: string, extra: Record<string, string | num
   return all
 }
 
+export const SUPPORT_LOOKUPS_CHANGED_EVENT = 'fms:support-lookups-changed'
+
+export function invalidateSupportCompaniesCache(): void {
+  sessionApiCacheRemove('support:companies:v3')
+  sessionApiCacheRemove('support:companies:v2')
+}
+
+export function notifySupportLookupsChanged(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(SUPPORT_LOOKUPS_CHANGED_EVENT))
+  }
+}
+
 export const supportApi = {
-  getCompanies: async (): Promise<Company[]> => {
-    const key = 'support:companies:v2'
+  getCompanies: async (opts?: { bustCache?: boolean }): Promise<Company[]> => {
+    const key = 'support:companies:v3'
+    if (opts?.bustCache) invalidateSupportCompaniesCache()
     const cached = sessionApiCacheGet<Company[]>(key)
     if (cached) return cached
     const rows = await fetchFullList<Company>('/companies')
@@ -91,5 +105,22 @@ export const supportApi = {
       sessionApiCacheSet(key, rows, API_CACHE_TTL_MS.supportDivisions)
     }
     return rows
+  },
+  createCompanyWithDivisions: async (payload: {
+    company_name: string
+    division_names: string[]
+  }): Promise<{
+    company: Company
+    divisions: Division[]
+    company_created?: boolean
+    divisions_created?: string[]
+  }> => {
+    const { data } = await apiClient.post('/companies/with-divisions', payload)
+    invalidateSupportCompaniesCache()
+    notifySupportLookupsChanged()
+    if (data?.company?.id) {
+      sessionApiCacheRemove(supportDivisionsLogicalKey(data.company.id))
+    }
+    return data
   },
 }

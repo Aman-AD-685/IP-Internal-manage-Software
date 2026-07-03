@@ -11,7 +11,7 @@ import {
   Button,
   message,
 } from 'antd'
-import { SearchOutlined, PhoneOutlined, MailOutlined, MessageOutlined, LinkOutlined, PauseCircleOutlined, RetweetOutlined } from '@ant-design/icons'
+import { SearchOutlined, PhoneOutlined, MailOutlined, MessageOutlined, LinkOutlined, PauseCircleOutlined, RetweetOutlined, PlusOutlined } from '@ant-design/icons'
 import { useSearchParams, useLocation, useNavigate } from 'react-router-dom'
 import { ticketsApi, type Ticket } from '../../api/tickets'
 import { apiUserMessage } from '../../utils/apiUserMessage'
@@ -20,6 +20,7 @@ import { TicketDetailDrawer } from '../../components/tickets/TicketDetailDrawer'
 import { ChoresBugsDetailDrawer } from '../../components/tickets/ChoresBugsDetailDrawer'
 import { RepeatedTicketsModal } from '../../components/tickets/RepeatedTicketsModal'
 import { PrintExport } from '../../components/common/PrintExport'
+import { AddCompanyDivisionModal } from '../../components/support/AddCompanyDivisionModal'
 import { TableLoadMoreSkeleton, TableWithSkeletonLoading } from '../../components/common/skeletons'
 import { TextCellTooltip, tableCellEllipsisStyle } from '../../components/common/TextCellTooltip'
 import {
@@ -191,6 +192,7 @@ export const TicketList = () => {
     }
   }, [isApprovalSection, canAccessApproval, navigate])
   const [searchInput, setSearchInput] = useState('')
+  const [addCompanyDivisionOpen, setAddCompanyDivisionOpen] = useState(false)
   const [companies, setCompanies] = useState<Company[]>([])
   const [pageCompanyOptions, setPageCompanyOptions] = useState<Array<{ value: string; label: string }>>([])
   const [pageReferenceOptions, setPageReferenceOptions] = useState<Array<{ value: string; label: string }>>([])
@@ -1728,6 +1730,9 @@ export const TicketList = () => {
         <SupportSectionTabs />
       </Space>
       <Space className="page-toolbar-row" style={{ marginBottom: 16, width: '100%', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+        <Button type="default" icon={<PlusOutlined />} onClick={() => setAddCompanyDivisionOpen(true)}>
+          Add Company & Division
+        </Button>
         <Input
           placeholder="Global search..."
           prefix={<SearchOutlined />}
@@ -2038,6 +2043,14 @@ export const TicketList = () => {
           setDrawerTicketId(id)
           setDrawerTicketType(ticketType)
           ticketsApi.get(id).catch(() => {})
+        }}
+      />
+
+      <AddCompanyDivisionModal
+        open={addCompanyDivisionOpen}
+        onClose={() => setAddCompanyDivisionOpen(false)}
+        onSuccess={() => {
+          supportApi.getCompanies().then(setCompanies).catch(() => {})
         }}
       />
     </div>

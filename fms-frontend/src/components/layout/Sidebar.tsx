@@ -239,52 +239,64 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
   const dbClientDefaultKey = dbClientItems?.[0]?.key as string | undefined
   const operationSections = [
     {
+      key: 'support',
       icon: <FileTextOutlined />,
       label: 'Support',
       compactKey: supportDefaultKey,
-      showCompact: hasAnySupportSection && Boolean(supportDefaultKey),
+      show: hasAnySupportSection && Boolean(supportDefaultKey),
     },
     {
+      key: 'success',
       icon: <RiseOutlined />,
       label: 'Success',
       compactKey: successDefaultKey,
-      showCompact: filteredSuccessItems.length > 0 && Boolean(successDefaultKey),
+      show: filteredSuccessItems.length > 0 && Boolean(successDefaultKey),
     },
     {
+      key: 'client-to-lead',
       icon: <TeamOutlined />,
       label: 'Client to Lead',
       compactKey: clientToLeadDefaultKey,
-      showCompact: showClientToLead && Boolean(clientToLeadDefaultKey),
+      show: showClientToLead && Boolean(clientToLeadDefaultKey),
     },
     {
+      key: 'onboarding',
       icon: <AuditOutlined />,
       label: 'Onboarding',
       compactKey: onboardingDefaultKey,
-      showCompact: showOnboarding && Boolean(onboardingDefaultKey),
+      show: showOnboarding && Boolean(onboardingDefaultKey),
     },
     {
+      key: 'training',
       icon: <ReadOutlined />,
       label: 'Training',
       compactKey: trainingDefaultKey,
-      showCompact: showTraining && Boolean(trainingDefaultKey),
+      show: showTraining && Boolean(trainingDefaultKey),
     },
     {
+      key: 'client-payment',
       icon: <FileTextOutlined />,
       label: 'Client Payment',
       compactKey: clientPaymentDefaultKey,
-      showCompact: showClientPayment && Boolean(clientPaymentDefaultKey),
+      show: showClientPayment && Boolean(clientPaymentDefaultKey),
     },
     {
+      key: 'db-client',
       icon: <ReadOutlined />,
       label: 'DB Client',
       compactKey: dbClientDefaultKey,
-      showCompact: showDbClient && Boolean(dbClientDefaultKey),
+      show: showDbClient && Boolean(dbClientDefaultKey),
     },
   ]
+  const operationNavByKey = Object.fromEntries(
+    operationSections
+      .filter((section) => section.show && section.compactKey)
+      .map((section) => [section.key, section.compactKey as string]),
+  )
   const operationItems: MenuProps['items'] = operationSections
-    .filter((section) => section.showCompact && section.compactKey)
+    .filter((section) => section.show && section.compactKey)
     .map((section) => ({
-      key: section.compactKey as string,
+      key: section.key,
       icon: section.icon,
       label: section.label,
     }))
@@ -321,8 +333,9 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
 
   const handleMenuClick = ({ key }: { key: string }) => {
     if (key === 'help') return
-    prefetchRouteData(key)
-    const [path, query] = key.includes('?') ? key.split('?') : [key, '']
+    const navKey = operationNavByKey[key] || key
+    prefetchRouteData(navKey)
+    const [path, query] = navKey.includes('?') ? navKey.split('?') : [navKey, '']
     navigate(query ? `${path}?${query}` : path)
     onClose?.()
   }

@@ -3,7 +3,7 @@ import { Modal, Form, Input, Select, DatePicker, Upload, message, Tag } from 'an
 import { InboxOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { ticketsApi, type SimilarTicketsResponse } from '../../api/tickets'
-import { supportApi } from '../../api/support'
+import { supportApi, SUPPORT_LOOKUPS_CHANGED_EVENT } from '../../api/support'
 import { draftsApi } from '../../api/drafts'
 import { uploadAttachment } from '../../api/upload'
 import { useAuth } from '../../hooks/useAuth'
@@ -147,6 +147,22 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
   const attachmentUrlRef = useRef<string | null>(null)
   attachmentUrlRef.current = attachmentUrl
 
+  const reloadCompanies = useCallback(() => {
+    return supportApi
+      .getCompanies({ bustCache: true })
+      .then((list) => setCompanies(dedupeCompaniesForSelect(list)))
+      .catch(() => setCompanies([]))
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    const onLookupsChanged = () => {
+      void reloadCompanies()
+    }
+    window.addEventListener(SUPPORT_LOOKUPS_CHANGED_EVENT, onLookupsChanged)
+    return () => window.removeEventListener(SUPPORT_LOOKUPS_CHANGED_EVENT, onLookupsChanged)
+  }, [open, reloadCompanies])
+
   /** Load draft into form when modal opens */
   useEffect(() => {
     if (open) {
@@ -162,10 +178,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
       setSelectedRepeatRef(null)
       setPreviewTicketId(null)
       setPreviewTicketType(null)
-      supportApi
-        .getCompanies()
-        .then((list) => setCompanies(dedupeCompaniesForSelect(list)))
-        .catch(() => setCompanies([]))
+      void reloadCompanies()
       supportApi.getPages().then(setPages).catch(() => setPages([]))
 
       if (prefill) {
@@ -242,7 +255,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
           }, 500)
         })
     }
-  }, [open, user?.full_name, prefill])
+  }, [open, user?.full_name, prefill, reloadCompanies])
 
   const companyId = Form.useWatch('company_id', form)
   const titleWatch = Form.useWatch('title', form)
