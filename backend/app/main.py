@@ -7874,6 +7874,138 @@ def create_invoice_company(payload: CreateInvoiceCompanyRequest, auth: dict = De
     return _etag_json({"id": str(cid), "name": cname, "created": True})
 
 
+class CreateCompanyWithDivisionsRequest(BaseModel):
+    company_name: str
+    division_names: list[str]
+
+    @model_validator(mode="after")
+    def _normalize_divisions(self):
+        names: list[str] = []
+        seen: set[str] = set()
+        for raw in self.division_names:
+            for part in str(raw or "").replace(";", ",").split(","):
+                label = part.strip()
+                if not label:
+                    continue
+                key = label.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                names.append(label[:100])
+        if not names:
+            raise ValueError("At least one division name is required")
+        self.division_names = names
+        return self
+
+
+@api_router.post("/companies/with-divisions")
+def create_company_with_divisions(payload: CreateCompanyWithDivisionsRequest, auth: dict = Depends(get_current_user)):
+    """Add company + division(s) for Support ticket Company/Division dropdowns."""
+    from app import invoice_companies as ic
+    from app.payment_ageing import normalize_company_name
+
+    company_name = (payload.company_name or "").strip()
+    if not company_name:
+        raise HTTPException(status_code=400, detail="Company name is required")
+    if len(company_name) > 200:
+        raise HTTPException(status_code=400, detail="Company name must be 200 characters or fewer")
+
+    try:
+        r = supabase.table("companies").select("id, name").execute()
+        rows = r.data or []
+    except Exception as e:
+        _log(f"companies/with-divisions list: {e}")
+        raise HTTPException(status_code=500, detail="Could not load companies")
+
+    company_created = False
+    hit = ic.find_company_row_by_name(company_name, rows)
+    if hit:
+        company_id = hit["id"]
+        company_name = hit["name"]
+    else:
+        try:
+            ins = supabase.table("companies").insert({"name": company_name}).execute()
+            created = (ins.data or [{}])[0]
+            company_id = str(created.get("id") or "")
+            company_name = (created.get("name") or company_name).strip()
+            if not company_id:
+                raise HTTPException(status_code=500, detail="Company insert did not return an id")
+            company_created = True
+        except HTTPException:
+            raise
+        except Exception as e:
+            err = str(e).lower()
+            if "duplicate" in err or "unique" in err:
+                try:
+                    r2 = supabase.table("companies").select("id, name").execute()
+                    hit = ic.find_company_row_by_name(company_name, r2.data or [])
+                except Exception:
+                    hit = ic.find_company_row_by_name(company_name, rows)
+                if hit:
+                    company_id = hit["id"]
+                    company_name = hit["name"]
+                else:
+                    raise HTTPException(status_code=409, detail="A company with this name already exists")
+            else:
+                _log(f"companies/with-divisions create company: {e}")
+                raise HTTPException(status_code=500, detail="Could not create company")
+
+    try:
+        existing = (
+            supabase.table("divisions")
+            .select("id, name, company_id")
+            .eq("company_id", company_id)
+            .execute()
+        )
+        existing_rows = list(existing.data or [])
+    except Exception as e:
+        _log(f"companies/with-divisions list divisions: {e}")
+        existing_rows = []
+
+    existing_names = {str(x.get("name") or "").strip().lower() for x in existing_rows}
+    divisions_created: list[str] = []
+    to_insert = [
+        {"company_id": company_id, "name": dname}
+        for dname in payload.division_names
+        if dname.strip().lower() not in existing_names
+    ]
+    if to_insert:
+        try:
+            supabase.table("divisions").insert(to_insert).execute()
+            divisions_created = [row["name"] for row in to_insert]
+        except Exception as e:
+            _log(f"companies/with-divisions insert divisions: {e}")
+            for row in to_insert:
+                try:
+                    supabase.table("divisions").insert(row).execute()
+                    divisions_created.append(row["name"])
+                except Exception:
+                    pass
+
+    try:
+        final = (
+            supabase.table("divisions")
+            .select("id, name, company_id")
+            .eq("company_id", company_id)
+            .order("name")
+            .execute()
+        )
+        division_rows = list(final.data or [])
+    except Exception:
+        division_rows = existing_rows
+
+    _invalidate_ttl_cache_key_prefix("companies:")
+    _invalidate_ttl_cache_key_prefix("companies:invoice:")
+    return _etag_json(
+        {
+            "company": {"id": company_id, "name": company_name},
+            "divisions": division_rows,
+            "company_created": company_created,
+            "divisions_created": divisions_created,
+        }
+    )
+
+
 @api_router.get("/pages")
 @cached(ttl=30, key_prefix="pages:")
 def list_pages(

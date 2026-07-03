@@ -92,4 +92,20 @@ export const supportApi = {
     }
     return rows
   },
+  createCompanyWithDivisions: async (payload: {
+    company_name: string
+    division_names: string[]
+  }): Promise<{
+    company: Company
+    divisions: Division[]
+    company_created?: boolean
+    divisions_created?: string[]
+  }> => {
+    const { data } = await apiClient.post('/companies/with-divisions', payload)
+    sessionApiCacheRemove('support:companies:v2')
+    if (data?.company?.id) {
+      sessionApiCacheRemove(supportDivisionsLogicalKey(data.company.id))
+    }
+    return data
+  },
 }
