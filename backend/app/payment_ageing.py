@@ -234,6 +234,26 @@ def quarter_date_bounds(fy_start: int, q: int) -> tuple[date, date]:
     return (date(fy_start + 1, 1, 1), date(fy_start + 1, 3, 31))
 
 
+def is_fiscal_quarter_complete(fy_start: int, q: int, as_of: date | None = None) -> bool:
+    """True when the India FY quarter has ended (exclusive of the day after quarter end)."""
+    as_of = as_of or date.today()
+    _start, end = quarter_date_bounds(fy_start, q)
+    return as_of > end
+
+
+def ageing_summary_locked(qroll: list[tuple[int, int, str]], as_of: date | None = None) -> bool:
+    """
+    Summary day-bucket amounts stay zero while the report includes the current ongoing quarter.
+    After that quarter completes (e.g. Q2 FY 26-27 after 30 Sep), amounts are shown.
+    """
+    as_of = as_of or date.today()
+    current = fy_quarter_key(as_of)
+    for fy, q, _label in qroll:
+        if (fy, q) == current and not is_fiscal_quarter_complete(fy, q, as_of):
+            return True
+    return False
+
+
 def previous_quarter(fy: int, q: int) -> tuple[int, int]:
     if q == 1:
         return (fy - 1, 4)
@@ -330,9 +350,18 @@ DAY_BUCKETS: list[tuple[str, int, int]] = [
 ]
 
 
-def bucket_for_median_days(median_days: int) -> int:
+def bucket_for_median_days(median_days: int | float | None) -> int:
+    """Map median days-to-payment into Excel-style day buckets (1-7, 8-14, …)."""
+    if median_days is None:
+        return len(DAY_BUCKETS) - 1
+    try:
+        days = int(round(float(median_days)))
+    except (TypeError, ValueError):
+        return len(DAY_BUCKETS) - 1
+    if days < 0:
+        days = 0
     for i, (_, lo, hi) in enumerate(DAY_BUCKETS):
-        if lo <= median_days <= hi:
+        if lo <= days <= hi:
             return i
     return len(DAY_BUCKETS) - 1
 

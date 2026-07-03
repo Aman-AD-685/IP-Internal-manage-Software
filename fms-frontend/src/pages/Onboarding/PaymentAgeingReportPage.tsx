@@ -57,6 +57,7 @@ type ReportPayload = {
   rows: AgeingRow[]
   summary: {
     rows: AgeingSummaryRow[]
+    locked?: boolean
     totals: {
       median: number
       received: number
@@ -340,7 +341,9 @@ export function PaymentAgeingReportPage() {
                     <Text type="secondary">No summary data.</Text>
                   )}
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    Percent columns are share of row Median / Received vs report totals.
+                    {data?.summary?.locked
+                      ? 'Summary amounts appear after the current quarter ends (e.g. Q2 after 30 Sep). Until then all buckets show 0.'
+                      : 'Percent columns are share of row Median / Received vs report totals. Only companies with a valid Median (payment in at least 2 quarters) are included.'}
                   </Text>
                 </Space>
               ),

@@ -7811,6 +7811,69 @@ def list_invoice_companies(auth: dict = Depends(get_current_user)):
     return _etag_json(payload)
 
 
+class CreateInvoiceCompanyRequest(BaseModel):
+    name: str
+
+
+@api_router.post("/companies/for-invoice")
+def create_invoice_company(payload: CreateInvoiceCompanyRequest, auth: dict = Depends(get_current_user)):
+    """Add a company to public.companies for Payment Management / invoice dropdown."""
+    from app import invoice_companies as ic
+    from app.payment_ageing import normalize_company_name
+
+    name = (payload.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Company name is required")
+    if len(name) > 200:
+        raise HTTPException(status_code=400, detail="Company name must be 200 characters or fewer")
+
+    try:
+        r = supabase.table("companies").select("id, name").execute()
+        rows = r.data or []
+    except Exception as e:
+        _log(f"companies/for-invoice create list: {e}")
+        raise HTTPException(status_code=500, detail="Could not load companies")
+
+    existing = ic.find_company_row_by_name(name, rows)
+    if existing:
+        out = {"id": existing["id"], "name": existing["name"], "created": False}
+        return _etag_json(out)
+
+    nk = normalize_company_name(name)
+    for row in rows:
+        row_name = (row.get("name") or "").strip()
+        if row_name and normalize_company_name(row_name) == nk:
+            out = {"id": str(row["id"]), "name": row_name, "created": False}
+            return _etag_json(out)
+
+    try:
+        ins = supabase.table("companies").insert({"name": name}).execute()
+        created = (ins.data or [{}])[0]
+        cid = created.get("id")
+        cname = (created.get("name") or name).strip()
+        if not cid:
+            raise HTTPException(status_code=500, detail="Company insert did not return an id")
+    except HTTPException:
+        raise
+    except Exception as e:
+        err = str(e).lower()
+        if "duplicate" in err or "unique" in err:
+            try:
+                r2 = supabase.table("companies").select("id, name").execute()
+                hit = ic.find_company_row_by_name(name, r2.data or [])
+            except Exception:
+                hit = ic.find_company_row_by_name(name, rows)
+            if hit:
+                return _etag_json({"id": hit["id"], "name": hit["name"], "created": False})
+            raise HTTPException(status_code=409, detail="A company with this name already exists")
+        _log(f"companies/for-invoice create: {e}")
+        raise HTTPException(status_code=500, detail="Could not create company")
+
+    _invalidate_ttl_cache_key_prefix("companies:")
+    _invalidate_ttl_cache_key_prefix("companies:invoice:")
+    return _etag_json({"id": str(cid), "name": cname, "created": True})
+
+
 @api_router.get("/pages")
 @cached(ttl=30, key_prefix="pages:")
 def list_pages(
@@ -9642,7 +9705,7 @@ def _fiscal_quarter_ordinal(key: tuple[int, int]) -> int:
     return int(key[0]) * 4 + int(key[1])
 
 
-def _median_value_or_none(values: list[int | float | None], *, min_count: int = 1) -> int | float | None:
+def _median_value_or_none(values: list[int | float | None], *, min_count: int = 1) -> int | None:
     nums = sorted(float(v) for v in values if v is not None)
     if len(nums) < min_count:
         return None
@@ -9651,7 +9714,7 @@ def _median_value_or_none(values: list[int | float | None], *, min_count: int = 
         median = nums[mid]
     else:
         median = (nums[mid - 1] + nums[mid]) / 2
-    return int(median) if median.is_integer() else median
+    return int(round(median))
 
 
 def _payment_ageing_report_payload():
@@ -9784,22 +9847,23 @@ def _payment_ageing_report_payload():
     bucket_fy_q2 = [0] * nb
     bucket_fy_q3 = [0] * nb
     bucket_fy_q4_received = [0] * nb
-    for r in out_rows:
-        med_raw = r.get("median_value")
-        if med_raw is None:
-            continue
-        amt = int(r.get("amount_incl_gst") or 0)
-        rec = int(r.get("received_amount") or 0)
-        med = float(med_raw)
-        bi = _pa.bucket_for_median_days(med)
-        qdays = _pa.normalize_quarter_days(r.get("quarter_days"), _nq)
-        bucket_median_sums[bi] += amt
-        bucket_received_sums[bi] += rec
-        bucket_fy_q4_to_be[bi] += weighted_fy24_amount(amt, qdays, 4)
-        bucket_fy_q1[bi] += weighted_fy24_amount(amt, qdays, 1)
-        bucket_fy_q2[bi] += weighted_fy24_amount(amt, qdays, 2)
-        bucket_fy_q3[bi] += weighted_fy24_amount(amt, qdays, 3)
-        bucket_fy_q4_received[bi] += weighted_fy24_amount(rec, qdays, 4)
+    summary_locked = _pa.ageing_summary_locked(qroll, today)
+    if not summary_locked:
+        for r in out_rows:
+            med_raw = r.get("median_value")
+            if med_raw is None:
+                continue
+            amt = int(r.get("amount_incl_gst") or 0)
+            rec = int(r.get("received_amount") or 0)
+            bi = _pa.bucket_for_median_days(med_raw)
+            qdays = _pa.normalize_quarter_days(r.get("quarter_days"), _nq)
+            bucket_median_sums[bi] += amt
+            bucket_received_sums[bi] += rec
+            bucket_fy_q4_to_be[bi] += weighted_fy24_amount(amt, qdays, 4)
+            bucket_fy_q1[bi] += weighted_fy24_amount(amt, qdays, 1)
+            bucket_fy_q2[bi] += weighted_fy24_amount(amt, qdays, 2)
+            bucket_fy_q3[bi] += weighted_fy24_amount(amt, qdays, 3)
+            bucket_fy_q4_received[bi] += weighted_fy24_amount(rec, qdays, 4)
 
     total_median = sum(bucket_median_sums)
     total_received = sum(bucket_received_sums)
@@ -9841,7 +9905,7 @@ def _payment_ageing_report_payload():
         "quarter_labels": quarter_labels,
         "quarter_keys": quarter_keys,
         "rows": out_rows,
-        "summary": {"rows": summary_rows, "totals": totals},
+        "summary": {"rows": summary_rows, "totals": totals, "locked": summary_locked},
         "summary_uploaded": [],
         "kpis": kpis,
         "marked_na_supported": _client_payment_marked_na_supported(),
@@ -9946,8 +10010,7 @@ def create_client_payment(payload: dict, auth: dict = Depends(get_current_user))
     if not resolved:
         raise HTTPException(
             400,
-            "company_name must be one of the allowed invoice clients. "
-            "Run database/INVOICE_COMPANY_MASTER.sql in Supabase if the list was recently updated.",
+            "company_name must exist in Companies. Use Add Company on Payment Management or pick from the dropdown.",
         )
     company_name = resolved
     invoice_date = payload.get("invoice_date")
@@ -10220,7 +10283,10 @@ def update_client_payment(client_payment_id: str, payload: dict, auth: dict = De
             company_rows = []
         resolved = ic.resolve_invoice_company_name(company_name, company_rows)
         if not resolved:
-            raise HTTPException(400, "company_name must be one of the allowed invoice clients")
+            raise HTTPException(
+                400,
+                "company_name must exist in Companies. Use Add Company on Payment Management or pick from the dropdown.",
+            )
         company_name = resolved
         invoice_date = payload.get("invoice_date")
         invoice_amount = (payload.get("invoice_amount") or "").strip()
