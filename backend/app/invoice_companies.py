@@ -106,7 +106,7 @@ def _index_companies_by_norm(companies_rows: list[dict]) -> dict[str, dict]:
 
 
 def build_invoice_company_options(companies_rows: list[dict]) -> list[dict]:
-    """Ordered {id, name} for invoice UI; matches master list to public.companies."""
+    """Ordered {id, name} for invoice UI; master list first, then user-added DB companies."""
     by_norm = _index_companies_by_norm(companies_rows)
     db_norm_keys = list(by_norm.keys())
     fuzzy: dict[str, str] = {}
@@ -119,6 +119,7 @@ def build_invoice_company_options(companies_rows: list[dict]) -> list[dict]:
         fuzzy = fuzzy_ageing_assignments(missing_keys, {k: {} for k in db_norm_keys}, min_score=0.68)
 
     options: list[dict] = []
+    seen_norms: set[str] = set()
     for canonical in INVOICE_COMPANY_NAMES:
         nk = normalize_company_name(canonical)
         if not nk:
@@ -128,20 +129,44 @@ def build_invoice_company_options(companies_rows: list[dict]) -> list[dict]:
             hit = by_norm.get(fuzzy[nk])
         if hit:
             options.append({"id": hit["id"], "name": hit["name"]})
+            seen_norms.add(normalize_company_name(hit["name"]))
         else:
             options.append({"id": nk, "name": canonical})
+            seen_norms.add(nk)
+
+    extras = [
+        by_norm[nk]
+        for nk in sorted(by_norm.keys())
+        if nk not in seen_norms
+    ]
+    options.extend({"id": row["id"], "name": row["name"]} for row in extras)
     return options
+
+
+def find_company_row_by_name(company_name: str, companies_rows: list[dict]) -> dict | None:
+    nk = normalize_company_name(company_name)
+    if not nk:
+        return None
+    for row in companies_rows:
+        name = (row.get("name") or "").strip()
+        if name and normalize_company_name(name) == nk:
+            return {"id": str(row.get("id") or ""), "name": name}
+    return None
 
 
 def resolve_invoice_company_name(
     company_name: str,
     companies_rows: list[dict] | None = None,
 ) -> str | None:
-    """Map submitted name to canonical companies.name when in the invoice allowlist."""
+    """Map submitted name to canonical companies.name (master list or any row in public.companies)."""
     raw = (company_name or "").strip()
     if not raw:
         return None
     nk = normalize_company_name(raw)
+    if companies_rows is not None:
+        hit = find_company_row_by_name(raw, companies_rows)
+        if hit:
+            return hit["name"]
     if nk not in INVOICE_COMPANY_KEYS:
         return None
     if companies_rows is None:

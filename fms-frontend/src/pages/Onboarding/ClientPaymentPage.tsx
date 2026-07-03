@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { Button, Card, Checkbox, DatePicker, Descriptions, Divider, Drawer, Form, Input, InputNumber, Modal, Select, Space, Table, Tooltip, Typography, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { CheckCircleOutlined, EditOutlined, FormOutlined } from '@ant-design/icons'
+import { CheckCircleOutlined, EditOutlined, FormOutlined, PlusOutlined } from '@ant-design/icons'
 import dayjs, { type Dayjs } from 'dayjs'
 import { API_ENDPOINTS } from '../../utils/constants'
 import { apiClient } from '../../api/axios'
@@ -62,6 +62,9 @@ export function ClientPaymentPage() {
   const [companiesLoading, setCompaniesLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
+  const [addCompanyModalOpen, setAddCompanyModalOpen] = useState(false)
+  const [addCompanyLoading, setAddCompanyLoading] = useState(false)
+  const [addCompanyForm] = Form.useForm()
   const [submitLoading, setSubmitLoading] = useState(false)
   const [detailOpen, setDetailOpen] = useState(false)
   const [selectedRecord, setSelectedRecord] = useState<ClientPaymentRecord | null>(null)
@@ -385,27 +388,80 @@ export function ClientPaymentPage() {
     void loadOpenListAllPages()
   }, [location.pathname, compRegisterGenre, isCompRegister, naListView, fetchCompRegisterFirstPage, loadOpenListAllPages])
 
-  useEffect(() => {
-    if ((!modalOpen && !editInvoiceModalOpen) || companies.length > 0) return
+  const parseInvoiceCompanies = useCallback(
+    (
+      companiesList:
+        | { id: string; name: string }[]
+        | { data?: { id: string; name: string }[]; items?: { id: string; name: string }[] },
+    ) => {
+      const rows = Array.isArray(companiesList)
+        ? companiesList
+        : Array.isArray(companiesList?.data)
+          ? companiesList.data
+          : Array.isArray(companiesList?.items)
+            ? companiesList.items
+            : []
+      return (rows || []).filter((c: { id?: string; name?: string }) => c && c.name) as { id: string; name: string }[]
+    },
+    [],
+  )
+
+  const refreshInvoiceCompanies = useCallback(() => {
     setCompaniesLoading(true)
-    apiClient
+    return apiClient
       .get<{ id: string; name: string }[] | { data?: { id: string; name: string }[]; items?: { id: string; name: string }[] }>(
         '/companies/for-invoice',
       )
       .then((r) => r.data)
       .then((companiesList) => {
-        const rows = Array.isArray(companiesList)
-          ? companiesList
-          : Array.isArray(companiesList?.data)
-            ? companiesList.data
-            : Array.isArray(companiesList?.items)
-              ? companiesList.items
-              : []
-        setCompanies((rows || []).filter((c: { id?: string; name?: string }) => c && c.name))
+        setCompanies(parseInvoiceCompanies(companiesList))
       })
       .catch(() => setCompanies([]))
       .finally(() => setCompaniesLoading(false))
-  }, [modalOpen, editInvoiceModalOpen, companies.length])
+  }, [parseInvoiceCompanies])
+
+  useEffect(() => {
+    if (!modalOpen && !editInvoiceModalOpen && !addCompanyModalOpen) return
+    if (companies.length > 0 && !addCompanyModalOpen) return
+    void refreshInvoiceCompanies()
+  }, [modalOpen, editInvoiceModalOpen, addCompanyModalOpen, companies.length, refreshInvoiceCompanies])
+
+  const openAddCompanyModal = () => {
+    addCompanyForm.resetFields()
+    setAddCompanyModalOpen(true)
+  }
+
+  const handleAddCompany = () => {
+    addCompanyForm.validateFields().then((values) => {
+      const name = String(values.name || '').trim()
+      if (!name) return
+      setAddCompanyLoading(true)
+      apiClient
+        .post<{ id: string; name: string; created?: boolean }>('/companies/for-invoice', { name })
+        .then((res) => {
+          const created = res.data
+          const label = created?.created === false ? 'Company already exists — selected in list' : 'Company added'
+          message.success(label)
+          setAddCompanyModalOpen(false)
+          addCompanyForm.resetFields()
+          return refreshInvoiceCompanies().then(() => created?.name || name)
+        })
+        .then((companyName) => {
+          if (modalOpen && companyName) {
+            form.setFieldValue('company_name', companyName)
+          }
+        })
+        .catch((err) => {
+          const raw = err?.response?.data?.detail
+          const detail =
+            typeof raw === 'string' ? raw : Array.isArray(raw) ? raw[0]?.msg : raw?.message || 'Failed to add company'
+          message.error(detail)
+        })
+        .finally(() => setAddCompanyLoading(false))
+    }).catch(() => {
+      message.warning('Enter a company name')
+    })
+  }
 
   const openModal = () => {
     form.resetFields()
@@ -1310,9 +1366,14 @@ export function ClientPaymentPage() {
             </Text>
           ) : null}
           {isOpenList && (
-            <Button type="primary" onClick={openModal}>
-              Add Invoice
-            </Button>
+            <>
+              <Button icon={<PlusOutlined />} onClick={openAddCompanyModal}>
+                Add Company
+              </Button>
+              <Button type="primary" onClick={openModal}>
+                Add Invoice
+              </Button>
+            </>
           )}
           <Button onClick={openExport}>Export</Button>
         </Space>
@@ -2066,6 +2127,59 @@ export function ClientPaymentPage() {
             <Space>
               <Button type="primary" htmlType="submit">Save</Button>
               <Button onClick={() => setPaymRecModalOpen(false)}>Cancel</Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="Add Company"
+        open={addCompanyModalOpen}
+        onCancel={() => {
+          setAddCompanyModalOpen(false)
+          addCompanyForm.resetFields()
+        }}
+        footer={null}
+        destroyOnClose
+        width={480}
+      >
+        <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+          Add a client company for invoices and payment tracking. It will appear in the Company Name dropdown when you add or edit an invoice.
+        </Text>
+        <Form form={addCompanyForm} layout="vertical" onFinish={handleAddCompany}>
+          <Form.Item
+            name="name"
+            label="Company Name"
+            rules={[
+              { required: true, message: 'Company name is required' },
+              { max: 200, message: 'Max 200 characters' },
+              {
+                validator: (_, value) => {
+                  const s = String(value || '').trim()
+                  if (!s) return Promise.resolve()
+                  if (companies.some((c) => c.name.toLowerCase() === s.toLowerCase())) {
+                    return Promise.reject(new Error('This company is already in the list'))
+                  }
+                  return Promise.resolve()
+                },
+              },
+            ]}
+          >
+            <Input placeholder="e.g. New Steel Pvt. Ltd." maxLength={200} />
+          </Form.Item>
+          <Form.Item style={{ marginBottom: 0 }}>
+            <Space>
+              <Button type="primary" htmlType="submit" loading={addCompanyLoading}>
+                Save Company
+              </Button>
+              <Button
+                onClick={() => {
+                  setAddCompanyModalOpen(false)
+                  addCompanyForm.resetFields()
+                }}
+              >
+                Cancel
+              </Button>
             </Space>
           </Form.Item>
         </Form>
