@@ -339,6 +339,13 @@ def _etag_json(payload: Any, max_age: int = 300) -> JSONResponse:
     response.headers["Cache-Control"] = f"public, max-age={max_age}, stale-while-revalidate=600"
     return response
 
+
+def _lookup_json(payload: Any) -> JSONResponse:
+    """Support ticket dropdown lookups — never browser-cache (new companies/divisions must show immediately)."""
+    response = JSONResponse(content=payload)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
 # Request logging + CATCH ALL to prevent 500
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -7783,7 +7790,7 @@ def list_companies(
             .execute()
         )
         payload = {"data": r.data or [], "total": r.count or 0, "page": page, "page_size": page_size}
-        return _etag_json(payload)
+        return _lookup_json(payload)
     except Exception:
         payload = {
             "data": [{"id": "1", "name": "Company A"}, {"id": "2", "name": "Company B"}],
@@ -7791,7 +7798,7 @@ def list_companies(
             "page": 1,
             "page_size": 50,
         }
-        return _etag_json(payload)
+        return _lookup_json(payload)
 
 
 @api_router.get("/companies/for-invoice")
