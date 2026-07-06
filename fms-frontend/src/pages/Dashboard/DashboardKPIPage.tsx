@@ -38,6 +38,7 @@ import './dashboard-kpi.css'
 import {
   dashboardKpiApi,
   dashboardKpiCacheKey,
+  aggregateChecklistRowsByTask,
   DASHBOARD_KPI_NAMES,
   MONTHS,
   YEARS,
@@ -606,6 +607,11 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
     })
   }, [location.state, navigate])
 
+  const checklistRows = useMemo(
+    () => aggregateChecklistRowsByTask(data?.checklist?.rows),
+    [data?.checklist?.rows],
+  )
+
   // List view: dashboard chooser cards
   if (!forceOpen && selectedPerson === null) {
     return (
@@ -1052,10 +1058,10 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                     </Space>
                   }
                 >
-                  {(checklist.rows?.length ?? 0) > 0 ? (
+                  {(checklistRows.length ?? 0) > 0 ? (
                     <Table
                       size="small"
-                      dataSource={checklist.rows?.map((r, i) => ({ ...r, key: i })) ?? []}
+                      dataSource={checklistRows.map((r, i) => ({ ...r, key: i }))}
                       columns={[
                         { title: 'Task', dataIndex: 'task_name', key: 'task_name' },
                         { title: 'Frequency', dataIndex: 'frequency', key: 'frequency', width: 100 },
@@ -1063,25 +1069,39 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
                           title: 'Status',
                           dataIndex: 'status',
                           key: 'status',
-                          width: 120,
-                          render: (s: string) => {
-                            const done = (s || '').toLowerCase() === 'done'
+                          width: 220,
+                          render: (_s: string, row: { status?: string; pending_count?: number; completed_count?: number }) => {
+                            const pending = row.pending_count ?? 0
+                            const completed = row.completed_count ?? 0
+                            const label = row.status || `${pending} Pending / ${completed} Completed`
                             return (
-                              <Tag
-                                style={done
-                                  ? {
-                                      background: 'rgba(40,167,69,0.1)',
-                                      color: '#28A745',
-                                      borderColor: 'rgba(40,167,69,0.2)',
-                                    }
-                                  : {
+                              <Space size={4} wrap>
+                                {pending > 0 ? (
+                                  <Tag
+                                    style={{
                                       background: 'rgba(255,193,7,0.1)',
                                       color: '#FFC107',
                                       borderColor: 'rgba(255,193,7,0.2)',
                                     }}
-                              >
-                                {done ? 'Completed' : 'Pending'}
-                              </Tag>
+                                  >
+                                    {pending} Pending
+                                  </Tag>
+                                ) : null}
+                                {completed > 0 ? (
+                                  <Tag
+                                    style={{
+                                      background: 'rgba(40,167,69,0.1)',
+                                      color: '#28A745',
+                                      borderColor: 'rgba(40,167,69,0.2)',
+                                    }}
+                                  >
+                                    {completed} Completed
+                                  </Tag>
+                                ) : null}
+                                {pending === 0 && completed === 0 ? (
+                                  <Text type="secondary">{label}</Text>
+                                ) : null}
+                              </Space>
                             )
                           },
                         },

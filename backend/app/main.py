@@ -4736,7 +4736,7 @@ def dashboard_kpi_support_fms_details(
         return {"success": False, "pillar": pillar_key, "items": [], "error": str(e)[:200]}
 
 
-@cached(ttl=300, key_prefix="dash:")
+@cached(ttl=300, key_prefix="dash:kpi:v3:")
 def _dashboard_kpi_data(
     name: str,
     month: str,
@@ -4792,9 +4792,12 @@ def _dashboard_kpi_data(
         checklist_rows = []
         checklist_weekly_pct = 0
         checklist_monthly_pct = 0
+        done_week = 0
+        total_week = 0
         tasks = []
         task_ids: list = []
         comp_month: dict = {}
+        comp_spanning: dict = {}
         try:
             from app.checklist_utils import get_occurrence_dates_in_range
             q = supabase.table("checklist_tasks").select(
@@ -4803,19 +4806,20 @@ def _dashboard_kpi_data(
             r = q.execute()
             tasks = r.data or []
             task_ids = [t["id"] for t in tasks]
-            comp_week = {}
-            comp_month = {}
+            comp_week: dict = {}
             na_month: set[tuple[str, str]] = set()
+            na_week: set[tuple[str, str]] = set()
             if task_ids:
-                cr2 = supabase.table("checklist_completions").select("task_id, occurrence_date, completed_at")
-                cr2 = cr2.gte("occurrence_date", month_start.isoformat()).lte("occurrence_date", month_end.isoformat())
-                cr2 = cr2.in_("task_id", task_ids)
-                for row in (cr2.execute().data or []):
-                    comp_month[(row["task_id"], row["occurrence_date"])] = row.get("completed_at")
-                for (tid, od), val in comp_month.items():
-                    if range_start.isoformat() <= od <= range_end.isoformat():
-                        comp_week[(tid, od)] = val
+                comp_month = _fetch_checklist_completions_map(task_ids, month_start, month_end)
+                span_lo, span_hi = _kpi_checklist_completion_span(y, month_num)
+                comp_spanning = _fetch_checklist_completions_map(task_ids, span_lo, span_hi)
+                comp_week = {
+                    k: v
+                    for k, v in comp_spanning.items()
+                    if range_start.isoformat() <= k[1] <= range_end.isoformat()
+                }
                 na_month = _fetch_checklist_na_pairs(task_ids, month_start, month_end)
+                na_week = _fetch_checklist_na_pairs(task_ids, range_start, range_end)
             occ_week = []
             occ_month = []
             for task in tasks:
@@ -4829,7 +4833,7 @@ def _dashboard_kpi_data(
                 dates_week = get_occurrence_dates_in_range(start, freq, range_start, range_end, is_holiday)
                 dates_month = get_occurrence_dates_in_range(start, freq, month_start, month_end, is_holiday)
                 for d in dates_week:
-                    if (str(t_id), d.isoformat()) not in na_month:
+                    if (str(t_id), d.isoformat()) not in na_week:
                         occ_week.append((t_id, d, task.get("task_name"), task.get("frequency", "")))
                 for d in dates_month:
                     if (str(t_id), d.isoformat()) not in na_month:
@@ -4840,13 +4844,27 @@ def _dashboard_kpi_data(
             done_month = sum(1 for (tid, d) in occ_month if comp_month.get((tid, d.isoformat())))
             total_month = len(occ_month)
             checklist_monthly_pct = round((done_month / total_month) * 100) if total_month else 0
+            task_week_stats: dict = {}
             for (t_id, d, tname, freq) in occ_week:
-                completed = comp_week.get((t_id, d.isoformat()))
+                bucket = task_week_stats.setdefault(
+                    t_id,
+                    {"task_name": tname, "frequency": freq or "", "completed": 0, "pending": 0},
+                )
+                if comp_week.get((t_id, d.isoformat())):
+                    bucket["completed"] += 1
+                else:
+                    bucket["pending"] += 1
+            for stats in sorted(task_week_stats.values(), key=lambda s: (s.get("task_name") or "").lower()):
+                pending_n = int(stats.get("pending") or 0)
+                completed_n = int(stats.get("completed") or 0)
+                status_line = f"{pending_n} Pending / {completed_n} Completed"
                 checklist_rows.append({
-                    "task_name": tname,
-                    "frequency": freq or "",
-                    "status": "Done" if completed else "Pending",
-                    "details": "Done" if completed else "Pending",
+                    "task_name": stats.get("task_name"),
+                    "frequency": stats.get("frequency") or "",
+                    "status": status_line,
+                    "details": status_line,
+                    "pending_count": pending_n,
+                    "completed_count": completed_n,
                 })
         except Exception as e:
             _log(f"dashboard/kpi checklist: {e}")
@@ -4923,7 +4941,9 @@ def _dashboard_kpi_data(
         stage2_completed_in_week = 0
         if not is_akash:
             try:
-                tickets = _fetch_kpi_chore_bug_tickets(month_start, month_end)
+                ticket_lo = min(month_start, range_start)
+                ticket_hi = max(month_end, range_end)
+                tickets = _fetch_kpi_chore_bug_tickets(ticket_lo, ticket_hi)
                 week_metrics = _compute_support_fms_week_metrics(tickets, range_start, range_end)
                 response_delay_count = week_metrics["response_delay_count"]
                 completion_delay_count = week_metrics["completion_delay_count"]
@@ -5008,11 +5028,14 @@ def _dashboard_kpi_data(
                     if task_ids:
                         comp_w = {
                             k: v
-                            for k, v in comp_month.items()
+                            for k, v in comp_spanning.items()
                             if rs.isoformat() <= k[1] <= re.isoformat()
                         }
+                        na_w = _fetch_checklist_na_pairs(task_ids, rs, re)
                         occ_w = []
                         for task in (tasks or []):
+                            if _checklist_row_marked_na(task):
+                                continue
                             t_id = task["id"]
                             start = task.get("start_date")
                             if isinstance(start, str):
@@ -5020,7 +5043,8 @@ def _dashboard_kpi_data(
                             freq = task.get("frequency", "D")
                             dates_w = get_occurrence_dates_in_range(start, freq, rs, re, is_holiday)
                             for d in dates_w:
-                                occ_w.append((t_id, d))
+                                if (str(t_id), d.isoformat()) not in na_w:
+                                    occ_w.append((t_id, d))
                         total_w = len(occ_w)
                         done_w = sum(1 for (tid, d) in occ_w if comp_w.get((tid, d.isoformat())))
                         cl_pct = round((done_w / total_w) * 100) if total_w else 0
@@ -5053,8 +5077,8 @@ def _dashboard_kpi_data(
         if is_akash:
             support_fms_monthly_pct = 0
 
-        ch_done = sum(1 for r in checklist_rows if (r.get("status") or "").lower() == "done")
-        ch_pending = sum(1 for r in checklist_rows if (r.get("status") or "").lower() != "done")
+        ch_done = done_week
+        ch_pending = max(0, total_week - done_week)
         akash_kpi = None
         if is_akash:
             customer_support_bundle: dict = {}
@@ -5295,7 +5319,10 @@ def _dashboard_kpi_data(
             },
             "checklist": {
                 "rows": checklist_rows,
-                "totals": {"done": sum(1 for r in checklist_rows if (r.get("status") or "").lower() == "done"), "pending": sum(1 for r in checklist_rows if (r.get("status") or "").lower() != "done")},
+                "totals": {
+                    "done": ch_done,
+                    "pending": ch_pending,
+                },
                 "weeklyPercentage": checklist_weekly_pct,
             },
             "delegation": {
@@ -14986,6 +15013,39 @@ def _checklist_occurrence_excluded_for_reminder(
     return False
 
 
+def _fetch_checklist_completions_map(
+    task_ids: list, range_start: date, range_end: date
+) -> dict[tuple, str | None]:
+    """(task_id, occurrence_date) -> completed_at for checklist KPI week ranges (incl. merged weeks)."""
+    out: dict[tuple, str | None] = {}
+    if not task_ids:
+        return out
+    try:
+        cr = supabase.table("checklist_completions").select("task_id, occurrence_date, completed_at")
+        cr = cr.gte("occurrence_date", range_start.isoformat()).lte("occurrence_date", range_end.isoformat())
+        cr = cr.in_("task_id", task_ids)
+        for row in (cr.execute().data or []):
+            out[(row["task_id"], row["occurrence_date"])] = row.get("completed_at")
+    except Exception:
+        pass
+    return out
+
+
+def _kpi_checklist_completion_span(year: int, month_num: int) -> tuple[date, date]:
+    """Union of calendar month + all KPI week slots (merged weeks may extend outside the month)."""
+    import calendar
+
+    _, last_day = calendar.monthrange(year, month_num)
+    span_start = date(year, month_num, 1)
+    span_end = date(year, month_num, last_day)
+    for w in range(1, kpi_max_week_index_in_month(year, month_num) + 1):
+        wr = get_kpi_calendar_week_range(year, month_num, w)
+        if wr:
+            span_start = min(span_start, wr[0])
+            span_end = max(span_end, wr[1])
+    return span_start, span_end
+
+
 def _fetch_checklist_na_pairs(task_ids: list, range_start: date, range_end: date) -> set[tuple[str, str]]:
     """(task_id, occurrence_date) marked NA in range."""
     if not task_ids or not _checklist_na_supported():
@@ -15011,25 +15071,29 @@ def _fetch_checklist_na_pairs(task_ids: list, range_start: date, range_end: date
 
 
 def _checklist_occurrences_for_user(
-    user_id: str,
+    user_id: str | None,
     range_start: date,
     range_end: date,
     *,
     reference_no: str | None = None,
     only_uncompleted: bool = False,
 ) -> list[dict]:
-    """Build checklist occurrence rows for a user in a date range (shared by list + NA modal)."""
+    """Build checklist occurrence rows for one user (or all users when user_id is None) in a date range."""
     from app.checklist_utils import get_occurrence_dates_in_range
 
     cols = "id, task_name, doer_id, department, frequency, start_date, reference_no, na_from_date, marked_na"
-    q = supabase.table("checklist_tasks").select(cols).eq("doer_id", user_id)
+    q = supabase.table("checklist_tasks").select(cols)
+    if user_id:
+        q = q.eq("doer_id", user_id)
     if reference_no:
         q = q.eq("reference_no", reference_no)
     try:
         tasks = (q.execute().data or [])
     except Exception:
         cols_fallback = "id, task_name, doer_id, department, frequency, start_date, reference_no, na_from_date"
-        q2 = supabase.table("checklist_tasks").select(cols_fallback).eq("doer_id", user_id)
+        q2 = supabase.table("checklist_tasks").select(cols_fallback)
+        if user_id:
+            q2 = q2.eq("doer_id", user_id)
         if reference_no:
             q2 = q2.eq("reference_no", reference_no)
         tasks = (q2.execute().data or [])
@@ -15050,12 +15114,13 @@ def _checklist_occurrences_for_user(
         holidays_set.update(_get_holidays_for_year(yr))
     is_holiday = lambda d, h=holidays_set: d in h
     doer_map: dict = {}
-    try:
-        pr = supabase.table("user_profiles").select("id, full_name").eq("id", user_id).limit(1).execute()
-        if pr.data:
-            doer_map[user_id] = pr.data[0].get("full_name", "")
-    except Exception:
-        pass
+    doer_ids = list({t.get("doer_id") for t in tasks if t.get("doer_id")})
+    if doer_ids:
+        try:
+            pr = supabase.table("user_profiles").select("id, full_name").in_("id", doer_ids).execute()
+            doer_map = {p["id"]: p.get("full_name", "") for p in (pr.data or [])}
+        except Exception:
+            pass
     occurrences: list[dict] = []
     for task in tasks:
         if _checklist_row_marked_na(task):
@@ -15274,13 +15339,11 @@ def list_checklist_tasks(
     auth: dict = Depends(get_current_user),
     current: dict = Depends(get_current_user_with_role),
 ):
-    """List checklist tasks. Default: logged-in user's tasks. Admin/Master can pass user_id to see that user, or see all if explicitly requested."""
+    """List checklist tasks. Non-admins see own tasks. Admins omit user_id for all users, or pass user_id to filter."""
     try:
         role = current.get("role", "user")
         if role not in ("admin", "master_admin"):
             user_id = auth["id"]
-        elif user_id is None:
-            user_id = auth["id"]  # default to own tasks for admins too
         cols = "id, task_name, doer_id, department, frequency, start_date, created_by, created_at, reference_no"
         q = supabase.table("checklist_tasks").select(cols)
         if user_id:
@@ -15315,14 +15378,12 @@ def list_checklist_occurrences(
 ):
     """
     Get checklist occurrences. filter: today|completed|overdue|upcoming.
-    Default: logged-in user's tasks. Admin can pass user_id to see that user.
+    Non-admins see own tasks. Admins omit user_id for all users, or pass user_id to filter.
     Occurrences marked NA are excluded.
     """
     try:
         role = current.get("role", "user")
         if role not in ("admin", "master_admin"):
-            user_id = auth["id"]
-        elif user_id is None:
             user_id = auth["id"]
         today = date.today()
         if filter_type == "today":
@@ -15337,7 +15398,7 @@ def list_checklist_occurrences(
             range_start = today + timedelta(days=1)
             range_end = today + timedelta(days=90)
         occurrences = _checklist_occurrences_for_user(
-            str(user_id),
+            user_id,
             range_start,
             range_end,
             reference_no=reference_no,
@@ -15372,15 +15433,13 @@ def list_checklist_na_active(
     role = current.get("role", "user")
     if role not in ("admin", "master_admin"):
         user_id = auth["id"]
-    elif user_id is None:
-        user_id = auth["id"]
     today = date.today()
-    today_rows = _checklist_occurrences_for_user(str(user_id), today, today, only_uncompleted=True)
+    today_rows = _checklist_occurrences_for_user(user_id, today, today, only_uncompleted=True)
     overdue_rows = _checklist_occurrences_for_user(
-        str(user_id), today - timedelta(days=365), today - timedelta(days=1), only_uncompleted=True
+        user_id, today - timedelta(days=365), today - timedelta(days=1), only_uncompleted=True
     )
     upcoming_rows = _checklist_occurrences_for_user(
-        str(user_id), today + timedelta(days=1), today + timedelta(days=90), only_uncompleted=True
+        user_id, today + timedelta(days=1), today + timedelta(days=90), only_uncompleted=True
     )
     by_task: dict[str, dict] = {}
     for row in today_rows + overdue_rows + upcoming_rows:

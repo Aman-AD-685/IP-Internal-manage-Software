@@ -7,7 +7,7 @@ import {
 } from '../utils/sessionApiCache'
 
 export function dashboardKpiCacheKey(filters: { name: string; month: string; year: string; week: string }) {
-  return `dashboardKpi:${filters.name}:${filters.year}:${filters.month}:${filters.week}`
+  return `dashboardKpi:v3:${filters.name}:${filters.year}:${filters.month}:${filters.week}`
 }
 
 export type SupportFmsDetailPillar = 'response_delay' | 'completion_delay' | 'pending'
@@ -67,6 +67,41 @@ export interface ChecklistRow {
   frequency: string
   status: string
   details?: string
+  pending_count?: number
+  completed_count?: number
+}
+
+/** One row per task per week — sums legacy per-occurrence rows or newer aggregated rows. */
+export function aggregateChecklistRowsByTask(rows: ChecklistRow[] | undefined): ChecklistRow[] {
+  const map = new Map<string, { task_name: string; frequency: string; pending: number; completed: number }>()
+  for (const row of rows ?? []) {
+    const task_name = (row.task_name || '').trim()
+    const frequency = (row.frequency || '').trim()
+    const key = `${task_name}\u0000${frequency}`
+    const bucket = map.get(key) ?? { task_name, frequency, pending: 0, completed: 0 }
+    if (row.pending_count != null || row.completed_count != null) {
+      bucket.pending += Math.max(0, Number(row.pending_count) || 0)
+      bucket.completed += Math.max(0, Number(row.completed_count) || 0)
+    } else {
+      const st = (row.status || '').toLowerCase()
+      if (st === 'done' || st === 'completed' || (st.includes('complete') && !st.includes('incomplete'))) {
+        bucket.completed += 1
+      } else {
+        bucket.pending += 1
+      }
+    }
+    map.set(key, bucket)
+  }
+  return Array.from(map.values())
+    .map(({ task_name, frequency, pending, completed }) => ({
+      task_name,
+      frequency,
+      pending_count: pending,
+      completed_count: completed,
+      status: `${pending} Pending / ${completed} Completed`,
+      details: `${pending} Pending / ${completed} Completed`,
+    }))
+    .sort((a, b) => (a.task_name || '').localeCompare(b.task_name || ''))
 }
 
 export interface DelegationRow {
