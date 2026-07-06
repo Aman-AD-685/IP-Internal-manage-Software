@@ -53,7 +53,7 @@ import { sessionApiCacheGet } from '../../utils/sessionApiCache'
 import { useAuth } from '../../hooks/useAuth'
 import type { UserRole } from '../../types/auth'
 import { ROUTES } from '../../utils/constants'
-import { canViewDashboardKpiPerson } from '../../utils/dashboardKpiPermissions'
+import { canViewDashboardKpiPerson, resolveKpiPersonForUser } from '../../utils/dashboardKpiPermissions'
 import { ChartAreaSkeleton, DashboardBlockSkeleton, SkeletonOverlay } from '../../components/common/skeletons'
 import { SoumyaDashboardView } from './SoumyaDashboardView'
 import { SouvikDashboardView } from './SouvikDashboardView'
@@ -210,7 +210,7 @@ const isCancelledDelegationKpiRow = (status?: string) => {
   return v === 'cancelled' || v === 'cancel' || v === 'canceled'
 }
 
-export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi' }: DashboardKPIPageProps) => {
+export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: DashboardKPIPageProps) => {
   const { user } = useAuth()
   const userRole = (user?.role ?? 'user') as UserRole
   const sectionPermissions = user?.section_permissions
@@ -221,11 +221,26 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
       ),
     [userRole, sectionPermissions],
   )
+  const resolvedForcePerson = useMemo(
+    () =>
+      forceOpen
+        ? resolveKpiPersonForUser(
+            userRole,
+            sectionPermissions,
+            user?.email,
+            user?.full_name || user?.display_name,
+            defaultPerson ?? null,
+          )
+        : null,
+    [forceOpen, defaultPerson, userRole, sectionPermissions, user?.email, user?.full_name, user?.display_name],
+  )
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const previousWeekDefaults = getDefaultPreviousWeekFilter()
-  const [selectedPerson, setSelectedPerson] = useState<DashboardKpiPerson | null>(forceOpen ? defaultPerson : null)
+  const [selectedPerson, setSelectedPerson] = useState<DashboardKpiPerson | null>(() =>
+    forceOpen ? resolvedForcePerson : null,
+  )
   const [month, setMonth] = useState<string>(MONTHS[previousWeekDefaults.monthIndex] ?? MONTHS[dayjs().month()])
   const [year, setYear] = useState<string>(previousWeekDefaults.year || String(dayjs().year()))
   const [week, setWeek] = useState<string>(`week ${previousWeekDefaults.week}`)
@@ -580,6 +595,14 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
 
   /** Deep-link from main Dashboard (e.g. ?person=Shreyasi). */
   useEffect(() => {
+    if (!forceOpen || !resolvedForcePerson) return
+    setSelectedPerson((cur) => {
+      if (cur && canViewDashboardKpiPerson(cur, userRole, sectionPermissions)) return cur
+      return resolvedForcePerson
+    })
+  }, [forceOpen, resolvedForcePerson, userRole, sectionPermissions])
+
+  useEffect(() => {
     if (forceOpen) return
     const raw = searchParams.get('person')?.trim()
     if (!raw) return
@@ -591,11 +614,24 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
 
   useEffect(() => {
     if (!selectedPerson) return
-    if (!canViewDashboardKpiPerson(selectedPerson, userRole, sectionPermissions)) {
-      setSelectedPerson(null)
-      setSearchParams({}, { replace: true })
+    if (canViewDashboardKpiPerson(selectedPerson, userRole, sectionPermissions)) return
+    if (forceOpen) {
+      const fallback = resolveKpiPersonForUser(
+        userRole,
+        sectionPermissions,
+        user?.email,
+        user?.full_name || user?.display_name,
+        defaultPerson ?? null,
+      )
+      if (fallback) {
+        setSelectedPerson(fallback)
+        return
+      }
+      return
     }
-  }, [selectedPerson, userRole, sectionPermissions, setSearchParams])
+    setSelectedPerson(null)
+    setSearchParams({}, { replace: true })
+  }, [selectedPerson, userRole, sectionPermissions, setSearchParams, forceOpen, user?.email, user?.full_name, user?.display_name, defaultPerson])
 
   useEffect(() => {
     if (selectedPerson !== 'Adrija') {
@@ -714,6 +750,19 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
               </Button>
             ) : undefined
           }
+        />
+      </div>
+    )
+  }
+
+  if (forceOpen && !selectedPerson) {
+    return (
+      <div className="dashboard-kpi-page dashboard-kpi-page--futuristic">
+        <Alert
+          type="warning"
+          showIcon
+          message="No KPI dashboard access"
+          description="Your account is not assigned to a KPI dashboard. Contact a Master Admin to grant Rimpa Dashboard (or the relevant person dashboard) under Users → Section permissions."
         />
       </div>
     )
