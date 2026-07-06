@@ -44,6 +44,19 @@ const formatDay = (d: string) => dayjs(d).format('dddd')
 
 const isToday = (d: string) => dayjs(d).isSame(dayjs(), 'day')
 
+/** Ant Design Select cannot use undefined as an option value; use this sentinel for "All Users". */
+const CHECKLIST_ALL_USERS = '__all__'
+
+function resolveChecklistApiUserId(
+  selectedUserId: string | undefined,
+  isAdmin: boolean,
+  authUserId?: string,
+): string | undefined {
+  if (!isAdmin) return authUserId
+  if (!selectedUserId || selectedUserId === CHECKLIST_ALL_USERS) return undefined
+  return selectedUserId
+}
+
 export const ChecklistPage = () => {
   const location = useLocation()
   const { openMenu } = useContextMenu()
@@ -69,10 +82,10 @@ export const ChecklistPage = () => {
 
   const refNoParam = referenceNoFilter && referenceNoFilter !== '__all__' ? referenceNoFilter : undefined
 
-  const effectiveUserId = selectedUserId ?? user?.id
+  const apiUserId = resolveChecklistApiUserId(selectedUserId, isAdmin, user?.id)
 
   const loadChecklistData = useCallback(() => {
-    const uid = selectedUserId ?? user?.id
+    const uid = apiUserId
     const tasksKey = genericLogicalKey('checklist:tasks', { user_id: uid, reference_no: refNoParam })
     const occKey = genericLogicalKey('checklist:occurrences', {
       filter,
@@ -102,26 +115,31 @@ export const ChecklistPage = () => {
       })
       .catch(() => message.error('Failed to load checklist'))
       .finally(() => setLoading(false))
-  }, [selectedUserId, user?.id, refNoParam, filter, isAdmin])
+  }, [apiUserId, refNoParam, filter, isAdmin])
 
   useEffect(() => {
     setReferenceNoFilter('__all__')
   }, [selectedUserId])
 
-  // Default user filter to logged-in user (admins see their tasks first; can change to another user)
+  // Default user filter to logged-in user (admins can switch to another user or All Users)
   useEffect(() => {
     if (user?.id && !initialChecklistUserSet.current) {
       const userIdFromUrl = new URLSearchParams(location.search).get('userId')?.trim()
-      setSelectedUserId(isAdmin && userIdFromUrl ? userIdFromUrl : user.id)
+      if (isAdmin && userIdFromUrl === 'all') {
+        setSelectedUserId(CHECKLIST_ALL_USERS)
+      } else if (isAdmin && userIdFromUrl) {
+        setSelectedUserId(userIdFromUrl)
+      } else {
+        setSelectedUserId(user.id)
+      }
       initialChecklistUserSet.current = true
     }
   }, [isAdmin, location.search, user?.id])
 
-  // Single batch load when we have an effective user (avoids double load; ~1s target)
   useEffect(() => {
-    if (!effectiveUserId) return
+    if (!user?.id) return
     loadChecklistData()
-  }, [effectiveUserId, loadChecklistData])
+  }, [user?.id, selectedUserId, filter, refNoParam, loadChecklistData])
 
   const referenceNoOptions = [
     { label: 'All', value: '__all__' },
@@ -280,7 +298,7 @@ export const ChecklistPage = () => {
               Add Task
             </Button>
           </ContextMenuTarget>
-          <Button size="small" onClick={() => setNaModalOpen(true)} disabled={!effectiveUserId}>
+          <Button size="small" onClick={() => setNaModalOpen(true)} disabled={!user?.id}>
             NA_Checklist
           </Button>
         </Space>
@@ -307,13 +325,14 @@ export const ChecklistPage = () => {
           <Space>
             <Text>Filter by User:</Text>
             <AntSelect
+              showSearch
+              optionFilterProp="label"
               placeholder="All users"
-              allowClear
               style={{ width: 220 }}
-              value={selectedUserId || undefined}
-              onChange={setSelectedUserId}
+              value={selectedUserId ?? CHECKLIST_ALL_USERS}
+              onChange={(v) => setSelectedUserId(v ?? CHECKLIST_ALL_USERS)}
               options={[
-                { label: 'All Users', value: undefined },
+                { label: 'All Users', value: CHECKLIST_ALL_USERS },
                 ...users.map((u) => ({ label: u.full_name, value: u.id })),
               ]}
             />
@@ -455,8 +474,12 @@ export const ChecklistPage = () => {
       <ChecklistNaModal
         open={naModalOpen}
         onClose={() => setNaModalOpen(false)}
-        userId={effectiveUserId}
-        doerLabel={users.find((u) => u.id === effectiveUserId)?.full_name || user?.full_name}
+        userId={apiUserId}
+        doerLabel={
+          selectedUserId === CHECKLIST_ALL_USERS
+            ? 'All Users'
+            : users.find((u) => u.id === selectedUserId)?.full_name || user?.full_name
+        }
         onMarked={loadChecklistData}
       />
 
