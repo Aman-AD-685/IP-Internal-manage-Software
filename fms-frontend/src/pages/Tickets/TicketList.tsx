@@ -379,7 +379,7 @@ export const TicketList = () => {
   }, [searchParams, location.search])
 
   useEffect(() => {
-    supportApi.getCompanies().then(setCompanies).catch(() => setCompanies([]))
+    supportApi.getCompanies({ bustCache: true }).then(setCompanies).catch(() => setCompanies([]))
   }, [])
 
   const companyNameById = useMemo(() => {
@@ -2050,7 +2050,7 @@ export const TicketList = () => {
         open={addCompanyDivisionOpen}
         onClose={() => setAddCompanyDivisionOpen(false)}
         onSuccess={() => {
-          supportApi.getCompanies().then(setCompanies).catch(() => {})
+          supportApi.getCompanies({ bustCache: true }).then(setCompanies).catch(() => setCompanies([]))
         }}
       />
     </div>

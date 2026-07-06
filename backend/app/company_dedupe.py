@@ -87,11 +87,22 @@ def division_names_from_ticket_history(company_ids: list[str]) -> list[str]:
     return names
 
 
-def _load_all_companies() -> list[dict[str, Any]]:
+def invalidate_company_rows_cache() -> None:
+    """Clear in-memory companies list (call after insert/update)."""
+    global _COMPANY_ROWS_CACHE, _COMPANY_ROWS_CACHE_AT
+    _COMPANY_ROWS_CACHE = None
+    _COMPANY_ROWS_CACHE_AT = 0.0
+
+
+def _fetch_all_company_rows(*, use_cache: bool) -> list[dict[str, Any]]:
     global _COMPANY_ROWS_CACHE, _COMPANY_ROWS_CACHE_AT
     now = time.time()
-    if _COMPANY_ROWS_CACHE is not None and (now - _COMPANY_ROWS_CACHE_AT) < _COMPANY_CACHE_TTL_SEC:
-        return _COMPANY_ROWS_CACHE
+    if (
+        use_cache
+        and _COMPANY_ROWS_CACHE is not None
+        and (now - _COMPANY_ROWS_CACHE_AT) < _COMPANY_CACHE_TTL_SEC
+    ):
+        return list(_COMPANY_ROWS_CACHE)
     rows: list[dict[str, Any]] = []
     page_size = 200
     page = 1
@@ -109,9 +120,72 @@ def _load_all_companies() -> list[dict[str, Any]]:
         if len(chunk) < page_size:
             break
         page += 1
-    _COMPANY_ROWS_CACHE = rows
-    _COMPANY_ROWS_CACHE_AT = now
+    if use_cache:
+        _COMPANY_ROWS_CACHE = rows
+        _COMPANY_ROWS_CACHE_AT = now
     return rows
+
+
+def _load_all_companies() -> list[dict[str, Any]]:
+    return _fetch_all_company_rows(use_cache=True)
+
+
+def fetch_companies_for_support_lookup() -> list[dict[str, Any]]:
+    """Fresh paginated read for support-ticket dropdowns (no stale TTL cache)."""
+    return _fetch_all_company_rows(use_cache=False)
+
+
+def _pick_canonical_company_row(group: list[dict[str, Any]]) -> dict[str, Any]:
+    if len(group) == 1:
+        return group[0]
+
+    def sort_key(row: dict[str, Any]) -> tuple[int, str, str]:
+        name = str(row.get("name") or "").strip()
+        return (len(name), name.lower(), str(row.get("id") or ""))
+
+    return sorted(group, key=sort_key)[0]
+
+
+def dedupe_companies_for_select(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One row per normalized company name — mirrors fms-frontend companiesDedupe.ts."""
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        cid = str(row.get("id") or "").strip()
+        name = str(row.get("name") or "").strip()
+        if not cid or not name:
+            continue
+        key = normalize_company_dedupe_key(name)
+        if not key:
+            continue
+        groups.setdefault(key, []).append({"id": cid, "name": name})
+    out = [_pick_canonical_company_row(g) for g in groups.values()]
+    out.sort(key=lambda x: str(x.get("name") or "").lower())
+    return out
+
+
+def companies_from_ticket_fallback() -> list[dict[str, Any]]:
+    """Distinct companies already used on tickets when master lookup is empty."""
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    try:
+        r = (
+            supabase.table("tickets")
+            .select("company_id, company_name")
+            .not_.is_("company_id", "null")
+            .limit(8000)
+            .execute()
+        )
+        for row in r.data or []:
+            cid = str(row.get("company_id") or "").strip()
+            name = str(row.get("company_name") or "").strip()
+            if not cid or not name or cid in seen:
+                continue
+            seen.add(cid)
+            out.append({"id": cid, "name": name})
+    except Exception:
+        pass
+    out.sort(key=lambda x: str(x.get("name") or "").lower())
+    return out
 
 
 def company_ids_for_division_lookup(company_id: str) -> list[str]:

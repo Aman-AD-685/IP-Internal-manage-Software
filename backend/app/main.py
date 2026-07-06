@@ -7799,37 +7799,50 @@ def dashboard_operation_details(
 
 # ---------- Support Form Lookups ----------
 @api_router.get("/companies")
-@cached(ttl=30, key_prefix="companies:")
 def list_companies(
     page: int = 1,
     page_size: int = Query(50, le=200),
     auth: dict = Depends(get_current_user),
 ):
+    from app.company_dedupe import (
+        companies_from_ticket_fallback,
+        dedupe_companies_for_select,
+        fetch_companies_for_support_lookup,
+    )
+
+    page = max(1, int(page or 1))
+    page_size = max(1, min(int(page_size or 50), 200))
+    offset = (page - 1) * page_size
     try:
-        page = max(1, int(page or 1))
-        page_size = max(1, min(int(page_size or 50), 200))
-        offset = (page - 1) * page_size
-        r = (
-            supabase.table("companies")
-            .select("id, name", count="exact")
-            .order("name")
-            .range(offset, offset + page_size - 1)
-            .execute()
-        )
-        payload = {"data": r.data or [], "total": r.count or 0, "page": page, "page_size": page_size}
-        return _lookup_json(payload)
-    except Exception:
+        master_rows = fetch_companies_for_support_lookup()
+        deduped = dedupe_companies_for_select(master_rows)
+        if not deduped:
+            deduped = dedupe_companies_for_select(companies_from_ticket_fallback())
+        total = len(deduped)
         payload = {
-            "data": [{"id": "1", "name": "Company A"}, {"id": "2", "name": "Company B"}],
-            "total": 2,
-            "page": 1,
-            "page_size": 50,
+            "data": deduped[offset : offset + page_size],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+        return _lookup_json(payload)
+    except Exception as e:
+        _log(f"companies lookup error: {type(e).__name__}: {str(e)[:200]}")
+        try:
+            deduped = dedupe_companies_for_select(companies_from_ticket_fallback())
+        except Exception:
+            deduped = []
+        total = len(deduped)
+        payload = {
+            "data": deduped[offset : offset + page_size],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
         }
         return _lookup_json(payload)
 
 
 @api_router.get("/companies/for-invoice")
-@cached(ttl=60, key_prefix="companies:invoice:")
 def list_invoice_companies(auth: dict = Depends(get_current_user)):
     """Companies allowed in Add / Edit Invoice (canonical master list, ordered)."""
     from app import invoice_companies as ic
@@ -7905,6 +7918,9 @@ def create_invoice_company(payload: CreateInvoiceCompanyRequest, auth: dict = De
 
     _invalidate_ttl_cache_key_prefix("companies:")
     _invalidate_ttl_cache_key_prefix("companies:invoice:")
+    from app.company_dedupe import invalidate_company_rows_cache
+
+    invalidate_company_rows_cache()
     return _etag_json({"id": str(cid), "name": cname, "created": True})
 
 
@@ -8030,6 +8046,9 @@ def create_company_with_divisions(payload: CreateCompanyWithDivisionsRequest, au
 
     _invalidate_ttl_cache_key_prefix("companies:")
     _invalidate_ttl_cache_key_prefix("companies:invoice:")
+    from app.company_dedupe import invalidate_company_rows_cache
+
+    invalidate_company_rows_cache()
     return _etag_json(
         {
             "company": {"id": company_id, "name": company_name},
@@ -8041,7 +8060,6 @@ def create_company_with_divisions(payload: CreateCompanyWithDivisionsRequest, au
 
 
 @api_router.get("/pages")
-@cached(ttl=30, key_prefix="pages:")
 def list_pages(
     page: int = 1,
     page_size: int = Query(50, le=200),
@@ -8059,15 +8077,10 @@ def list_pages(
             .execute()
         )
         payload = {"data": r.data or [], "total": r.count or 0, "page": page, "page_size": page_size}
-        return _etag_json(payload)
-    except Exception:
-        payload = {
-            "data": [{"id": "1", "name": "Dashboard"}, {"id": "2", "name": "Support"}],
-            "total": 2,
-            "page": 1,
-            "page_size": 50,
-        }
-        return _etag_json(payload)
+        return _lookup_json(payload)
+    except Exception as e:
+        _log(f"pages lookup error: {type(e).__name__}: {str(e)[:200]}")
+        return _lookup_json({"data": [], "total": 0, "page": 1, "page_size": 50})
 
 
 def _divisions_lookup_response(payload: dict[str, Any]) -> JSONResponse:

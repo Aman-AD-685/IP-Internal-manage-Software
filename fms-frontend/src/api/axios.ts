@@ -183,6 +183,15 @@ export const apiClient = axios.create({
   timeout: 30000,
 })
 
+function isSupportLookupApiPath(pathOnly: string): boolean {
+  return (
+    pathOnly === '/companies' ||
+    pathOnly.startsWith('/companies/') ||
+    pathOnly === '/pages' ||
+    pathOnly === '/divisions'
+  )
+}
+
 type TimedRequestConfig = InternalAxiosRequestConfig & {
   metadata?: { start: number }
 }
@@ -274,7 +283,7 @@ apiClient.interceptors.response.use(
       const qs = raw.includes("?") ? raw.slice(raw.indexOf("?")) : ""
       if (
         !normalized.startsWith("/api") &&
-        (normalized.startsWith("/onboarding/") || normalized === "/companies")
+        (normalized.startsWith("/onboarding/") || isSupportLookupApiPath(normalized))
       ) {
         originalRequest._api404Retry = true
         originalRequest.url = `/api${normalized}${qs}`
