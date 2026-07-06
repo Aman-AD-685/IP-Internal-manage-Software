@@ -323,7 +323,7 @@ function App() {
                 <ProtectedRoute sectionKeys={["success_performance"]}>
                   <AppLayout>
                     <ErrorBoundary>
-                      <DashboardKPIPage forceOpen defaultPerson="Shreyasi" />
+                      <DashboardKPIPage forceOpen />
                     </ErrorBoundary>
                   </AppLayout>
                 </ProtectedRoute>

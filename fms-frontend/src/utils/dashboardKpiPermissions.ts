@@ -1,4 +1,5 @@
 import type { DashboardKpiPerson } from '../api/dashboardKpi'
+import { DASHBOARD_KPI_NAMES } from '../api/dashboardKpi'
 import type { UserRole, SectionPermission } from '../types/auth'
 import { canViewSection } from './helpers'
 
@@ -55,4 +56,43 @@ export function canViewDashboardKpiPerson(
 export function personFromDashboardSectionKey(sectionKey: string): DashboardKpiPerson | null {
   const entry = Object.entries(DASHBOARD_KPI_PERSON_SECTION_KEY).find(([, key]) => key === sectionKey)
   return entry ? (entry[0] as DashboardKpiPerson) : null
+}
+
+/** KPI dashboards this user may open (permission order). */
+export function listAllowedKpiPersons(
+  userRole: UserRole,
+  sectionPermissions?: SectionPermission[],
+): DashboardKpiPerson[] {
+  return DASHBOARD_KPI_NAMES.filter((person) =>
+    canViewDashboardKpiPerson(person, userRole, sectionPermissions),
+  )
+}
+
+/**
+ * Best KPI person for the signed-in user (email/name match, then explicit grant, then first allowed).
+ * Used for force-open routes (e.g. Success dashboard) so Rimpa is not stuck on Shreyasi.
+ */
+export function resolveKpiPersonForUser(
+  userRole: UserRole,
+  sectionPermissions?: SectionPermission[],
+  userEmail?: string,
+  userName?: string,
+  preferred?: DashboardKpiPerson | null,
+): DashboardKpiPerson | null {
+  if (preferred && canViewDashboardKpiPerson(preferred, userRole, sectionPermissions)) {
+    return preferred
+  }
+  const haystack = `${userEmail || ''} ${userName || ''}`.toLowerCase()
+  const fromIdentity = DASHBOARD_KPI_NAMES.find((person) => haystack.includes(person.toLowerCase()))
+  if (fromIdentity && canViewDashboardKpiPerson(fromIdentity, userRole, sectionPermissions)) {
+    return fromIdentity
+  }
+  for (const person of DASHBOARD_KPI_NAMES) {
+    const key = DASHBOARD_KPI_PERSON_SECTION_KEY[person]
+    const grant = sectionPermissions?.find((p) => p.section_key === key)
+    if ((grant?.can_view || grant?.can_edit) && canViewDashboardKpiPerson(person, userRole, sectionPermissions)) {
+      return person
+    }
+  }
+  return listAllowedKpiPersons(userRole, sectionPermissions)[0] ?? null
 }
