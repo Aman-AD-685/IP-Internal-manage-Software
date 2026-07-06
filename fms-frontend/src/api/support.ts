@@ -62,9 +62,36 @@ async function fetchFullList<T>(path: string, extra: Record<string, string | num
   return all
 }
 
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+/** Resilient companies fetch — retries transient empty/errors; falls back to invoice master list. */
+async function fetchCompaniesResilient(): Promise<Company[]> {
+  const attempts = 3
+  let last: Company[] = []
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const rows = await fetchFullList<Company>('/companies')
+      if (rows.length > 0) return rows
+      last = rows
+    } catch {
+      /* retry */
+    }
+    if (i < attempts - 1) await sleep(350 * (i + 1))
+  }
+  try {
+    const r = await apiClient.get('/companies/for-invoice')
+    const rows = unwrapListResponse<Company>(r.data)
+    if (rows.length > 0) return rows
+  } catch {
+    /* ignore */
+  }
+  return last
+}
+
 export const SUPPORT_LOOKUPS_CHANGED_EVENT = 'fms:support-lookups-changed'
 
 export function invalidateSupportCompaniesCache(): void {
+  sessionApiCacheRemove('support:companies:v4')
   sessionApiCacheRemove('support:companies:v3')
   sessionApiCacheRemove('support:companies:v2')
 }
@@ -77,12 +104,15 @@ export function notifySupportLookupsChanged(): void {
 
 export const supportApi = {
   getCompanies: async (opts?: { bustCache?: boolean }): Promise<Company[]> => {
-    const key = 'support:companies:v3'
+    const key = 'support:companies:v4'
     if (opts?.bustCache) invalidateSupportCompaniesCache()
     const cached = sessionApiCacheGet<Company[]>(key)
-    if (cached) return cached
-    const rows = await fetchFullList<Company>('/companies')
-    sessionApiCacheSet(key, rows, API_CACHE_TTL_MS.supportCompanies)
+    if (cached && cached.length > 0) return cached
+    const rows = await fetchCompaniesResilient()
+    // Never cache empty lists — transient API misses were sticking in the support form picker.
+    if (rows.length > 0) {
+      sessionApiCacheSet(key, rows, API_CACHE_TTL_MS.supportCompanies)
+    }
     return rows
   },
   getPages: async (): Promise<Page[]> => {
@@ -90,7 +120,9 @@ export const supportApi = {
     const cached = sessionApiCacheGet<Page[]>(key)
     if (cached) return cached
     const rows = await fetchFullList<Page>('/pages')
-    sessionApiCacheSet(key, rows, API_CACHE_TTL_MS.supportPages)
+    if (rows.length > 0) {
+      sessionApiCacheSet(key, rows, API_CACHE_TTL_MS.supportPages)
+    }
     return rows
   },
   getDivisions: async (companyId?: string, opts?: { bustCache?: boolean }): Promise<Division[]> => {

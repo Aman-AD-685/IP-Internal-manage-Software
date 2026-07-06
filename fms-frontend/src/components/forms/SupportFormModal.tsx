@@ -119,7 +119,9 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
   const [companies, setCompanies] = useState<Company[]>([])
+  const [companiesLoading, setCompaniesLoading] = useState(false)
   const [pages, setPages] = useState<Page[]>([])
+  const [pagesLoading, setPagesLoading] = useState(false)
   const [divisions, setDivisions] = useState<Division[]>([])
   const [divisionOther, setDivisionOther] = useState(false)
   const [typeFeature, setTypeFeature] = useState(false)
@@ -148,10 +150,33 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
   attachmentUrlRef.current = attachmentUrl
 
   const reloadCompanies = useCallback(() => {
+    setCompaniesLoading(true)
     return supportApi
       .getCompanies({ bustCache: true })
-      .then((list) => setCompanies(dedupeCompaniesForSelect(list)))
-      .catch(() => setCompanies([]))
+      .then((list) => {
+        const next = dedupeCompaniesForSelect(list)
+        setCompanies(next)
+        if (next.length === 0) {
+          message.warning('Company list is empty. Refresh the page or contact an admin.')
+        }
+      })
+      .catch(() => {
+        setCompanies([])
+        message.error('Could not load companies. Check your connection and try again.')
+      })
+      .finally(() => setCompaniesLoading(false))
+  }, [])
+
+  const reloadPages = useCallback(() => {
+    setPagesLoading(true)
+    return supportApi
+      .getPages()
+      .then((list) => setPages(list))
+      .catch(() => {
+        setPages([])
+        message.error('Could not load pages. Check your connection and try again.')
+      })
+      .finally(() => setPagesLoading(false))
   }, [])
 
   useEffect(() => {
@@ -179,7 +204,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
       setPreviewTicketId(null)
       setPreviewTicketType(null)
       void reloadCompanies()
-      supportApi.getPages().then(setPages).catch(() => setPages([]))
+      void reloadPages()
 
       if (prefill) {
         skipDraftSaveRef.current = true
@@ -255,7 +280,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
           }, 500)
         })
     }
-  }, [open, user?.full_name, prefill, reloadCompanies])
+  }, [open, user?.full_name, prefill, reloadCompanies, reloadPages])
 
   const companyId = Form.useWatch('company_id', form)
   const titleWatch = Form.useWatch('title', form)
@@ -502,10 +527,34 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
       <Form form={form} layout="vertical" style={{ marginTop: 16 }} onValuesChange={scheduleDraftSave}>
         <Form.Item name="company_id" label="Company Name" rules={[{ required: true, message: 'Required' }]}>
           <Select
-            placeholder="Select company"
+            placeholder={companiesLoading ? 'Loading companies…' : 'Select company'}
+            loading={companiesLoading}
             showSearch
             optionFilterProp="label"
             filterOption={(input, opt) => (opt?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())}
+            notFoundContent={
+              companiesLoading ? (
+                'Loading…'
+              ) : (
+                <span>
+                  No companies found.{' '}
+                  <a
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      void reloadCompanies()
+                    }}
+                  >
+                    Retry
+                  </a>
+                </span>
+              )
+            }
+            onOpenChange={(dropdownOpen) => {
+              if (dropdownOpen && !companiesLoading && companies.length === 0) {
+                void reloadCompanies()
+              }
+            }}
             options={companies.map((c) => ({ value: c.id, label: c.name }))}
           />
         </Form.Item>
@@ -514,9 +563,11 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
         </Form.Item>
         <Form.Item name="page_id" label="Page" rules={[{ required: true, message: 'Required' }]}>
           <Select
-            placeholder="Select page"
+            placeholder={pagesLoading ? 'Loading pages…' : 'Select page'}
+            loading={pagesLoading}
             showSearch
             optionFilterProp="label"
+            notFoundContent={pagesLoading ? 'Loading…' : 'No pages found'}
             options={pages.map((p) => ({ value: p.id, label: p.name }))}
           />
         </Form.Item>
