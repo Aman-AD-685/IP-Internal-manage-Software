@@ -16,10 +16,11 @@ import {
 } from '../../api/dashboardKpi'
 import { sessionApiCacheGet } from '../../utils/sessionApiCache'
 import {
+  buildKpiWeekSelectOptions,
   getDefaultPreviousWeekFilter,
   getKpiCalendarWeekBounds,
-  isKpiMergedWeekAcrossMonths,
-  maxWeekOfMonth,
+  getKpiCanonicalWeekSelection,
+  listKpiWeekIndicesForMonth,
   weekOfMonth,
 } from './kpiWeekUtils'
 import { SoumyaDashboardSkeleton, TableLoadMoreSkeleton } from '../../components/common/skeletons'
@@ -272,20 +273,24 @@ export function SoumyaDashboardView({ onRefresh }: SoumyaDashboardViewProps) {
 
   const monthIndexSel = MONTHS.findIndex((m) => m === month)
   const yearNum = Number(year)
-  const maxWeekSelectable =
+  const weekOptions =
     monthIndexSel >= 0 && Number.isFinite(yearNum)
-      ? maxWeekOfMonth(dayjs().year(yearNum).month(monthIndexSel).date(1))
-      : 5
-  const weekOptions = Array.from({ length: maxWeekSelectable }, (_, i) => ({
-    label: `week ${i + 1}`,
-    value: `week ${i + 1}`,
-  }))
+      ? buildKpiWeekSelectOptions(yearNum, monthIndexSel)
+      : [{ label: 'week 1', value: 'week 1' }]
 
   useEffect(() => {
+    const canonical = getKpiCanonicalWeekSelection(month, year, week, MONTHS)
+    if (canonical) {
+      setMonth(canonical.month)
+      setYear(canonical.year)
+      setWeek(canonical.week)
+      return
+    }
     if (monthIndexSel < 0 || !Number.isFinite(yearNum)) return
-    const maxWeek = maxWeekOfMonth(dayjs().year(yearNum).month(monthIndexSel).date(1))
     const parsed = Number((week || '').replace(/[^\d]/g, '')) || weekOfMonth(dayjs())
-    if (parsed > maxWeek) setWeek(`week ${maxWeek}`)
+    const selectable = listKpiWeekIndicesForMonth(yearNum, monthIndexSel)
+    const maxSelectable = selectable[selectable.length - 1] ?? 1
+    if (parsed > maxSelectable) setWeek(`week ${maxSelectable}`)
   }, [month, year, week, monthIndexSel, yearNum])
 
   const fetchPage = useCallback(
@@ -394,10 +399,6 @@ export function SoumyaDashboardView({ onRefresh }: SoumyaDashboardViewProps) {
     : []
 
   const weekNumDisplay = Number((week || '').replace(/[^\d]/g, '')) || 1
-  const mergedFromLocal =
-    monthIndexSel >= 0 &&
-    Number.isFinite(yearNum) &&
-    isKpiMergedWeekAcrossMonths(yearNum, monthIndexSel, weekNumDisplay)
   const localBounds =
     monthIndexSel >= 0 && Number.isFinite(yearNum)
       ? getKpiCalendarWeekBounds(yearNum, monthIndexSel, weekNumDisplay)
@@ -503,9 +504,6 @@ return (
             className="dashboard-kpi-filter-select dashboard-kpi-filter-select--week"
             popupClassName="dashboard-kpi-select-dropdown"
           />
-          {mergedFromLocal ? (
-            <Tag className="dashboard-kpi-merge-tag">Merged week</Tag>
-          ) : null}
         </span>
       </div>
       {mergeRangeText ? (

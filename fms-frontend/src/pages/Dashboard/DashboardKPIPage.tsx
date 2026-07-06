@@ -19,7 +19,6 @@ import {
   InputNumber,
   DatePicker,
   Checkbox,
-  Tooltip,
   Spin,
 } from 'antd'
 import {
@@ -59,10 +58,11 @@ import { ChartAreaSkeleton, DashboardBlockSkeleton, SkeletonOverlay } from '../.
 import { SoumyaDashboardView } from './SoumyaDashboardView'
 import { SouvikDashboardView } from './SouvikDashboardView'
 import {
+  buildKpiWeekSelectOptions,
   getDefaultPreviousWeekFilter,
   getKpiCalendarWeekBounds,
-  isKpiMergedWeekAcrossMonths,
-  maxWeekOfMonth,
+  getKpiCanonicalWeekSelection,
+  listKpiWeekIndicesForMonth,
   weekOfMonth,
 } from './kpiWeekUtils'
 
@@ -371,15 +371,23 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
     }
   }
 
-  // Keep week valid for selected month/year; avoids stale week value after filter changes.
+  // Trailing merged weeks → next month week 1; clamp week to selectable slots for this month.
   useEffect(() => {
+    const canonical = getKpiCanonicalWeekSelection(month, year, week, MONTHS)
+    if (canonical) {
+      setMonth(canonical.month)
+      setYear(canonical.year)
+      setWeek(canonical.week)
+      return
+    }
     const monthIndex = MONTHS.findIndex((m) => m === month)
     if (monthIndex < 0) return
     const y = Number(year)
     if (!Number.isFinite(y)) return
-    const maxWeek = maxWeekOfMonth(dayjs().year(y).month(monthIndex).date(1))
     const parsed = Number((week || '').replace(/[^\d]/g, '')) || weekOfMonth(dayjs())
-    if (parsed > maxWeek) setWeek(`week ${maxWeek}`)
+    const selectable = listKpiWeekIndicesForMonth(y, monthIndex)
+    const maxSelectable = selectable[selectable.length - 1] ?? 1
+    if (parsed > maxSelectable) setWeek(`week ${maxSelectable}`)
   }, [month, year, week])
 
   const loadData = useCallback(() => {
@@ -727,45 +735,23 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
   }
 
   const monthIndexSel = MONTHS.findIndex((m) => m === month)
-  const maxWeekSelectable =
-    data?.meta?.maxWeekIndex ??
-    (monthIndexSel >= 0 ? maxWeekOfMonth(dayjs().year(Number(year)).month(monthIndexSel).date(1)) : 5)
-  const weekOptions = Array.from({ length: maxWeekSelectable }, (_, i) => ({
-    label: `week ${i + 1}`,
-    value: `week ${i + 1}`,
-  }))
-  const weekMerge = data?.meta?.weekCalendar
-  const weekMergeAny = weekMerge as Record<string, unknown> | undefined
-  const spansPrev =
-    !!(weekMerge?.spansPreviousMonth ?? weekMergeAny?.spans_previous_month)
-  const spansNext = !!(weekMerge?.spansNextMonth ?? weekMergeAny?.spans_next_month)
-  const weekNumDisplay = Number((week || '').replace(/[^\d]/g, '')) || 1
   const yearNum = Number(year)
-  const mergedFromApi =
-    !!(weekMerge?.mergeBadge && String(weekMerge.mergeBadge).trim()) || spansPrev || spansNext
-  const mergedFromLocal =
-    monthIndexSel >= 0 &&
-    Number.isFinite(yearNum) &&
-    isKpiMergedWeekAcrossMonths(yearNum, monthIndexSel, weekNumDisplay)
-  const showMergedWeekLabel = mergedFromApi || mergedFromLocal
+  const weekNumDisplay = Number((week || '').replace(/[^\d]/g, '')) || 1
+  const weekOptions =
+    monthIndexSel >= 0 && Number.isFinite(yearNum)
+      ? buildKpiWeekSelectOptions(yearNum, monthIndexSel)
+      : [{ label: 'week 1', value: 'week 1' }]
+  const weekMerge = data?.meta?.weekCalendar
   const localBounds =
     monthIndexSel >= 0 && Number.isFinite(yearNum)
       ? getKpiCalendarWeekBounds(yearNum, monthIndexSel, weekNumDisplay)
       : null
-  const mergeRangeText =
+  const weekRangeText =
     weekMerge?.startDate && weekMerge?.endDate
       ? `${weekMerge.startDate} → ${weekMerge.endDate}`
       : localBounds
         ? `${localBounds.start.format('D MMM')} – ${localBounds.end.format('D MMM YYYY')}`
         : ''
-  const mergeTooltip = [
-    weekMerge?.mergeBadge,
-    weekMerge?.tooltip,
-    mergeRangeText ? `Range: ${mergeRangeText}` : '',
-  ]
-    .map((s) => (typeof s === 'string' ? s.trim() : ''))
-    .filter(Boolean)
-    .join(' · ')
 
   return (
     <div className="dashboard-kpi-page dashboard-kpi-page--futuristic">
@@ -830,21 +816,15 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson = 'Shreyasi'
               className="dashboard-kpi-filter-select dashboard-kpi-filter-select--week"
               popupClassName="dashboard-kpi-select-dropdown"
               title={
-                weekMerge?.tooltip?.trim()
-                  ? weekMerge.tooltip
-                  : 'Monday–Sunday calendar week shared across neighbouring months where the week overlaps two months.'
+                weekRangeText ||
+                'Monday–Sunday calendar week (ISO-style weeks anchored to the 1st of the month).'
               }
             />
-            {showMergedWeekLabel ? (
-              <Tooltip title={mergeTooltip || 'This KPI week spans two calendar months; numbers match the same real week under the other month filter.'}>
-                <Tag className="dashboard-kpi-merge-tag">Week {weekNumDisplay} (Merged)</Tag>
-              </Tooltip>
-            ) : null}
           </span>
         </div>
 
-        {selectedPerson && showMergedWeekLabel && mergeRangeText ? (
-          <Text className="dashboard-kpi-merge-hint">Merged calendar week: {mergeRangeText}</Text>
+        {selectedPerson && weekRangeText ? (
+          <Text className="dashboard-kpi-merge-hint">Calendar week: {weekRangeText}</Text>
         ) : null}
 
         {loading && <DashboardBlockSkeleton />}
