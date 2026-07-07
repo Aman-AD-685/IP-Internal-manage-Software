@@ -14047,6 +14047,38 @@ def _features_locked(training: dict | None) -> bool:
         return False
 
 
+def _sync_training_ticket_features(
+    training_id: str,
+    existing_tfs: list[dict],
+    desired_feature_ids: list[str],
+) -> None:
+    """
+    Add/remove ticket_features without wiping unchanged rows.
+    feature_followups CASCADE from ticket_features — deleting all rows on every Edit Training
+    was erasing followup history for features that stayed selected.
+    """
+    existing_by_feature: dict[str, dict] = {
+        str(row.get("feature_id")): row for row in existing_tfs if row.get("feature_id")
+    }
+    desired_ordered = list(dict.fromkeys(str(fid) for fid in desired_feature_ids if fid))
+    desired_set = set(desired_ordered)
+    existing_set = set(existing_by_feature.keys())
+
+    for fid in existing_set - desired_set:
+        tf_id = existing_by_feature[fid].get("id")
+        if tf_id:
+            supabase.table("ticket_features").delete().eq("id", tf_id).execute()
+
+    for fid in desired_ordered:
+        if fid in existing_set:
+            continue
+        supabase.table("ticket_features").insert({
+            "training_id": training_id,
+            "feature_id": fid,
+            "status": "Pending",
+        }).execute()
+
+
 @api_router.get("/success/performance/training")
 def get_performance_training(
     ticket_id: str,
@@ -14089,13 +14121,7 @@ def submit_performance_training(payload: TrainingSubmitRequest, auth: dict = Dep
             raise HTTPException(status_code=500, detail="Failed to create/update training")
         now_iso = datetime.now(timezone.utc).isoformat()
         if not features_locked and feature_ids:
-            supabase.table("ticket_features").delete().eq("training_id", training_id).execute()
-            for fid in feature_ids:
-                supabase.table("ticket_features").insert({
-                    "training_id": training_id,
-                    "feature_id": fid,
-                    "status": "Pending",
-                }).execute()
+            _sync_training_ticket_features(training_id, existing_tfs, feature_ids)
             if not (training and training.get("features_committed_at")):
                 supabase.table("performance_training").update({"features_committed_at": now_iso}).eq("id", training_id).execute()
         training, _ = _get_training_for_ticket(payload.ticket_id)
