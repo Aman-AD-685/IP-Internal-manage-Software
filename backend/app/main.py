@@ -6904,42 +6904,54 @@ def _dashboard_prior_week_range() -> tuple[date, date]:
     return start, end
 
 
+def _dashboard_stage_status_label(raw: str) -> str:
+    """User-facing SLA status for dashboard Support Details (aligns with ticket list)."""
+    s = str(raw or "").strip()
+    if not s or s == "-":
+        return "Pending"
+    low = s.lower()
+    if low in ("yes", "no"):
+        return s.capitalize()
+    return low.capitalize()
+
+
 def _dashboard_support_stage(ticket: dict) -> tuple[str, str]:
+    """Current stage + status for Universal Dashboard Support Details modal."""
     ticket_type = str(ticket.get("type") or "").strip().lower()
     if ticket_type == "feature":
         approval_status = ticket.get("approval_status")
         status_2 = str(ticket.get("status_2") or "").strip().lower()
         live_status = str(ticket.get("live_status") or "").strip().lower()
         if approval_status is None:
-            return "Approval Pending", "-"
+            return "Approval Pending", "Pending"
         approval = str(approval_status or "").strip().lower()
         if approval in {"rejected", "hold", "unapproved"}:
-            return f"Approval ({approval})", approval
+            return f"Approval ({approval})", _dashboard_stage_status_label(approval)
         if status_2 == "na":
-            return "NA", "na"
+            return "NA", "NA"
         if status_2 != "completed":
-            return "Stage 1", status_2 or "pending"
+            return "Stage 1", _dashboard_stage_status_label(ticket.get("status_2") or "pending")
         if live_status != "completed":
-            return "Stage 2", live_status or "pending"
-        return "Completed", "completed"
+            return "Stage 2", _dashboard_stage_status_label(ticket.get("live_status") or "pending")
+        return "Completed", "Completed"
 
     status_1 = str(ticket.get("status_1") or "").strip().lower()
     status_2 = str(ticket.get("status_2") or "").strip().lower()
     status_3 = str(ticket.get("status_3") or "").strip().lower()
     status_4 = str(ticket.get("status_4") or "").strip().lower()
     if status_2 == "na":
-        return "NA", "na"
+        return "NA", "NA"
     if not status_1:
-        return "Stage 1", "-"
+        return "Stage 1", "Pending"
     if status_1 == "yes":
-        return "Stage 4", status_4 or "-"
+        return "Stage 4", _dashboard_stage_status_label(status_4)
     if status_1 == "no" and not status_2:
-        return "Stage 2", "-"
+        return "Stage 2", "Pending"
     if status_2 == "completed" and not status_3:
-        return "Stage 3", "-"
+        return "Stage 3", "Pending"
     if status_2 == "completed" or status_1 == "yes":
-        return "Stage 4", status_4 or "-"
-    return "Stage 2", status_2 or "-"
+        return "Stage 4", _dashboard_stage_status_label(status_4)
+    return "Stage 2", _dashboard_stage_status_label(status_2)
 
 
 def _dashboard_support_detail_row(ticket: dict, reason: str = "") -> DashboardSupportDetailRowModel:
@@ -7070,14 +7082,6 @@ def _dashboard_success_preview_rows(limit: int = 200) -> list[dict]:
             row["current_stage"] = "Followup completed" if pct >= 100 else "Followup in progress"
     _sort_performance_list_rows(rows)
     return rows
-
-
-def _dashboard_fetch_user_support_details(user_id: str) -> DashboardSupportDetailsResponseModel:
-    cols = (
-        "id,reference_no,title,type,status,status_1,status_2,status_3,status_4,approval_status,live_status,"
-        "company_name,created_by,assignee_id,created_at,query_arrival_at,query_response_at,"
-        "actual_1,planned_2,actual_2,planned_3,actual_3,planned_4,actual_4,quality_solution"
-    )
 
 
 def _dashboard_operation_details(section: str) -> DashboardOperationDetailsResponseModel:
@@ -7387,8 +7391,9 @@ def _dashboard_fetch_user_support_details(user_id: str) -> DashboardSupportDetai
     """Mirror Support section filters for Universal Dashboard drill-down data."""
     _ = user_id  # Support dashboard mirrors Support section data; it is not filtered by assignee/creator.
     cols = (
-        "id,reference_no,title,type,status,status_4,company_name,created_by,assignee_id,created_at,"
-        "query_arrival_at,query_response_at,actual_4,planned_2,actual_2,actual_1,status_2,quality_solution"
+        "id,reference_no,title,type,status,status_1,status_2,status_3,status_4,approval_status,live_status,"
+        "company_name,created_by,assignee_id,created_at,query_arrival_at,query_response_at,"
+        "actual_1,planned_2,actual_2,planned_3,actual_3,planned_4,actual_4,quality_solution"
     )
     response_start, response_end = _dashboard_prior_week_range()
     chore_bug_rows: list[dict] = []
