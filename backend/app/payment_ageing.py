@@ -11,6 +11,24 @@ from datetime import date, datetime
 from typing import Any
 
 
+# Corporate/legal tokens stripped so "Utkal Hydrocarbon" == "Utkal Hydrocarbon Pvt. Ltd."
+_LEGAL_NAME_TOKENS = frozenset(
+    {
+        "pvt",
+        "ltd",
+        "limited",
+        "private",
+        "llp",
+        "opc",
+        "inc",
+        "corp",
+        "corporation",
+        "company",
+        "co",
+    }
+)
+
+
 def normalize_company_name(s: str | None) -> str:
     """Normalize names so master companies, invoices, and ageing rows match for dedupe + whitelist."""
     t = (s or "").strip().lower()
@@ -31,6 +49,8 @@ def normalize_company_name(s: str | None) -> str:
     t = re.sub(r"\bingols\b", "ingots", t)
     # Canonicalize known Hariom variant: "Ingots and Power" vs "Ingots & Power"
     t = re.sub(r"\bingots and power\b", "ingots power", t)
+    # Drop legal-entity words so short vs Pvt Ltd spellings collapse to one key
+    t = " ".join(tok for tok in t.split() if tok not in _LEGAL_NAME_TOKENS)
     t = re.sub(r"\s+", " ", t).strip()
     return t
 
