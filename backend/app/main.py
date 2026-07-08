@@ -9204,8 +9204,16 @@ def _norm_name_company(s: str | None) -> str:
     return _pa.normalize_company_name(s)
 
 
+def _prefer_ageing_display_name(names: list[str]) -> str:
+    """Prefer the longest / most official company label when merging duplicate rows."""
+    cleaned = [(n or "").strip() for n in names if (n or "").strip()]
+    if not cleaned:
+        return ""
+    return max(cleaned, key=lambda n: (len(n), "pvt" in n.lower(), "ltd" in n.lower()))
+
+
 def _dedupe_ageing_display_rows(rows: list[dict], nq: int) -> list[dict]:
-    """Merge rows that differ only by punctuation/spacing (same logical company)."""
+    """Merge rows that differ only by punctuation/spacing/legal suffix (same logical company)."""
     groups: dict[str, list[dict]] = {}
     for r in rows:
         k = _norm_name_company(r.get("company_name"))
@@ -9226,13 +9234,8 @@ def _dedupe_ageing_display_rows(rows: list[dict], nq: int) -> list[dict]:
         amt = max(int(x.get("amount_incl_gst") or 0) for x in grp)
         rec = max(int(x.get("received_amount") or 0) for x in grp)
         cid_row = next((x for x in grp if x.get("company_id")), None)
-        if cid_row:
-            name = (cid_row.get("company_name") or "").strip()
-            cid = cid_row.get("company_id")
-        else:
-            best = max(grp, key=lambda x: int(x.get("amount_incl_gst") or 0))
-            name = (best.get("company_name") or "").strip()
-            cid = best.get("company_id")
+        cid = cid_row.get("company_id") if cid_row else next((x.get("company_id") for x in grp if x.get("company_id")), None)
+        name = _prefer_ageing_display_name([str(x.get("company_name") or "") for x in grp])
         med = _pa.average_int(qd)
         last_q = qd[-1] if len(qd) == nq else None
         fd_merged: list[date] = []
