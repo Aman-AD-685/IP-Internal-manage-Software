@@ -9256,6 +9256,11 @@ def _dedupe_ageing_display_rows(rows: list[dict], nq: int) -> list[dict]:
     return out
 
 
+def _company_ageing_amount_incl_gst(current: int, invoice_amount: int) -> int:
+    """Ageing grid shows one Amount (Incl GST) per company, not summed across quarters."""
+    return max(int(current or 0), int(invoice_amount or 0))
+
+
 def _parse_invoice_amount(val) -> int:
     if val is None:
         return 0
@@ -9549,7 +9554,7 @@ def _payment_ageing_report_payload():
         amt = _parse_invoice_amount(row.get("invoice_amount"))
         rec_amt = _parse_invoice_amount((rec_row or {}).get("amount")) if rec_row else (amt if row.get("payment_received_date") else 0)
         if not _client_payment_row_marked_na(row):
-            by_name[nm]["invoice_total"] += amt
+            by_name[nm]["invoice_total"] = _company_ageing_amount_incl_gst(by_name[nm]["invoice_total"], amt)
         if rec_amt > 0 and not _client_payment_row_marked_na(row):
             by_name[nm]["received_total"] += rec_amt
         inv_d = _pa._parse_date(row.get("invoice_date")) or _pa._parse_date(row.get("timestamp"))
@@ -9964,7 +9969,7 @@ def _payment_ageing_report_payload():
         amount = _parse_invoice_amount(row.get("invoice_amount"))
         received_amount = _parse_invoice_amount((rec_row or {}).get("amount")) if rec_row else (amount if row.get("payment_received_date") else 0)
         if not _client_payment_row_marked_na(row):
-            agg["invoice_total"] += amount
+            agg["invoice_total"] = _company_ageing_amount_incl_gst(agg["invoice_total"], amount)
             agg["received_total"] += received_amount
         paid_d = _pa._parse_date((rec_row or {}).get("payment_date")) or _pa._parse_date(row.get("payment_received_date"))
         if paid_d and paid_d >= inv_d and not _client_payment_row_marked_na(row):
