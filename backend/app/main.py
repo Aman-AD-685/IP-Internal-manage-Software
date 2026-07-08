@@ -7306,6 +7306,7 @@ def _dashboard_operation_details(section: str) -> DashboardOperationDetailsRespo
                 or []
             )
             _enrich_client_payment_list_items(rows)
+            rows.sort(key=lambda r: int(r.get("aging_days") or 0), reverse=True)
             return DashboardOperationDetailsResponseModel(
                 section=key,
                 title="Client Payment Preview",
