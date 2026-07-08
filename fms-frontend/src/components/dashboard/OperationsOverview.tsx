@@ -1,4 +1,4 @@
-import { Button, Card, Empty, Modal, Space, Table, Typography } from 'antd'
+import { Button, Card, Empty, Modal, Space, Table, Tag, Typography } from 'antd'
 import {
   BankOutlined,
   CustomerServiceOutlined,
@@ -258,7 +258,26 @@ export function OperationsOverview({ operations, user }: OperationsOverviewProps
     { title: 'Type', dataIndex: 'type', key: 'type', width: 100 },
     { title: 'Company', dataIndex: 'company', key: 'company', width: 180 },
     { title: 'Current Stage', dataIndex: 'currentStage', key: 'currentStage', width: 150 },
-    { title: 'Status', dataIndex: 'stageStatus', key: 'stageStatus', width: 140 },
+    {
+      title: 'Status',
+      dataIndex: 'stageStatus',
+      key: 'stageStatus',
+      width: 140,
+      render: (value: string) => {
+        const displayStatus = (value || 'Pending').trim() || 'Pending'
+        const status = displayStatus.toLowerCase()
+        const statusColors: Record<string, string> = {
+          pending: 'orange',
+          completed: 'green',
+          staging: 'blue',
+          hold: 'default',
+          na: 'default',
+          rejected: 'red',
+          unapproved: 'default',
+        }
+        return <Tag color={statusColors[status] ?? 'default'}>{displayStatus}</Tag>
+      },
+    },
   ]
 
   const operationColumns = [
