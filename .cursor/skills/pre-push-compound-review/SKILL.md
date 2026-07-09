@@ -82,6 +82,21 @@ When `CE_STATUS=disabled`: note `Compound Engineering: not available (plugin dis
 
 **Report line (required):** use `ran (ce-code-review, report-only)` | `skipped (<reason>)` | `not available (plugin disabled)` — never `not installed` when `ce-status.ps1` shows enabled.
 
+### 2b. Ponytail review (`ponytail-review`)
+
+After CE (or if CE skipped), run **Ponytail** on the **same diff scope**:
+
+1. Read [`.cursor/skills/ponytail-review/SKILL.md`](../ponytail-review/SKILL.md) (upstream: [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail)).
+2. Review for **over-engineering only** — delete-list, stdlib/native replacements, YAGNI (report-only; do not auto-apply cuts).
+3. Append the Ponytail block from the skill to the Pre-Push Report.
+4. Ponytail findings are **advisory (P2/P3)** — do **not** block push on Ponytail alone. CE/native audit still owns P0/P1.
+
+Skip when: user asked journal-only with no push, or diff scope is empty.
+
+See [PONYTAIL.md](PONYTAIL.md).
+
+**Report line (required):** `Ponytail: ran (ponytail-review, report-only)` | `skipped (<reason>)` | `Lean already. Ship.`
+
 ### 3. Native deep audit (always)
 
 Audit **changed files** and **runtime paths they touch**. Use [reference.md](reference.md) checklist.
@@ -175,6 +190,7 @@ Then:
 - Files in scope: N
 - Critical: N | High: N | Medium: N | Low: N
 - Compound Engineering: ran (ce-code-review, report-only) | skipped | not available
+- Ponytail: ran (ponytail-review, report-only) | skipped | Lean already. Ship.
 - Production smoke: passed | failed (list steps)
 
 ## Scores
@@ -216,6 +232,7 @@ When asked *"Why is this page slow?"*: follow [reference.md](reference.md) § Fr
 
 - Full checklist: [reference.md](reference.md)
 - CE plugin setup: [COMPOUND_ENGINEERING.md](COMPOUND_ENGINEERING.md)
+- Ponytail over-engineering review: [PONYTAIL.md](PONYTAIL.md)
 - Learned patterns: [memory.md](memory.md)
 - Day-by-day log: [daily-journal/](daily-journal/)
 - Training loop: [TRAINING.md](TRAINING.md)

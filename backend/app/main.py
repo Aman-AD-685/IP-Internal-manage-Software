@@ -6616,6 +6616,8 @@ class DashboardTrainingOpsModel(BaseModel):
 class DashboardClientPaymentOpsModel(BaseModel):
     pending: int = 0
     totalPendingAmount: int = 0
+    monthlyPendingAmount: int = 0
+    quarterlyPendingAmount: int = 0
     ageingRisk: int = 0
     completedRegister: int = 0
 
@@ -6839,16 +6841,74 @@ def _dashboard_count(table: str, build_query: Callable[[Any], Any] | None = None
         return 0
 
 
-def _dashboard_total_pending_invoice_amount() -> int:
-    """Sum pending Payment Management invoice amounts with the same bounded aggregate used by payment KPIs."""
-    cache_key = "pending"
+def _dashboard_client_payment_pending_breakdown() -> dict[str, int]:
+    """Pending Client Payment stats for the Universal Dashboard tile.
+
+    - pending: distinct companies with unpaid invoices (excl. NA)
+    - total / monthly / quarterly pending amounts from unpaid invoices (excl. NA)
+    """
+    cache_key = "pending_breakdown"
     cached = _DASHBOARD_PENDING_PAYMENT_AMOUNT_CACHE.get(cache_key)
     if cached is not None:
-        return int(cached)
+        return dict(cached)
+    empty = {
+        "pending": 0,
+        "totalPendingAmount": 0,
+        "monthlyPendingAmount": 0,
+        "quarterlyPendingAmount": 0,
+    }
     try:
-        total = int(_sum_payment_invoice_totals_combined(max_pages=_PAYMENT_SUMMARY_AGG_MAX_PAGES)["total_due"])
-        _DASHBOARD_PENDING_PAYMENT_AMOUNT_CACHE[cache_key] = total
-        return total
+        cols = (
+            "company_name,invoice_amount,payment_received_date,marked_na,genre"
+            if _client_payment_marked_na_supported()
+            else "company_name,invoice_amount,payment_received_date,genre"
+        )
+        pending_companies: set[str] = set()
+        total_due = monthly_due = quarterly_due = 0
+        offset = 0
+        pages = 0
+        page_cap = max(1, min(_OCP_AGG_MAX_PAGES, int(_PAYMENT_SUMMARY_AGG_MAX_PAGES)))
+        while pages < page_cap:
+            q = supabase.table("onboarding_client_payment").select(cols).order("id")
+            q = q.range(offset, offset + _OCP_AGG_PAGE_SIZE - 1)
+            r = q.execute()
+            rows = r.data or []
+            if not rows:
+                break
+            for row in rows:
+                if _client_payment_row_marked_na(row) or not _client_payment_row_unpaid(row):
+                    continue
+                amt = _parse_invoice_amount(row.get("invoice_amount"))
+                total_due += amt
+                g = _normalize_client_payment_genre(row.get("genre"))
+                if g == "M":
+                    monthly_due += amt
+                elif g == "Q":
+                    quarterly_due += amt
+                nk = _norm_name_company(row.get("company_name"))
+                if nk:
+                    pending_companies.add(nk)
+            if len(rows) < _OCP_AGG_PAGE_SIZE:
+                break
+            offset += _OCP_AGG_PAGE_SIZE
+            pages += 1
+        out = {
+            "pending": len(pending_companies),
+            "totalPendingAmount": int(total_due),
+            "monthlyPendingAmount": int(monthly_due),
+            "quarterlyPendingAmount": int(quarterly_due),
+        }
+        _DASHBOARD_PENDING_PAYMENT_AMOUNT_CACHE[cache_key] = out
+        return out
+    except Exception as e:
+        _log(f"dashboard/summary pending payment breakdown: {e}")
+        return empty
+
+
+def _dashboard_total_pending_invoice_amount() -> int:
+    """Sum pending Payment Management invoice amounts (compat helper)."""
+    try:
+        return int(_dashboard_client_payment_pending_breakdown().get("totalPendingAmount") or 0)
     except Exception as e:
         _log(f"dashboard/summary pending invoice amount: {e}")
         return 0
@@ -7626,11 +7686,7 @@ def dashboard_summary(
     if permissions.training:
         jobs["training_scheduled"] = lambda: _dashboard_count("training_client_assignments")
     if permissions.clientPayment:
-        jobs["client_payment_pending"] = lambda: _dashboard_count(
-            "onboarding_client_payment",
-            lambda q: _ocp_query_exclude_marked_na(q.is_("payment_received_date", "null")),
-        )
-        jobs["client_payment_total_pending_amount"] = _dashboard_total_pending_invoice_amount
+        jobs["client_payment_pending_breakdown"] = _dashboard_client_payment_pending_breakdown
         jobs["client_payment_completed"] = lambda: _dashboard_count(
             "onboarding_client_payment", lambda q: q.not_.is_("payment_received_date", "null")
         )
@@ -7707,18 +7763,31 @@ def dashboard_summary(
             pending=0,
             completed=0,
         ) if permissions.training else None,
-        clientPayment=DashboardClientPaymentOpsModel(
-            pending=int(_summary_result("client_payment_pending")),
-            totalPendingAmount=int(_summary_result("client_payment_total_pending_amount")),
-            ageingRisk=0,
-            completedRegister=int(_summary_result("client_payment_completed")),
-        ) if permissions.clientPayment else None,
+        clientPayment=None,
         dbClient=DashboardDbClientOpsModel(
             active=int(_summary_result("db_client_active")),
             inactive=int(_summary_result("db_client_inactive")),
             missingFollowUp=0,
         ) if permissions.dbClient else None,
     )
+    if permissions.clientPayment:
+        _cp_pending = _summary_result(
+            "client_payment_pending_breakdown",
+            {
+                "pending": 0,
+                "totalPendingAmount": 0,
+                "monthlyPendingAmount": 0,
+                "quarterlyPendingAmount": 0,
+            },
+        ) or {}
+        operations.clientPayment = DashboardClientPaymentOpsModel(
+            pending=int(_cp_pending.get("pending") or 0),
+            totalPendingAmount=int(_cp_pending.get("totalPendingAmount") or 0),
+            monthlyPendingAmount=int(_cp_pending.get("monthlyPendingAmount") or 0),
+            quarterlyPendingAmount=int(_cp_pending.get("quarterlyPendingAmount") or 0),
+            ageingRisk=0,
+            completedRegister=int(_summary_result("client_payment_completed")),
+        )
 
     management = None
     if permissions.manageUsers:
@@ -11910,10 +11979,10 @@ def list_training_clients(
     page_size: int = Query(50, le=200),
     auth: dict = Depends(get_current_user),
 ):
-    """List clients: only companies where Onboarding > Payment Status has Fi-DO = Done (Final Setup submitted).
+    """List clients: only companies where Onboarding Final Setup has final_status = Done.
     For each such company, Company name, POC, and Old reference number are pulled from Payment Status and shown in Client Training in the relevant columns."""
     try:
-        r = supabase.table("onboarding_final_setup").select("payment_status_id, submitted_at").execute()
+        r = supabase.table("onboarding_final_setup").select("payment_status_id, submitted_at, data").execute()
         rows = r.data or []
         done_ids = []
         submitted_map = {}
@@ -11921,10 +11990,25 @@ def list_training_clients(
             pid = row.get("payment_status_id")
             if not pid:
                 continue
+            data = row.get("data")
+            if not (isinstance(data, dict) and str(data.get("final_status", "")).strip() == "Done"):
+                continue
             pid_str = str(pid)
             done_ids.append(pid_str)
             submitted_map[pid_str] = row.get("submitted_at") or ""
-        all_ids = list(done_ids)
+        try:
+            manual_r = supabase.table("training_manual_clients").select("payment_status_id, created_at").execute()
+            for row in (manual_r.data or []):
+                pid = row.get("payment_status_id")
+                if not pid:
+                    continue
+                pid_str = str(pid)
+                if pid_str not in submitted_map:
+                    done_ids.append(pid_str)
+                    submitted_map[pid_str] = row.get("created_at") or ""
+        except Exception:
+            pass
+        all_ids = list(dict.fromkeys(done_ids))
         if not all_ids:
             return {"items": []}
         pay = supabase.table("onboarding_payment_status").select("id, company_name, reference_no, timestamp, poc_name").in_("id", all_ids).execute()
@@ -12118,12 +12202,12 @@ def list_training_clients(
         page_size = max(1, min(int(page_size or 50), 200))
         total = len(items)
         offset = (page - 1) * page_size
-        return {"data": items[offset: offset + page_size], "total": total, "page": page, "page_size": page_size}
+        return {"items": items[offset: offset + page_size], "total": total, "page": page, "page_size": page_size}
     except Exception as e:
         _log(f"training clients list: {e}")
         import traceback
         _log(traceback.format_exc())
-        return {"data": [], "total": 0, "page": 1, "page_size": 50}
+        return {"items": [], "total": 0, "page": 1, "page_size": 50}
 
 
 @api_router.get("/training/clients/available-for-manual")

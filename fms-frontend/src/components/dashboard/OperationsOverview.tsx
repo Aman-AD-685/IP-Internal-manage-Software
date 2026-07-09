@@ -157,9 +157,9 @@ const OPERATION_CONFIG: OperationConfig[] = [
     icon: <DollarOutlined />,
     metrics: (ops) => [
       { label: 'Pending', value: ops.clientPayment?.pending ?? 0 },
-      { label: 'Total Pending Amount', value: formatInrAmount(ops.clientPayment?.totalPendingAmount) },
+      { label: 'Monthly Pending', value: formatInrAmount(ops.clientPayment?.monthlyPendingAmount) },
+      { label: 'Quarterly Pending', value: formatInrAmount(ops.clientPayment?.quarterlyPendingAmount) },
       { label: 'Ageing Risk', value: ops.clientPayment?.ageingRisk ?? 0 },
-      { label: 'Completed', value: ops.clientPayment?.completedRegister ?? 0 },
     ],
   },
   {

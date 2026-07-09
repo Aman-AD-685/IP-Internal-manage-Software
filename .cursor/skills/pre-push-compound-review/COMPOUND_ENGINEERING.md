@@ -35,6 +35,7 @@ Before `git push`, run **both**:
 |------|------|------|
 | 1 | `pre-push-compound-review` | memory + journal + native audit + production smoke |
 | 2 | **`ce-code-review`** | **`mode:report-only`** + `base:origin/<tracking-branch>` |
+| 2b | **`ponytail-review`** | report-only on same diff (advisory; see [PONYTAIL.md](PONYTAIL.md)) |
 
 **Why report-only:** Pre-push must not auto-edit files. CE findings merge into the pre-push report; P0 still blocks push.
 

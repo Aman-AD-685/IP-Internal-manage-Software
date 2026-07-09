@@ -77,12 +77,27 @@ export interface TrainingStagesConfigResponse {
 
 export const trainingApi = {
   listClients: async () => {
-    const key = 'training:clients:list'
+    const key = 'training:clients:list:v2'
     const cached = sessionApiCacheGet<{ items: TrainingClientRecord[] }>(key)
     if (cached) return cached
-    const r = await apiClient.get<{ items: TrainingClientRecord[] }>(API_ENDPOINTS.TRAINING.CLIENTS)
-    sessionApiCacheSet(key, r.data, API_CACHE_TTL_MS.trainingClientsList)
-    return r.data
+    const pageSize = 200
+    let page = 1
+    let total = 0
+    const items: TrainingClientRecord[] = []
+    do {
+      const r = await apiClient.get<{ items?: TrainingClientRecord[]; data?: TrainingClientRecord[]; total?: number }>(
+        API_ENDPOINTS.TRAINING.CLIENTS,
+        { params: { page, page_size: pageSize } },
+      )
+      const body = r.data
+      const batch = body.items ?? body.data ?? []
+      items.push(...batch)
+      total = body.total ?? items.length
+      page += 1
+    } while (items.length < total && page <= 50)
+    const payload = { items }
+    sessionApiCacheSet(key, payload, API_CACHE_TTL_MS.trainingClientsList)
+    return payload
   },
 
   createAssignment: async (paymentStatusId: string, payload: { poc_name: string; trainer_user_id: string; expected_day0?: string | null }) => {

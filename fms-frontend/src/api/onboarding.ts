@@ -195,5 +195,10 @@ export const onboardingApi = {
     apiClient.post<{ data: Record<string, unknown>; submitted_at: string | null; editable_until: string | null; editable_48h: boolean }>(
       API_ENDPOINTS.ONBOARDING_PAYMENT_STATUS.FINAL_SETUP(paymentStatusId),
       { data }
-    ).then((r) => r.data),
+    ).then((r) => {
+      if (String(data.final_status ?? '').trim() === 'Done') {
+        sessionApiCacheClearLogicalPrefix('training:clients:list')
+      }
+      return r.data
+    }),
 }

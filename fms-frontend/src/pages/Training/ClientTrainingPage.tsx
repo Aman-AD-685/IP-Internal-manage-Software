@@ -12,7 +12,6 @@ import {
 } from '../../api/training'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
 import { DEFAULT_INFINITE_CHUNK, useInfiniteScrollChunk } from '../../hooks/useInfiniteScrollChunk'
-import { OperationsSectionTabs } from '../../components/common/OperationsSectionTabs'
 import { useSearchParams } from 'react-router-dom'
 
 const { Title } = Typography
@@ -356,12 +355,9 @@ export function ClientTrainingPage() {
 
   return (
     <div style={{ padding: 24 }}>
-      <Space style={{ marginBottom: 24 }} wrap align="center">
-        <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
-          Client Training
-        </Title>
-        <OperationsSectionTabs module="training" />
-      </Space>
+      <Title level={4} className="page-main-heading" style={{ margin: '0 0 24px' }}>
+        Client Training
+      </Title>
       <Card title="Clients">
         <div style={{ marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
           <Input
