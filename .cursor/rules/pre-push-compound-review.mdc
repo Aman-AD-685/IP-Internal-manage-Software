@@ -1,7 +1,8 @@
 ---
 description: >-
   Mandatory pre-push audit before git push or deploy. Loads pre-push-compound-review
-  skill; blocks push on P0/secrets; runs Compound Engineering ce-code-review when enabled.
+  skill; blocks push on P0/secrets; runs Compound Engineering ce-code-review and
+  Ponytail ponytail-review when enabled.
 alwaysApply: true
 ---
 
@@ -14,7 +15,8 @@ When the user requests **git push**, **commit and push**, **deploy**, **end of d
 3. Read **`memory.md`** + **`daily-journal/`** (today + last 3 days) — train from what the user did day by day.
 4. Run **`.cursor/skills/pre-push-compound-review/scripts/collect-push-scope.ps1`** (pre-push only).
 5. Run **`scripts/ce-status.ps1`**. If `CE_STATUS=enabled`, read and run **`ce-code-review`** with **`mode:report-only`** and **`base:origin/<tracking-branch>`** on the push diff scope; merge CE P0/P1 into the report.
-6. Run **production smoke** from `memory.md` (build, KPI smoke if applicable). Output the report and verdict; then **append today's journal** and update **memory.md** when user accepts/rejects advice:
+6. Run **`ponytail-review`** on the same diff scope (report-only; advisory P2/P3 — see **`.cursor/skills/ponytail-review/SKILL.md`** and **`PONYTAIL.md`**).
+7. Run **production smoke** from `memory.md` (build, KPI smoke if applicable). Output the report and verdict; then **append today's journal** and update **memory.md** when user accepts/rejects advice:
    - **Production Push Safe** → then push
    - **Push Blocked — Critical Issues Found** → fix or require explicit user override
 

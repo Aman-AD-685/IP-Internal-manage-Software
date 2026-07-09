@@ -83,6 +83,8 @@ export interface DashboardTrainingOperations {
 export interface DashboardClientPaymentOperations {
   pending: number
   totalPendingAmount: number
+  monthlyPendingAmount: number
+  quarterlyPendingAmount: number
   ageingRisk: number
   completedRegister: number
 }

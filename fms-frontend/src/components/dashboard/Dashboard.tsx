@@ -125,6 +125,8 @@ const emptyDashboardSummaryForCurrentAdmin = (): DashboardSummaryResponse | null
       clientPayment: {
         pending: 0,
         totalPendingAmount: 0,
+        monthlyPendingAmount: 0,
+        quarterlyPendingAmount: 0,
         ageingRisk: 0,
         completedRegister: 0,
       },
