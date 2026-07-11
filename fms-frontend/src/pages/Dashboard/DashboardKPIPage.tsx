@@ -30,6 +30,7 @@ import {
   UnorderedListOutlined,
   PieChartOutlined,
   PlusOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons'
 import dayjs, { type Dayjs } from 'dayjs'
 import type { AxiosError } from 'axios'
@@ -101,6 +102,9 @@ const DASHBOARD_OPTIONS: { key: DashboardKpiPerson; label: string }[] = [
 
 /** Success KPI (Performance Monitoring aggregates) — Rimpa only. */
 const usesSuccessKpiSection = (person: DashboardKpiPerson | null) => person === 'Rimpa'
+
+const showsStandardSupportFms = (person: DashboardKpiPerson | null) =>
+  person === 'Shreyasi' || person === 'Soumya'
 
 const ADRIJA_SOCIAL_KPI_EDITOR_EMAILS = new Set(['adrija@industryprime.com', 'aman@industryprime.com'])
 
@@ -406,7 +410,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
   }, [month, year, week])
 
   const loadData = useCallback(() => {
-    if (!selectedPerson || selectedPerson === 'Soumya') return
+    if (!selectedPerson) return
     const filters = { name: selectedPerson, month, year, week }
     const cached = sessionApiCacheGet<DashboardKpiResponse>(dashboardKpiCacheKey(filters))
     if (cached && cached.success !== false) {
@@ -479,7 +483,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
 
   const openSupportFmsDetail = useCallback(
     async (pillar: SupportFmsDetailPillar, title: string) => {
-      if (!selectedPerson || selectedPerson === 'Soumya') return
+      if (!selectedPerson) return
       const filters = { name: selectedPerson, month, year, week }
       setDetailModal({ title, items: [], loading: true })
       try {
@@ -768,21 +772,6 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
     )
   }
 
-  if (selectedPerson === 'Soumya') {
-    return (
-      <div className="dashboard-kpi-page dashboard-kpi-page--futuristic">
-        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          {!forceOpen && (
-            <Button type="text" icon={<ArrowLeftOutlined />} onClick={handleBackToDashboard}>
-              Back to Dashboard
-            </Button>
-          )}
-          <SoumyaDashboardView />
-        </Space>
-      </div>
-    )
-  }
-
   const monthIndexSel = MONTHS.findIndex((m) => m === month)
   const yearNum = Number(year)
   const weekNumDisplay = Number((week || '').replace(/[^\d]/g, '')) || 1
@@ -878,7 +867,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
 
         {loading && <DashboardBlockSkeleton />}
 
-        {loading && selectedPerson === 'Shreyasi' && !supportFMS && (
+        {loading && showsStandardSupportFms(selectedPerson) && !supportFMS && (
           <Card className="kpi-section-card kpi-section-card--support-fms" style={{ marginTop: 16 }}>
             <Row gutter={[16, 16]}>
               {(['Response Delay', 'Completion Delay', 'Pending Chores & Bugs'] as const).map((label) => (
@@ -996,7 +985,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
                     </Card>
                   </Col>
                 )}
-                {selectedPerson === 'Shreyasi' && (
+                {showsStandardSupportFms(selectedPerson) && (
                 <Col xs={24} sm={24} md={8}>
                   <Card
                     size="small"
@@ -1234,6 +1223,20 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
                 </Card>
               )}
 
+              {selectedPerson === 'Soumya' && (
+                <Card
+                  className="kpi-section-card kpi-section-card--support-fms"
+                  title={
+                    <Space>
+                      <ThunderboltOutlined />
+                      Soumya SLA Dashboard
+                    </Space>
+                  }
+                >
+                  <SoumyaDashboardView embedded month={month} year={year} week={week} />
+                </Card>
+              )}
+
               {isAkashLayout && akashKpi && (
                 <Card
                   className="kpi-section-card"
@@ -1297,8 +1300,8 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
               )}
             </>
 
-            {/* Support FMS – Shreyasi only; clickable cards open detail modal; show Weekly % in title */}
-            {supportFMS && selectedPerson === 'Shreyasi' && (
+            {/* Support FMS – Shreyasi & Soumya; clickable cards open detail modal */}
+            {supportFMS && showsStandardSupportFms(selectedPerson) && (
               <Card
                 className="kpi-section-card kpi-section-card--support-fms"
                 title={

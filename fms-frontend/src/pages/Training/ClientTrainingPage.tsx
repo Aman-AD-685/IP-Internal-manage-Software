@@ -36,6 +36,18 @@ const DAY0_FIELDS: { key: string; label: string }[] = [
   { key: 'how_to_videos_shared', label: 'Share How To Videos on; Negotiation, Create Vendor, Item Group, Set Reorder Level, Brand, Tag Vendor.' },
 ]
 
+function resolveTrainerDisplayName(
+  client: TrainingClientRecord | null | undefined,
+  day0: Record<string, string> | null | undefined,
+): string {
+  const fromClient = (client?.trainer_name || '').trim()
+  if (fromClient) return fromClient
+  const fromDay0 = (day0?.trainer_name || '').trim()
+  if (fromDay0) return fromDay0
+  const fromDay0Id = (day0?.trainer_user_id || '').trim()
+  return fromDay0Id || '—'
+}
+
 export function ClientTrainingPage() {
   const [searchParams] = useSearchParams()
   const [loading, setLoading] = useState(true)
@@ -63,6 +75,35 @@ export function ClientTrainingPage() {
   const [filterPoc, setFilterPoc] = useState<string | undefined>(undefined)
   const [filterTrainer, setFilterTrainer] = useState<string | undefined>(undefined)
   const openedDeepLinkRef = useRef('')
+
+  const refreshClients = (paymentStatusId?: string) => {
+    setLoading(true)
+    return trainingApi
+      .listClients()
+      .then((r) => {
+        const nextItems = r.items || []
+        setItems(nextItems)
+        if (paymentStatusId) {
+          const updated = nextItems.find((i) => i.payment_status_id === paymentStatusId)
+          if (updated) setSelectedClient(updated)
+        }
+        return nextItems
+      })
+      .finally(() => setLoading(false))
+  }
+
+  const applyDay0Response = (res: { data?: Record<string, string>; editable_48h?: boolean; submitted_at?: string | null }) => {
+    const data = res.data || {}
+    setDay0Summary(data)
+    setDay0Editable48h(res.editable_48h ?? false)
+    setDay0SubmittedAt(res.submitted_at ?? null)
+    const trainerName = (data.trainer_name || '').trim()
+    if (trainerName) {
+      setSelectedClient((prev) =>
+        prev ? { ...prev, trainer_name: trainerName, trainer_user_id: data.trainer_user_id || prev.trainer_user_id } : prev,
+      )
+    }
+  }
 
   useEffect(() => {
     trainingApi.getStagesConfig().then(setStagesConfig).catch(() => setStagesConfig(null))
@@ -93,9 +134,7 @@ export function ClientTrainingPage() {
       trainingApi.getTrainingStatus(client.payment_status_id),
     ])
       .then(([day0Res, status]) => {
-        setDay0Summary(day0Res.data || {})
-        setDay0Editable48h(day0Res.editable_48h ?? false)
-        setDay0SubmittedAt(day0Res.submitted_at ?? null)
+        applyDay0Response(day0Res)
         setTrainingStatus(status)
       })
       .catch(() => {
@@ -126,12 +165,22 @@ export function ClientTrainingPage() {
     setDay0ModalOpen(true)
     day0Form.resetFields()
     setDay0Loading(true)
-    Promise.all([
+    Promise.allSettled([
       trainingApi.getDay0Checklist(selectedClient.payment_status_id),
       trainingApi.listUsers(),
     ])
-      .then(([res, usersRes]) => {
-        setDay0Users(usersRes?.users || [])
+      .then(([checklistRes, usersRes]) => {
+        if (checklistRes.status === 'rejected') {
+          message.error('Could not load Day 0 Checklist.')
+          return
+        }
+        if (usersRes.status === 'rejected') {
+          message.warning('Trainer list could not be loaded.')
+          setDay0Users([])
+        } else {
+          setDay0Users(usersRes.value?.users || [])
+        }
+        const res = checklistRes.value
         const data = res.data || {}
         if (Object.keys(data).length > 0) {
           day0Form.setFieldsValue(data)
@@ -139,7 +188,6 @@ export function ClientTrainingPage() {
           DAY0_FIELDS.forEach((f) => day0Form.setFieldValue(f.key, 'Yes'))
         }
       })
-      .catch(() => message.error('Could not load Day 0 Checklist.'))
       .finally(() => setDay0Loading(false))
   }
 
@@ -160,14 +208,9 @@ export function ClientTrainingPage() {
       .then(() => {
         message.success('Day 0 Checklist saved (skipped).')
         setDay0ModalOpen(false)
-        trainingApi.getDay0Checklist(selectedClient.payment_status_id).then((res) => {
-          setDay0Summary(res.data || {})
-          setDay0Editable48h(res.editable_48h ?? false)
-          setDay0SubmittedAt(res.submitted_at ?? null)
-        })
+        trainingApi.getDay0Checklist(selectedClient.payment_status_id).then(applyDay0Response)
         trainingApi.getTrainingStatus(selectedClient.payment_status_id).then(setTrainingStatus)
-        setLoading(true)
-        trainingApi.listClients().then((r) => setItems(r.items || [])).finally(() => setLoading(false))
+        refreshClients(selectedClient.payment_status_id)
       })
       .catch((err) => message.error(err?.response?.data?.detail || 'Could not save.'))
       .finally(() => setDay0Loading(false))
@@ -185,14 +228,9 @@ export function ClientTrainingPage() {
           .then(() => {
             message.success('Day 0 Checklist saved.')
             setDay0ModalOpen(false)
-            trainingApi.getDay0Checklist(selectedClient.payment_status_id).then((res) => {
-              setDay0Summary(res.data || {})
-              setDay0Editable48h(res.editable_48h ?? false)
-              setDay0SubmittedAt(res.submitted_at ?? null)
-            })
+            trainingApi.getDay0Checklist(selectedClient.payment_status_id).then(applyDay0Response)
             trainingApi.getTrainingStatus(selectedClient.payment_status_id).then(setTrainingStatus)
-            setLoading(true)
-            trainingApi.listClients().then((r) => setItems(r.items || [])).finally(() => setLoading(false))
+            refreshClients(selectedClient.payment_status_id)
           })
           .catch((err) => message.error(err?.response?.data?.detail || 'Could not save.'))
           .finally(() => setDay0Loading(false))
@@ -464,7 +502,7 @@ export function ClientTrainingPage() {
                 <Descriptions.Item label="Onb Ref">{selectedClient.onboarding_reference_no || '—'}</Descriptions.Item>
                 <Descriptions.Item label="Timestamp">{selectedClient.timestamp ? dayjs(selectedClient.timestamp).format('DD-MMM-YYYY HH:mm') : '—'}</Descriptions.Item>
                 <Descriptions.Item label="Point of Contact">{selectedClient.poc_name || '—'}</Descriptions.Item>
-                <Descriptions.Item label="Trainer">{selectedClient.trainer_name || '—'}</Descriptions.Item>
+                <Descriptions.Item label="Trainer">{resolveTrainerDisplayName(selectedClient, day0Summary)}</Descriptions.Item>
                 <Descriptions.Item label="Expected Day 0">{selectedClient.expected_day0 ? dayjs(selectedClient.expected_day0).format('DD-MMM-YYYY HH:mm') : '—'}</Descriptions.Item>
                 <Descriptions.Item label="Status Day 0">{selectedClient.day0_status === 'pending' ? 'Pending' : selectedClient.day0_status === 'delayed' ? `Done, ${selectedClient.day0_delay_text || ''}` : selectedClient.day0_completed_in_text ? `Done in ${selectedClient.day0_completed_in_text}` : 'Done'}</Descriptions.Item>
                 {selectedClient.day0_status === 'delayed' && selectedClient.day0_delay_text != null && <Descriptions.Item label="Day 0 delay">{selectedClient.day0_delay_text}</Descriptions.Item>}
@@ -496,9 +534,6 @@ export function ClientTrainingPage() {
                       )}
                     </div>
                     <Descriptions column={1} size="small" bordered contentStyle={{ minWidth: 56, whiteSpace: 'nowrap' }}>
-                      {(day0Summary.trainer_name || day0Summary.trainer_user_id) && (
-                        <Descriptions.Item label="Trainer">{day0Summary.trainer_name || day0Summary.trainer_user_id || '—'}</Descriptions.Item>
-                      )}
                       {DAY0_FIELDS.map((f) => (
                         <Descriptions.Item key={f.key} label={f.label}>
                           <span style={{ whiteSpace: 'nowrap' }}>{day0Summary[f.key] || '—'}</span>
@@ -593,7 +628,11 @@ export function ClientTrainingPage() {
             <Button type="default" onClick={skipDay0AndSubmit} loading={day0Loading}>Skip stage & go to next</Button>
           </Space>
           <Form form={day0Form} layout="vertical">
-            <Form.Item name="trainer_user_id" label="Trainer">
+            <Form.Item
+              name="trainer_user_id"
+              label="Trainer"
+              styles={{ label: { height: 'auto', lineHeight: '22px' } }}
+            >
               <Select
                 placeholder="Select trainer (all users)"
                 allowClear

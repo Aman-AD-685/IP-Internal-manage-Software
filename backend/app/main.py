@@ -14097,6 +14097,14 @@ class FollowupSubmitRequest(BaseModel):
     remarks: str | None = None
 
 
+class FollowupBatchSubmitRequest(BaseModel):
+    ticket_id: str
+    ticket_feature_ids: list[str]
+    initial_percentage: float | None = None
+    status: str
+    remarks: str | None = None
+
+
 @api_router.get("/success/performance/features")
 @cached(ttl=300, key_prefix="success:perf:features:")
 def list_performance_features(auth: dict = Depends(get_current_user)):
@@ -14458,74 +14466,153 @@ def list_success_followup_clicks(
         raise HTTPException(status_code=400, detail=str(e)[:200])
 
 
-@api_router.post("/success/performance/followup")
-def submit_performance_followup(payload: FollowupSubmitRequest, auth: dict = Depends(get_current_user)):
-    """Add followup. 1st time: user sends initial_percentage; rest (100-initial) divided equally among features."""
-    if payload.status not in ("completed", "pending"):
+def _submit_performance_followups_batch(
+    ticket_id: str,
+    ticket_feature_ids: list[str],
+    status: str,
+    remarks: str | None,
+    initial_percentage: float | None,
+) -> dict:
+    """Apply the same followup status to one or more features; shared created_at for the batch."""
+    if status not in ("completed", "pending"):
         raise HTTPException(status_code=400, detail="status must be completed or pending")
-    try:
-        training, tfs = _get_training_for_ticket(payload.ticket_id)
-        if not training or not tfs:
-            raise HTTPException(status_code=400, detail="No training or features for this ticket")
-        n = len(tfs)
-        n_followups = _count_followups_for_ticket(payload.ticket_id)
-        is_first = n_followups == 0
-        if is_first:
-            # First followup: require initial_percentage from user
-            if payload.initial_percentage is None:
-                raise HTTPException(status_code=400, detail="First followup: enter Initial percentage (base % you already completed)")
-            init_pct = float(payload.initial_percentage)
-            if init_pct < 0 or init_pct > 100:
-                raise HTTPException(status_code=400, detail="initial_percentage must be between 0 and 100")
-            prev = init_pct
-            # Store initial_percentage in performance_training
-            supabase.table("performance_training").update({"initial_percentage": init_pct}).eq("id", training["id"]).execute()
-        else:
-            prev = _last_total_percentage_for_ticket(payload.ticket_id)
-            init_pct = _get_initial_percentage(payload.ticket_id)
-        # Remaining % (100 - initial) divided equally among features
-        remaining = max(0, 100.0 - init_pct)
-        equal_share = round(remaining / n, 2) if n else 0
-        added = equal_share if payload.status == "completed" else 0
+    ids = list(dict.fromkeys(str(x).strip() for x in ticket_feature_ids if x and str(x).strip()))
+    if not ids:
+        raise HTTPException(status_code=400, detail="Select at least one feature")
+
+    training, tfs = _get_training_for_ticket(ticket_id)
+    if not training or not tfs:
+        raise HTTPException(status_code=400, detail="No training or features for this ticket")
+
+    tf_by_id = {str(f["id"]): f for f in tfs}
+    for tf_id in ids:
+        if tf_id not in tf_by_id:
+            raise HTTPException(status_code=400, detail="One or more features do not belong to this ticket")
+
+    n = len(tfs)
+    n_followups = _count_followups_for_ticket(ticket_id)
+    is_first = n_followups == 0
+    if is_first:
+        if initial_percentage is None:
+            raise HTTPException(
+                status_code=400,
+                detail="First followup: enter Initial percentage (base % you already completed)",
+            )
+        init_pct = float(initial_percentage)
+        if init_pct < 0 or init_pct > 100:
+            raise HTTPException(status_code=400, detail="initial_percentage must be between 0 and 100")
+        prev = init_pct
+        supabase.table("performance_training").update({"initial_percentage": init_pct}).eq("id", training["id"]).execute()
+    else:
+        prev = _last_total_percentage_for_ticket(ticket_id)
+        init_pct = _get_initial_percentage(ticket_id)
+
+    remaining = max(0, 100.0 - init_pct)
+    equal_share = round(remaining / n, 2) if n else 0
+
+    fl_ids = list({f["feature_id"] for f in tfs})
+    feature_names_by_tf: dict[str, str] = {}
+    if fl_ids:
+        fl = supabase.table("feature_list").select("id, name").in_("id", fl_ids).execute()
+        fn_by_fid = {x["id"]: x["name"] for x in (fl.data or [])}
+        for f in tfs:
+            feature_names_by_tf[str(f["id"])] = fn_by_fid.get(f["feature_id"], "")
+
+    batch_ts = datetime.now(timezone.utc).isoformat()
+    created_rows: list[dict] = []
+
+    for ticket_feature_id in ids:
+        existing = (
+            supabase.table("feature_followups")
+            .select("id, status")
+            .eq("ticket_feature_id", ticket_feature_id)
+            .execute()
+        )
+        if existing.data:
+            has_completed = any(f.get("status") == "completed" for f in existing.data)
+            if has_completed and status == "completed":
+                raise HTTPException(status_code=400, detail="One or more selected features are already marked completed")
+
+        added = equal_share if status == "completed" else 0
         total = round(prev + added, 2)
         if total > 100:
             raise HTTPException(
                 status_code=400,
-                detail=f"Total completion cannot exceed 100%. Current total is {prev}%. This feature's share is {equal_share}%.",
+                detail=(
+                    f"Total completion cannot exceed 100%. Current total is {prev}%. "
+                    f"Each feature share is {equal_share}%."
+                ),
             )
-        tf_ids = [f["id"] for f in tfs]
-        if payload.ticket_feature_id not in tf_ids:
-            raise HTTPException(status_code=400, detail="ticket_feature_id does not belong to this ticket")
-        existing = supabase.table("feature_followups").select("id, status").eq("ticket_feature_id", payload.ticket_feature_id).execute()
-        if existing.data:
-            has_completed = any(f.get("status") == "completed" for f in existing.data)
-            if has_completed and payload.status == "completed":
-                raise HTTPException(status_code=400, detail="This feature is already marked completed")
-        # Store the server-side previous we used (for display/audit)
+
         insert_row = {
-            "ticket_feature_id": payload.ticket_feature_id,
+            "ticket_feature_id": ticket_feature_id,
             "previous_percentage": prev,
             "added_percentage": added,
             "total_percentage": total,
-            "status": payload.status,
-            "remarks": payload.remarks or None,
+            "status": status,
+            "remarks": remarks or None,
+            "feature_name": feature_names_by_tf.get(ticket_feature_id, ""),
+            "created_at": batch_ts,
         }
-        tf = next((f for f in tfs if f["id"] == payload.ticket_feature_id), None)
-        if tf:
-            fl = supabase.table("feature_list").select("name").eq("id", tf["feature_id"]).maybe_single().execute()
-            insert_row["feature_name"] = (fl.data or {}).get("name", "")
-        else:
-            insert_row["feature_name"] = ""
         ins = supabase.table("feature_followups").insert(insert_row).execute()
-        supabase.table("performance_training").update({"total_percentage": total, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", training["id"]).execute()
-        if payload.status == "completed":
-            supabase.table("ticket_features").update({"status": "Completed"}).eq("id", payload.ticket_feature_id).execute()
-        if _all_features_completed_for_ticket(payload.ticket_id):
-            supabase.table("performance_monitoring").update({"completion_status": "completed", "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", payload.ticket_id).execute()
-        created = (ins.data or [{}])[0] if ins.data else {}
+        row = (ins.data or [{}])[0] if ins.data else {}
+        created_rows.append(row)
+
+        if status == "completed":
+            supabase.table("ticket_features").update({"status": "Completed"}).eq("id", ticket_feature_id).execute()
+
+        prev = total
+
+    supabase.table("performance_training").update(
+        {"total_percentage": prev, "updated_at": datetime.now(timezone.utc).isoformat()}
+    ).eq("id", training["id"]).execute()
+
+    if _all_features_completed_for_ticket(ticket_id):
+        supabase.table("performance_monitoring").update(
+            {"completion_status": "completed", "updated_at": datetime.now(timezone.utc).isoformat()}
+        ).eq("id", ticket_id).execute()
+
+    return {"followups": created_rows, "total_percentage": prev, "count": len(created_rows)}
+
+
+@api_router.post("/success/performance/followup")
+def submit_performance_followup(payload: FollowupSubmitRequest, auth: dict = Depends(get_current_user)):
+    """Add followup for one feature (delegates to batch helper)."""
+    try:
+        result = _submit_performance_followups_batch(
+            payload.ticket_id,
+            [payload.ticket_feature_id],
+            payload.status,
+            payload.remarks,
+            payload.initial_percentage,
+        )
+        created = (result.get("followups") or [{}])[0]
         _invalidate_success_performance_caches(payload.ticket_id)
         invalidate_dashboard_read_caches()
-        return {"followup": created, "total_percentage": total}
+        return {"followup": created, "total_percentage": result["total_percentage"]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        err = str(e).lower()
+        if "does not exist" in err or "relation" in err:
+            raise HTTPException(status_code=503, detail="Run database/SUCCESS_PERFORMANCE_MONITORING.sql and Part2_Part3 migration first.")
+        raise HTTPException(status_code=400, detail=str(e)[:200])
+
+
+@api_router.post("/success/performance/followup-batch")
+def submit_performance_followup_batch(payload: FollowupBatchSubmitRequest, auth: dict = Depends(get_current_user)):
+    """Add followup for multiple features at once (same timestamp, one status for all)."""
+    try:
+        result = _submit_performance_followups_batch(
+            payload.ticket_id,
+            payload.ticket_feature_ids,
+            payload.status,
+            payload.remarks,
+            payload.initial_percentage,
+        )
+        _invalidate_success_performance_caches(payload.ticket_id)
+        invalidate_dashboard_read_caches()
+        return result
     except HTTPException:
         raise
     except Exception as e:
