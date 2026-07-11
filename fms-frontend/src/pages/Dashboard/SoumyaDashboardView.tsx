@@ -252,13 +252,32 @@ const cardDetailColumns: ColumnsType<SoumyaCardDetailRow> = [
 
 interface SoumyaDashboardViewProps {
   onRefresh?: () => void
+  /** When true, month/year/week come from parent KPI page filters (no duplicate filter bar). */
+  embedded?: boolean
+  month?: string
+  year?: string
+  week?: string
 }
 
-export function SoumyaDashboardView({ onRefresh }: SoumyaDashboardViewProps) {
+export function SoumyaDashboardView({
+  onRefresh,
+  embedded = false,
+  month: monthProp,
+  year: yearProp,
+  week: weekProp,
+}: SoumyaDashboardViewProps) {
   const previousWeekDefaults = getDefaultPreviousWeekFilter()
-  const [month, setMonth] = useState<string>(MONTHS[previousWeekDefaults.monthIndex] ?? MONTHS[dayjs().month()])
-  const [year, setYear] = useState<string>(previousWeekDefaults.year || String(dayjs().year()))
-  const [week, setWeek] = useState<string>(`week ${previousWeekDefaults.week}`)
+  const [localMonth, setLocalMonth] = useState<string>(
+    MONTHS[previousWeekDefaults.monthIndex] ?? MONTHS[dayjs().month()],
+  )
+  const [localYear, setLocalYear] = useState<string>(previousWeekDefaults.year || String(dayjs().year()))
+  const [localWeek, setLocalWeek] = useState<string>(`week ${previousWeekDefaults.week}`)
+  const month = embedded && monthProp ? monthProp : localMonth
+  const year = embedded && yearProp ? yearProp : localYear
+  const week = embedded && weekProp ? weekProp : localWeek
+  const setMonth = setLocalMonth
+  const setYear = setLocalYear
+  const setWeek = setLocalWeek
   const [leaderboardScope, setLeaderboardScope] = useState<LeaderboardScope>('week')
 
   const [data, setData] = useState<SoumyaDashboardResponse | null>(null)
@@ -279,6 +298,7 @@ export function SoumyaDashboardView({ onRefresh }: SoumyaDashboardViewProps) {
       : [{ label: 'week 1', value: 'week 1' }]
 
   useEffect(() => {
+    if (embedded) return
     const canonical = getKpiCanonicalWeekSelection(month, year, week, MONTHS)
     if (canonical) {
       setMonth(canonical.month)
@@ -291,7 +311,7 @@ export function SoumyaDashboardView({ onRefresh }: SoumyaDashboardViewProps) {
     const selectable = listKpiWeekIndicesForMonth(yearNum, monthIndexSel)
     const maxSelectable = selectable[selectable.length - 1] ?? 1
     if (parsed > maxSelectable) setWeek(`week ${maxSelectable}`)
-  }, [month, year, week, monthIndexSel, yearNum])
+  }, [embedded, month, year, week, monthIndexSel, yearNum])
 
   const fetchPage = useCallback(
     async (reset: boolean) => {
@@ -446,19 +466,71 @@ export function SoumyaDashboardView({ onRefresh }: SoumyaDashboardViewProps) {
       : `Stage 2 completed in selected week${mergeRangeText ? ` (${mergeRangeText})` : ''}. Ranked by highest delay first. Demo C excluded.`
 
 return (
-    <div className="soumya-dash">
-      <div className="soumya-dash-hero">
-        <div>
-          <h2>
-            <ThunderboltOutlined style={{ marginRight: 8, color: '#60A5FA' }} />
-            Soumya Dashboard
-          </h2>
-          <p>
-            KPI cards use the selected calendar week (default: previous week) — query arrival in that week. Demo C
-            excluded. Staging is live pending queue.
-          </p>
-        </div>
-        <div className="soumya-dash-meta">
+    <div className={embedded ? 'soumya-dash soumya-dash--embedded' : 'soumya-dash'}>
+      {!embedded ? (
+        <>
+          <div className="soumya-dash-hero">
+            <div>
+              <h2>
+                <ThunderboltOutlined style={{ marginRight: 8, color: '#60A5FA' }} />
+                Soumya Dashboard
+              </h2>
+              <p>
+                KPI cards use the selected calendar week (default: previous week) — query arrival in that week. Demo C
+                excluded. Staging is live pending queue.
+              </p>
+            </div>
+            <div className="soumya-dash-meta">
+              <div>Week tickets: {data.meta?.total_tickets_scanned ?? 0}</div>
+              <div>Ranked: {data.meta?.total_ranked ?? rankedRows.length}</div>
+              <div>Updated: {data.generated_at ? dayjs(data.generated_at).format('DD MMM YYYY, HH:mm') : '—'}</div>
+              <Button
+                type="text"
+                icon={<ReloadOutlined />}
+                onClick={() => void fetchPage(true)}
+                loading={loading}
+                style={{ color: '#60A5FA', marginTop: 8 }}
+              >
+                Refresh
+              </Button>
+            </div>
+          </div>
+
+          <div className="dashboard-kpi-filters soumya-dash-filters">
+            <span className="dashboard-kpi-filter-field">
+              <Text className="dashboard-kpi-filter-label">Month</Text>
+              <Select
+                value={month}
+                onChange={setMonth}
+                options={MONTHS.map((m) => ({ label: m, value: m }))}
+                className="dashboard-kpi-filter-select"
+                popupClassName="dashboard-kpi-select-dropdown"
+              />
+            </span>
+            <span className="dashboard-kpi-filter-field">
+              <Text className="dashboard-kpi-filter-label">Year</Text>
+              <Select
+                value={year}
+                onChange={setYear}
+                options={YEARS.map((y) => ({ label: y, value: y }))}
+                className="dashboard-kpi-filter-select"
+                popupClassName="dashboard-kpi-select-dropdown"
+              />
+            </span>
+            <span className="dashboard-kpi-filter-field">
+              <Text className="dashboard-kpi-filter-label">Week</Text>
+              <Select
+                value={week}
+                onChange={setWeek}
+                options={weekOptions}
+                className="dashboard-kpi-filter-select dashboard-kpi-filter-select--week"
+                popupClassName="dashboard-kpi-select-dropdown"
+              />
+            </span>
+          </div>
+        </>
+      ) : (
+        <div className="soumya-dash-meta soumya-dash-meta--embedded">
           <div>Week tickets: {data.meta?.total_tickets_scanned ?? 0}</div>
           <div>Ranked: {data.meta?.total_ranked ?? rankedRows.length}</div>
           <div>Updated: {data.generated_at ? dayjs(data.generated_at).format('DD MMM YYYY, HH:mm') : '—'}</div>
@@ -467,46 +539,13 @@ return (
             icon={<ReloadOutlined />}
             onClick={() => void fetchPage(true)}
             loading={loading}
-            style={{ color: '#60A5FA', marginTop: 8 }}
+            style={{ color: '#60A5FA' }}
           >
-            Refresh
+            Refresh SLA metrics
           </Button>
         </div>
-      </div>
-
-      <div className="dashboard-kpi-filters soumya-dash-filters">
-        <span className="dashboard-kpi-filter-field">
-          <Text className="dashboard-kpi-filter-label">Month</Text>
-          <Select
-            value={month}
-            onChange={setMonth}
-            options={MONTHS.map((m) => ({ label: m, value: m }))}
-            className="dashboard-kpi-filter-select"
-            popupClassName="dashboard-kpi-select-dropdown"
-          />
-        </span>
-        <span className="dashboard-kpi-filter-field">
-          <Text className="dashboard-kpi-filter-label">Year</Text>
-          <Select
-            value={year}
-            onChange={setYear}
-            options={YEARS.map((y) => ({ label: y, value: y }))}
-            className="dashboard-kpi-filter-select"
-            popupClassName="dashboard-kpi-select-dropdown"
-          />
-        </span>
-        <span className="dashboard-kpi-filter-field">
-          <Text className="dashboard-kpi-filter-label">Week</Text>
-          <Select
-            value={week}
-            onChange={setWeek}
-            options={weekOptions}
-            className="dashboard-kpi-filter-select dashboard-kpi-filter-select--week"
-            popupClassName="dashboard-kpi-select-dropdown"
-          />
-        </span>
-      </div>
-      {mergeRangeText ? (
+      )}
+      {!embedded && mergeRangeText ? (
         <Text className="dashboard-kpi-merge-hint">
           Calendar week: {mergeRangeText}
           {dataAsOfLabel ? ` · Week KPIs measured as of ${dataAsOfLabel}` : null}

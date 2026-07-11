@@ -144,6 +144,20 @@
   border-color: #e9d5ff;
 }
 
+.soumya-dash--embedded {
+  padding-top: 0;
+}
+
+.soumya-dash-meta--embedded {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  align-items: center;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #64748b;
+}
+
 .soumya-dash-filters {
   margin-bottom: 12px;
   position: relative;

@@ -110,6 +110,19 @@ interface FollowupFeature {
   }>
 }
 
+function formatFollowupHistoryLine(fu: {
+  previous_percentage?: number | null
+  added_percentage?: number | null
+  total_percentage?: number | null
+  status?: string
+  remarks?: string | null
+  created_at?: string | null
+}): string {
+  const ts = fu.created_at ? dayjs(fu.created_at).format('YYYY-MM-DD HH:mm:ss') : ''
+  const base = `Prev: ${fu.previous_percentage}% → +${fu.added_percentage}% = ${fu.total_percentage}% (${fu.status})`
+  return `${base}${ts ? ` — ${ts}` : ''}${fu.remarks ? ` - ${fu.remarks}` : ''}`
+}
+
 export const PerformanceMonitoringPage = () => {
   const [searchParams] = useSearchParams()
   const [form] = Form.useForm()
@@ -392,7 +405,13 @@ export const PerformanceMonitoringPage = () => {
           is_first_followup: data.is_first_followup ?? false,
         })
         const lastTotal = data.total_percentage ?? 0
-        followupForm.setFieldsValue({ previous_percentage: lastTotal, initial_percentage: data.initial_percentage ?? '' })
+        followupForm.setFieldsValue({
+          status: 'pending',
+          remarks: '',
+          ticket_feature_ids: [],
+          previous_percentage: lastTotal,
+          initial_percentage: data.initial_percentage ?? '',
+        })
         await loadFollowupClicksForTfIds(feats.map((f) => f.ticket_feature_id))
       }
     } catch {
@@ -515,19 +534,21 @@ export const PerformanceMonitoringPage = () => {
     }
   }
 
-  const submitFollowup = async (ticketFeatureId: string) => {
-    if (!selectedItem) return
+  const submitFollowup = async (ticketFeatureIds: string[]) => {
+    if (!selectedItem || ticketFeatureIds.length === 0) return
     followupForm.setFieldsValue({ previous_percentage: followupData.total_percentage ?? 0 })
-    const values = followupForm.getFieldsValue()
+    const values = await followupForm.validateFields().catch(() => null)
+    if (!values) return
     const status = values.status || 'pending'
+    const ids = [...new Set(ticketFeatureIds)]
     setFollowupSubmitting(true)
     try {
-      const res = await fetchWithTimeout(`${API_BASE_URL}/success/performance/followup`, {
+      const res = await fetchWithTimeout(`${API_BASE_URL}/success/performance/followup-batch`, {
         method: 'POST',
         headers: getAuthHeadersWithJson(),
         body: JSON.stringify({
           ticket_id: selectedItem.id,
-          ticket_feature_id: ticketFeatureId,
+          ticket_feature_ids: ids,
           initial_percentage: followupData.is_first_followup ? Number(values.initial_percentage) : undefined,
           status,
           remarks: values.remarks || null,
@@ -535,13 +556,12 @@ export const PerformanceMonitoringPage = () => {
       })
       const data = await res.json().catch(() => ({}))
       if (res.ok) {
-        message.success(`Followup saved. Total: ${data.total_percentage}%`)
-        followupForm.setFieldsValue({ previous_percentage: data.total_percentage })
-        setFollowupData((d) => ({ ...d, total_percentage: data.total_percentage }))
+        const n = data.count ?? ids.length
+        message.success(`Followup saved for ${n} feature${n === 1 ? '' : 's'}. Total: ${data.total_percentage}%`)
+        followupForm.setFieldsValue({ previous_percentage: data.total_percentage, ticket_feature_ids: [] })
+        setFollowupData((d) => ({ ...d, total_percentage: data.total_percentage, is_first_followup: false }))
         await reloadFollowupModalData()
         invalidateAfterPerformanceNaChange()
-        // Defer the heavy background list reload until the modal closes so the
-        // modal's scroll position is not reset on each Add Follow Up.
         followupListDirtyRef.current = true
       } else {
         message.error(data?.detail || 'Failed to save followup')
@@ -553,18 +573,23 @@ export const PerformanceMonitoringPage = () => {
     }
   }
 
-  /** Log KPI click for non-completed features, then submit follow-up (feeds Training Follow-up on Rimpa Dashboard). */
-  const onAddFollowupForFeature = async (ticketFeatureId: string, featureStatus: string) => {
-    if (!selectedItem) return
-    const notCompleted = String(featureStatus).toLowerCase() !== 'completed'
-    if (notCompleted) {
+  /** Log KPI clicks for non-completed features, then submit follow-up batch. */
+  const onAddFollowupForFeatures = async (ticketFeatureIds: string[]) => {
+    if (!selectedItem || ticketFeatureIds.length === 0) {
+      message.warning('Select at least one feature')
+      return
+    }
+    const pendingFeatures = followupData.features.filter(
+      (f) => ticketFeatureIds.includes(f.ticket_feature_id) && String(f.status).toLowerCase() !== 'completed',
+    )
+    for (const f of pendingFeatures) {
       try {
         const res = await fetchWithTimeout(`${API_BASE_URL}/success/performance/followup-click`, {
           method: 'POST',
           headers: getAuthHeadersWithJson(),
           body: JSON.stringify({
             ticket_id: selectedItem.id,
-            ticket_feature_id: ticketFeatureId,
+            ticket_feature_id: f.ticket_feature_id,
           }),
         })
         if (!res.ok) {
@@ -574,9 +599,9 @@ export const PerformanceMonitoringPage = () => {
       } catch {
         message.warning('Could not log follow-up click for KPI.')
       }
-      await refreshClicksForTf(ticketFeatureId)
+      await refreshClicksForTf(f.ticket_feature_id)
     }
-    await submitFollowup(ticketFeatureId)
+    await submitFollowup(ticketFeatureIds)
   }
 
   const toggleMarkedNa = async (record: POCItem, marked: boolean) => {
@@ -852,6 +877,16 @@ export const PerformanceMonitoringPage = () => {
 
   // Render the full filtered list directly (no scroll-triggered auto-loading).
   // Auto-loading on scroll caused the list to reset/jump to the top.
+  const openFollowupFeatureOptions = useMemo(
+    () =>
+      followupData.features
+        .filter((f) => String(f.status).toLowerCase() !== 'completed')
+        .map((f) => ({ value: f.ticket_feature_id, label: f.feature_name })),
+    [followupData.features],
+  )
+
+  const hasOpenFollowupFeatures = openFollowupFeatureOptions.length > 0
+
   const displayItems = useMemo(
     () =>
       items.filter((i) => {
@@ -1066,7 +1101,7 @@ export const PerformanceMonitoringPage = () => {
         {followupData.total_percentage != null && (
           <p><strong>Total Completion: {followupData.total_percentage}%</strong></p>
         )}
-        <Form form={followupForm} layout="vertical" initialValues={{ status: 'pending', previous_percentage: 0, initial_percentage: '' }}>
+        <Form form={followupForm} layout="vertical" initialValues={{ status: 'pending', previous_percentage: 0, initial_percentage: '', ticket_feature_ids: [] }}>
           {followupData.is_first_followup && (
             <Form.Item
               name="initial_percentage"
@@ -1084,12 +1119,46 @@ export const PerformanceMonitoringPage = () => {
           >
             <InputNumber min={0} max={100} step={0.01} style={{ width: 120 }} disabled />
           </Form.Item>
-          <Form.Item name="status" label="Status *" rules={[{ required: true }]}>
-            <Select options={[{ value: 'pending', label: 'Pending' }, { value: 'completed', label: 'Completed' }]} />
-          </Form.Item>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <Form.Item name="status" label="Status *" rules={[{ required: true }]} style={{ marginBottom: 8 }}>
+              <Select
+                style={{ width: 108 }}
+                options={[{ value: 'pending', label: 'Pending' }, { value: 'completed', label: 'Completed' }]}
+              />
+            </Form.Item>
+            <Form.Item
+              name="ticket_feature_ids"
+              label="Feature Committed for Use *"
+              rules={[{ required: true, message: 'Select at least one feature' }]}
+              style={{ flex: 1, minWidth: 220, marginBottom: 8 }}
+            >
+              <Select
+                mode="multiple"
+                placeholder="Select features"
+                options={openFollowupFeatureOptions}
+                optionFilterProp="label"
+                maxTagCount="responsive"
+                disabled={!hasOpenFollowupFeatures}
+              />
+            </Form.Item>
+          </div>
           <Form.Item name="remarks" label="Remarks">
             <Input.TextArea rows={1} />
           </Form.Item>
+          {hasOpenFollowupFeatures && (
+            <Form.Item style={{ marginBottom: 16 }}>
+              <Button
+                type="primary"
+                loading={followupSubmitting}
+                onClick={() => {
+                  const ids = (followupForm.getFieldValue('ticket_feature_ids') || []) as string[]
+                  void onAddFollowupForFeatures(ids)
+                }}
+              >
+                Add followup for selected features
+              </Button>
+            </Form.Item>
+          )}
         </Form>
         {followupData.features.map((f) => (
           <Card key={f.ticket_feature_id} size="small" title={f.feature_name} style={{ marginBottom: 8 }}>
@@ -1097,11 +1166,18 @@ export const PerformanceMonitoringPage = () => {
             {f.followups.length > 0 && (
               <ul style={{ marginTop: 4, paddingLeft: 16 }}>
                 {f.followups.map((fu) => (
-                  <li key={fu.id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span>
-                      Prev: {fu.previous_percentage}% → +{fu.added_percentage}% = {fu.total_percentage}% ({fu.status})
-                      {fu.remarks && ` - ${fu.remarks}`}
-                    </span>
+                  <li
+                    key={fu.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      flexWrap: 'wrap',
+                      marginBottom: 4,
+                    }}
+                  >
+                    <span style={{ flex: 1, minWidth: 220 }}>{formatFollowupHistoryLine(fu)}</span>
                     {fu.can_revert && fu.status === 'completed' && (
                       <Popconfirm
                         title="Revert this Completed followup?"
@@ -1125,16 +1201,8 @@ export const PerformanceMonitoringPage = () => {
                 ))}
               </ul>
             )}
-            {f.status !== 'Completed' && (
-              <Space wrap style={{ marginTop: 8 }} align="center">
-                <Button
-                  type="primary"
-                  size="small"
-                  loading={followupSubmitting}
-                  onClick={() => onAddFollowupForFeature(f.ticket_feature_id, f.status)}
-                >
-                  Add followup for this feature
-                </Button>
+            {f.status !== 'Completed' && (followupClicksByTf[f.ticket_feature_id]?.count ?? 0) > 0 && (
+              <div style={{ marginTop: 8 }}>
                 <Popover
                   title="Follow-up button clicks (KPI)"
                   content={
@@ -1149,11 +1217,11 @@ export const PerformanceMonitoringPage = () => {
                     )
                   }
                 >
-                  <Button size="small" type="default" title="Opens timestamp list">
-                    {followupClicksByTf[f.ticket_feature_id]?.count ?? 0}
+                  <Button size="small" type="default" title="KPI follow-up click count">
+                    KPI clicks: {followupClicksByTf[f.ticket_feature_id]?.count ?? 0}
                   </Button>
                 </Popover>
-              </Space>
+              </div>
             )}
           </Card>
         ))}
@@ -1235,10 +1303,26 @@ export const PerformanceMonitoringPage = () => {
                         {f.followups && f.followups.length > 0 && (
                           <ul style={{ marginTop: 4, paddingLeft: 16 }}>
                             {f.followups.map((fu: Record<string, unknown>, idx: number) => (
-                              <li key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                <span>
-                                  Prev: {fu.previous_percentage}% → +{fu.added_percentage}% = {fu.total_percentage}% ({fu.status})
-                                  {fu.remarks && ` - ${fu.remarks}`}
+                              <li
+                                key={typeof fu.id === 'string' ? fu.id : idx}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  gap: 12,
+                                  flexWrap: 'wrap',
+                                  marginBottom: 4,
+                                }}
+                              >
+                                <span style={{ flex: 1, minWidth: 220 }}>
+                                  {formatFollowupHistoryLine({
+                                    previous_percentage: fu.previous_percentage as number | undefined,
+                                    added_percentage: fu.added_percentage as number | undefined,
+                                    total_percentage: fu.total_percentage as number | undefined,
+                                    status: String(fu.status ?? ''),
+                                    remarks: fu.remarks as string | undefined,
+                                    created_at: fu.created_at as string | undefined,
+                                  })}
                                 </span>
                                 {fu.can_revert && fu.status === 'completed' && typeof fu.id === 'string' && (
                                   <Popconfirm

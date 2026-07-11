@@ -114,11 +114,28 @@ export const trainingApi = {
 
   listUsers: async () => {
     const key = 'training:users'
-    const cached = sessionApiCacheGet<{ users: TrainingUser[] }>(key)
-    if (cached) return cached
-    const r = await apiClient.get<{ users: TrainingUser[] }>(API_ENDPOINTS.TRAINING.USERS)
-    sessionApiCacheSet(key, r.data, API_CACHE_TTL_MS.trainingUsers)
-    return r.data
+    const cached = sessionApiCacheGet<{ users?: TrainingUser[]; data?: TrainingUser[] }>(key)
+    if (cached) {
+      const users = cached.users ?? (Array.isArray(cached.data) ? cached.data : [])
+      return { users }
+    }
+    const pageSize = 200
+    let page = 1
+    let total = 0
+    const users: TrainingUser[] = []
+    do {
+      const r = await apiClient.get<{ users?: TrainingUser[]; data?: TrainingUser[]; total?: number }>(
+        API_ENDPOINTS.TRAINING.USERS,
+        { params: { page, page_size: pageSize } },
+      )
+      const batch = r.data.users ?? r.data.data ?? []
+      users.push(...batch)
+      total = r.data.total ?? users.length
+      page += 1
+    } while (users.length < total && page <= 50)
+    const payload = { users }
+    sessionApiCacheSet(key, payload, API_CACHE_TTL_MS.trainingUsers)
+    return payload
   },
 
   getDay0Checklist: (paymentStatusId: string) =>
