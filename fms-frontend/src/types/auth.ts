@@ -18,6 +18,8 @@ export interface User {
   last_login?: string
   /** Per-section view/edit permissions (Master Admin sets these) */
   section_permissions?: SectionPermission[]
+  /** KPI person dashboards with Active user_profiles (hidden when Status = Inactive) */
+  active_kpi_persons?: string[]
 }
 
 export interface AuthState {

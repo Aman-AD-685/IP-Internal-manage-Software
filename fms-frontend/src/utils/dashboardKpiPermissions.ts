@@ -44,7 +44,9 @@ export function canViewDashboardKpiPerson(
   person: DashboardKpiPerson,
   userRole: UserRole,
   sectionPermissions?: SectionPermission[],
+  activeKpiPersons?: readonly string[] | null,
 ): boolean {
+  if (activeKpiPersons && !activeKpiPersons.includes(person)) return false
   return canViewDashboardKpiSubsection(
     DASHBOARD_KPI_PERSON_SECTION_KEY[person],
     userRole,
@@ -62,9 +64,10 @@ export function personFromDashboardSectionKey(sectionKey: string): DashboardKpiP
 export function listAllowedKpiPersons(
   userRole: UserRole,
   sectionPermissions?: SectionPermission[],
+  activeKpiPersons?: readonly string[] | null,
 ): DashboardKpiPerson[] {
   return DASHBOARD_KPI_NAMES.filter((person) =>
-    canViewDashboardKpiPerson(person, userRole, sectionPermissions),
+    canViewDashboardKpiPerson(person, userRole, sectionPermissions, activeKpiPersons),
   )
 }
 
@@ -78,21 +81,22 @@ export function resolveKpiPersonForUser(
   userEmail?: string,
   userName?: string,
   preferred?: DashboardKpiPerson | null,
+  activeKpiPersons?: readonly string[] | null,
 ): DashboardKpiPerson | null {
-  if (preferred && canViewDashboardKpiPerson(preferred, userRole, sectionPermissions)) {
+  if (preferred && canViewDashboardKpiPerson(preferred, userRole, sectionPermissions, activeKpiPersons)) {
     return preferred
   }
   const haystack = `${userEmail || ''} ${userName || ''}`.toLowerCase()
   const fromIdentity = DASHBOARD_KPI_NAMES.find((person) => haystack.includes(person.toLowerCase()))
-  if (fromIdentity && canViewDashboardKpiPerson(fromIdentity, userRole, sectionPermissions)) {
+  if (fromIdentity && canViewDashboardKpiPerson(fromIdentity, userRole, sectionPermissions, activeKpiPersons)) {
     return fromIdentity
   }
   for (const person of DASHBOARD_KPI_NAMES) {
     const key = DASHBOARD_KPI_PERSON_SECTION_KEY[person]
     const grant = sectionPermissions?.find((p) => p.section_key === key)
-    if ((grant?.can_view || grant?.can_edit) && canViewDashboardKpiPerson(person, userRole, sectionPermissions)) {
+    if ((grant?.can_view || grant?.can_edit) && canViewDashboardKpiPerson(person, userRole, sectionPermissions, activeKpiPersons)) {
       return person
     }
   }
-  return listAllowedKpiPersons(userRole, sectionPermissions)[0] ?? null
+  return listAllowedKpiPersons(userRole, sectionPermissions, activeKpiPersons)[0] ?? null
 }

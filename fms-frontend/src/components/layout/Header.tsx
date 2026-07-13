@@ -31,6 +31,7 @@ import { improvementSuggestionsApi } from '../../api/improvementSuggestions'
 import { DASHBOARD_KPI_NAMES, prefetchDashboardKpiPerson, MONTHS } from '../../api/dashboardKpi'
 import { getDefaultPreviousWeekFilter } from '../../pages/Dashboard/kpiWeekUtils'
 import { canViewDashboardKpiPerson } from '../../utils/dashboardKpiPermissions'
+import { useActiveKpiPersons } from '../../hooks/useActiveKpiPersons'
 
 const { Header: AntHeader } = Layout
 const { Text } = Typography
@@ -45,6 +46,7 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
   const navigate = useNavigate()
   const location = useLocation()
   const { user, logout } = useAuth()
+  const activeKpiPersons = useActiveKpiPersons()
   const { role: userRole } = useRole()
   const sectionPermissions = user?.section_permissions
   const canImprovement = canViewSection('improvement', userRole as UserRole, sectionPermissions)
@@ -148,13 +150,13 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
   const defaultKpiHref = useMemo(() => {
     if (!user) return ROUTES.DASHBOARD_KPI
     const names = DASHBOARD_KPI_NAMES.filter((name) =>
-      canViewDashboardKpiPerson(name, user.role as UserRole, user.section_permissions),
+      canViewDashboardKpiPerson(name, user.role as UserRole, user.section_permissions, activeKpiPersons),
     )
     const first = names[0]
     return first
       ? `${ROUTES.DASHBOARD_KPI}?person=${encodeURIComponent(first)}`
       : ROUTES.DASHBOARD_KPI
-  }, [user])
+  }, [user, activeKpiPersons])
 
   useDeepLinkAction(OPEN_ACTION.IMPROVEMENT, () => setImprovementOpen(true), canImprovement)
   useDeepLinkAction(OPEN_ACTION.IMPROVEMENT_I1, () => setI1Open(true), canImprovementI1)
@@ -175,7 +177,7 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
 
   const dashboardKpiMenuItems: MenuProps['items'] = user
     ? DASHBOARD_KPI_NAMES.filter((name) =>
-        canViewDashboardKpiPerson(name, user.role as UserRole, user.section_permissions),
+        canViewDashboardKpiPerson(name, user.role as UserRole, user.section_permissions, activeKpiPersons),
       ).map((name) => {
         const href = `${ROUTES.DASHBOARD_KPI}?person=${encodeURIComponent(name)}`
         return {
@@ -262,7 +264,7 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
               onOpenChange={(open) => {
                 if (!open || !user) return
                 const first = DASHBOARD_KPI_NAMES.find((name) =>
-                  canViewDashboardKpiPerson(name, user.role as UserRole, user.section_permissions),
+                  canViewDashboardKpiPerson(name, user.role as UserRole, user.section_permissions, activeKpiPersons),
                 )
                 if (first) prefetchDashboardKpiPerson(first, kpiFilterDefaults)
               }}

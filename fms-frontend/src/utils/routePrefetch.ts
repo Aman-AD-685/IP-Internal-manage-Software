@@ -44,7 +44,7 @@ export function prefetchRouteData(routeKey: string): void {
 
   if (path === ROUTES.DASHBOARD) {
     fire('prefetch:dashboard', async () => {
-      await dashboardApi.getBootstrap()
+      await dashboardApi.getSummary()
     })
     return
   }

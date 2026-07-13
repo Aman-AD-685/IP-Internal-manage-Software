@@ -15,7 +15,7 @@ export function prefetchRouteChunk(routeKey: string): void {
   }
 
   if (path === ROUTES.DASHBOARD) {
-    run(() => import('../pages/Dashboard'))
+    run(() => import('../components/dashboard/Dashboard'))
     return
   }
   if (path === ROUTES.DASHBOARD_KPI || path === ROUTES.SUCCESS_DASHBOARD) {

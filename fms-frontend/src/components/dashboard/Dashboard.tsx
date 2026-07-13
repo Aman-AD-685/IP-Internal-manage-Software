@@ -2,12 +2,14 @@ import { Alert, Button, Card, Col, Empty, List, Modal, Row, Skeleton, Space, Typ
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { checklistApi } from '../../api/checklist'
+import { useActiveKpiPersons } from '../../hooks/useActiveKpiPersons'
 import {
   dashboardApi,
   type DashboardAttendanceLeaveUserSummary,
   type DashboardUserWorkSummary,
 } from '../../api/dashboard'
 import type { DashboardSummaryResponse } from '../../types/dashboard'
+import { dashboardKpiApi, MONTHS } from '../../api/dashboardKpi'
 import { getDefaultPreviousWeekFilter } from '../../pages/Dashboard/kpiWeekUtils'
 import { ROUTES } from '../../utils/constants'
 import { genericLogicalKey, sessionApiCacheGetStale } from '../../utils/sessionApiCache'
@@ -145,85 +147,6 @@ const emptyDashboardSummaryForCurrentAdmin = (): DashboardSummaryResponse | null
       paymentAgeingHighRisk: 0,
     },
   }
-}
-
-const clampPercent = (value: unknown) => {
-  const n = Number(value)
-  if (!Number.isFinite(n)) return null
-  return Math.max(0, Math.min(100, Math.round(n)))
-}
-
-const averagePercent = (values: Array<number | null>) => {
-  const valid = values.filter((value): value is number => value != null && Number.isFinite(value))
-  if (!valid.length) return null
-  return clampPercent(valid.reduce((sum, value) => sum + value, 0) / valid.length)
-}
-
-const souvikCompositeToPercent = (value: unknown) => {
-  const n = Number(value)
-  if (!Number.isFinite(n)) return null
-  return clampPercent(n * 10)
-}
-
-const formatDateIso = (date: Date) => {
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
-}
-
-const monthStartMondayIso = (date: Date) => {
-  const first = new Date(date.getFullYear(), date.getMonth(), 1)
-  const day = first.getDay()
-  first.setDate(first.getDate() + (day === 0 ? -6 : 1 - day))
-  return formatDateIso(first)
-}
-
-async function loadKpiOnlySummary(person: DashboardKpiPerson): Promise<KpiOnlySummary> {
-  const { MONTHS, dashboardKpiApi } = await import('../../api/dashboardKpi')
-  if (person === 'Souvik') {
-    const today = new Date()
-    const [weekRes, monthRes] = await Promise.all([
-      dashboardKpiApi.getSouvikKpi(),
-      dashboardKpiApi.getSouvikWeeklyLog(monthStartMondayIso(today), 6),
-    ])
-    const weekly = clampPercent(weekRes.weekly_percentage) ?? souvikCompositeToPercent(weekRes.composite_score)
-    const monthly = averagePercent(
-      (monthRes.rows ?? [])
-        .filter((row) => {
-          const weekDate = new Date(`${row.week_from}T00:00:00`)
-          return row.has_data && weekDate.getMonth() === today.getMonth() && weekDate.getFullYear() === today.getFullYear()
-        })
-        .map((row) => clampPercent(row.weekly_percentage) ?? souvikCompositeToPercent(row.composite_score)),
-    )
-    return { weekly, monthly: monthly ?? weekly }
-  }
-
-  const defaults = getDefaultPreviousWeekFilter()
-  const data = await dashboardKpiApi.getData({
-    name: person,
-    month: MONTHS[defaults.monthIndex] ?? MONTHS[0],
-    year: defaults.year,
-    week: `week ${defaults.week}`,
-  })
-  if (person === 'Shreyasi') {
-    return {
-      weekly: clampPercent(data.supportFMS?.weeklyPercentage),
-      monthly: clampPercent(data.supportFMS?.monthlyPercentage) ?? clampPercent(data.monthlyPercentages?.supportFMS),
-    }
-  }
-
-  const weekly =
-    clampPercent(data.akashKpi?.overall_score_percent) ??
-    clampPercent(data.successKpi?.overallPercentage) ??
-    clampPercent(data.adrijaSocialKpi?.weeklyPercent)
-  const monthly =
-    clampPercent(data.akashKpi?.overall_score_monthly_percent) ??
-    clampPercent(data.akashKpi?.monthly?.overall_score_percent) ??
-    clampPercent(data.adrijaSocialKpi?.monthlyPercent) ??
-    weekly
-
-  return { weekly, monthly }
 }
 
 function AdminUserOverviewCards({
@@ -378,6 +301,8 @@ function DashboardChunkFallback() {
 }
 
 export function Dashboard() {
+  const activeKpiPersons = useActiveKpiPersons()
+  const activeKpiSet = useMemo(() => new Set(activeKpiPersons), [activeKpiPersons])
   const cachedSummary = sessionApiCacheGetStale<DashboardSummaryResponse>(genericLogicalKey('dashboard:summary', {}))
   const [summary, setSummary] = useState<DashboardSummaryResponse | null>(cachedSummary)
   const [users, setUsers] = useState<DashboardPerson[]>([])
@@ -389,6 +314,7 @@ export function Dashboard() {
     user: DashboardPerson
   } | null>(null)
   const [loading, setLoading] = useState(!cachedSummary)
+  const [adminCardsReady, setAdminCardsReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const canShowUserOverview = isAdminDashboardRole(summary?.user.role)
   const effectiveUserId = summary?.user.userId
@@ -445,9 +371,20 @@ export function Dashboard() {
     }
   }, [canShowUserOverview, summary])
 
+  useEffect(() => {
+    if (!canShowUserOverview || !summary) {
+      setAdminCardsReady(false)
+      return
+    }
+    const timer = window.setTimeout(() => setAdminCardsReady(true), 500)
+    return () => window.clearTimeout(timer)
+  }, [canShowUserOverview, summary])
+
   const adminDashboardUsers = useMemo(() => {
     if (!canShowUserOverview) return []
     return users.filter((item) => {
+      const kpiPerson = personNameFromUser(item.full_name)
+      if (kpiPerson && !activeKpiSet.has(kpiPerson)) return false
       const name = item.full_name.toLowerCase()
       const compactName = name.replace(/\s+/g, ' ').trim()
       return (
@@ -457,7 +394,7 @@ export function Dashboard() {
         !EXCLUDED_ADMIN_DASHBOARD_USERS.some((excluded) => name.includes(excluded))
       )
     })
-  }, [canShowUserOverview, users])
+  }, [canShowUserOverview, users, activeKpiSet])
 
   const attendanceSummaryUsers = useMemo(() => {
     if (canShowUserOverview) return adminDashboardUsers
@@ -465,36 +402,43 @@ export function Dashboard() {
   }, [adminDashboardUsers, canShowUserOverview, selectedDashboardUser])
 
   useEffect(() => {
-    if (!canShowUserOverview || !adminDashboardUsers.length) {
-      setUserKpiSummaries({})
+    if (!canShowUserOverview || !adminCardsReady || !adminDashboardUsers.length) {
+      if (!adminCardsReady) setUserKpiSummaries({})
       return
     }
     let cancelled = false
-    Promise.allSettled(
-      adminDashboardUsers.map((item) => {
-        const person = personNameFromUser(item.full_name)
-        return person ? loadKpiOnlySummary(person) : Promise.resolve({ weekly: null, monthly: null })
-      }),
-    ).then((results) => {
-      if (cancelled) return
-      const next: Record<string, KpiOnlySummary> = {}
-      results.forEach((result, index) => {
-        next[adminDashboardUsers[index].id] = result.status === 'fulfilled'
-          ? result.value
-          : { weekly: null, monthly: null }
+    const defaults = getDefaultPreviousWeekFilter()
+    dashboardKpiApi
+      .getCardSummaries({
+        month: MONTHS[defaults.monthIndex] ?? MONTHS[0],
+        year: defaults.year,
+        week: `week ${defaults.week}`,
       })
-      setUserKpiSummaries(next)
-    })
+      .then((res) => {
+        if (cancelled) return
+        const next: Record<string, KpiOnlySummary> = {}
+        for (const item of adminDashboardUsers) {
+          const person = personNameFromUser(item.full_name)
+          if (person && res.summaries?.[person]) {
+            next[item.id] = res.summaries[person]
+          }
+        }
+        setUserKpiSummaries(next)
+      })
+      .catch(() => {
+        if (!cancelled) setUserKpiSummaries({})
+      })
     return () => {
       cancelled = true
     }
-  }, [adminDashboardUsers, canShowUserOverview])
+  }, [adminCardsReady, adminDashboardUsers, canShowUserOverview])
 
   useEffect(() => {
     if (!attendanceSummaryUsers.length) {
       setAttendanceLeaveSummaries({})
       return
     }
+    if (canShowUserOverview && !adminCardsReady) return
     let cancelled = false
     dashboardApi
       .getAttendanceLeaveSummary({ users: attendanceSummaryUsers })
@@ -507,11 +451,11 @@ export function Dashboard() {
     return () => {
       cancelled = true
     }
-  }, [attendanceSummaryUsers])
+  }, [adminCardsReady, attendanceSummaryUsers, canShowUserOverview])
 
   useEffect(() => {
-    if (!canShowUserOverview || !adminDashboardUsers.length) {
-      setWorkSummaries({})
+    if (!canShowUserOverview || !adminCardsReady || !adminDashboardUsers.length) {
+      if (!adminCardsReady) setWorkSummaries({})
       return
     }
     let cancelled = false
@@ -526,7 +470,7 @@ export function Dashboard() {
     return () => {
       cancelled = true
     }
-  }, [adminDashboardUsers, canShowUserOverview])
+  }, [adminCardsReady, adminDashboardUsers, canShowUserOverview])
 
   const activeSummary = activeWorkSummary ? workSummaries[activeWorkSummary.user.id] : null
   const activeSummaryBlock =
@@ -576,7 +520,7 @@ export function Dashboard() {
               kpiSummaries={userKpiSummaries}
               attendanceLeaveSummaries={attendanceLeaveSummaries}
               workSummaries={workSummaries}
-              loading={!adminDashboardUsers.length}
+              loading={!adminCardsReady || !adminDashboardUsers.length}
               onOpenWorkSummary={(kind, user) => setActiveWorkSummary({ kind, user })}
             />
           ) : (
