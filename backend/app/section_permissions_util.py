@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from cachetools import TTLCache
 
 from app.dashboard_kpi_sections import PERSON_KEY_BY_DASHBOARD_NAME
+from app.kpi_person_active import is_kpi_person_active
 from app.supabase_client import supabase
 
 KPI_PERSON_KEY_PREFIX = "dashboard_kpi_person_"
@@ -83,10 +84,13 @@ def can_view_dashboard_kpi_person(user_id: str, person_name: str) -> bool:
     """
     from app.main import _get_role_from_profile
 
+    person = (person_name or "").strip()
+    if not is_kpi_person_active(person):
+        return False
     perms = get_merged_section_permissions(user_id)
     if not can_view_section_from_list(perms, "dashboard_kpi"):
         return False
-    person_key = PERSON_KEY_BY_DASHBOARD_NAME.get((person_name or "").strip())
+    person_key = PERSON_KEY_BY_DASHBOARD_NAME.get(person)
     if not person_key:
         return False
     try:

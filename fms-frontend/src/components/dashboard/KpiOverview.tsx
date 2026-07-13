@@ -10,6 +10,7 @@ import {
 } from '../../api/dashboardKpi'
 import type { DashboardUserContext } from '../../types/dashboard'
 import { useAuth } from '../../hooks/useAuth'
+import { useActiveKpiPersons } from '../../hooks/useActiveKpiPersons'
 import { getDefaultPreviousWeekFilter } from '../../pages/Dashboard/kpiWeekUtils'
 import { ROUTES } from '../../utils/constants'
 import { DASHBOARD_KPI_PERSON_SECTION_KEY, canViewDashboardKpiPerson } from '../../utils/dashboardKpiPermissions'
@@ -83,6 +84,7 @@ function personFromIdentity(email?: string, name?: string): DashboardKpiPerson |
 export function KpiOverview({ user, selectedUserName, selectedUserEmail }: KpiOverviewProps) {
   const navigate = useNavigate()
   const { user: authUser } = useAuth()
+  const activeKpiPersons = useActiveKpiPersons()
   const [data, setData] = useState<DashboardKpiResponse | null>(null)
   const [souvikOverview, setSouvikOverview] = useState<SouvikOverviewSummary | null>(null)
   const [loading, setLoading] = useState(false)
@@ -91,19 +93,20 @@ export function KpiOverview({ user, selectedUserName, selectedUserEmail }: KpiOv
   const sectionPermissions = authUser?.section_permissions
   const selectedPerson = useMemo(() => {
     const filterPerson = personFromIdentity(selectedUserEmail, selectedUserName)
-    if (filterPerson && canViewDashboardKpiPerson(filterPerson, userRole, sectionPermissions)) {
+    if (filterPerson && canViewDashboardKpiPerson(filterPerson, userRole, sectionPermissions, activeKpiPersons)) {
       return filterPerson
     }
     const identityPerson = personFromIdentity(authUser?.email, authUser?.full_name || authUser?.display_name || user.name)
-    if (identityPerson && canViewDashboardKpiPerson(identityPerson, userRole, sectionPermissions)) {
+    if (identityPerson && canViewDashboardKpiPerson(identityPerson, userRole, sectionPermissions, activeKpiPersons)) {
       return identityPerson
     }
     const explicitPerson = explicitKpiGrant(sectionPermissions)
-    if (explicitPerson && canViewDashboardKpiPerson(explicitPerson, userRole, sectionPermissions)) {
+    if (explicitPerson && canViewDashboardKpiPerson(explicitPerson, userRole, sectionPermissions, activeKpiPersons)) {
       return explicitPerson
     }
-    return DASHBOARD_KPI_NAMES.find((person) => canViewDashboardKpiPerson(person, userRole, sectionPermissions)) ?? null
+    return DASHBOARD_KPI_NAMES.find((person) => canViewDashboardKpiPerson(person, userRole, sectionPermissions, activeKpiPersons)) ?? null
   }, [
+    activeKpiPersons,
     authUser?.display_name,
     authUser?.email,
     authUser?.full_name,

@@ -1020,6 +1020,8 @@ def login(payload: LoginRequest):
         except Exception:
             section_permissions = [{"section_key": k, "can_view": False, "can_edit": False} for k in SECTION_KEYS]
 
+        from app.kpi_person_active import get_active_kpi_person_names
+
         user = {
             "id": user_id,
             "email": result.user.email or payload.email,
@@ -1029,6 +1031,7 @@ def login(payload: LoginRequest):
             "is_active": profile.data.get("is_active", True),
             "created_at": str(profile.data.get("created_at", "")),
             "section_permissions": section_permissions,
+            "active_kpi_persons": list(get_active_kpi_person_names()),
         }
 
         system_lock_payload = None
@@ -1090,6 +1093,8 @@ def get_me(auth: dict = Depends(get_current_user)):
     except Exception:
         section_permissions = [{"section_key": k, "can_view": False, "can_edit": False} for k in SECTION_KEYS]
 
+    from app.kpi_person_active import get_active_kpi_person_names
+
     return {
         "id": user_id,
         "email": auth["email"],
@@ -1099,6 +1104,7 @@ def get_me(auth: dict = Depends(get_current_user)):
         "is_active": profile.data.get("is_active", True),
         "created_at": str(profile.data.get("created_at", "")),
         "section_permissions": section_permissions,
+        "active_kpi_persons": list(get_active_kpi_person_names()),
     }
 
 
@@ -4641,6 +4647,14 @@ def put_dashboard_souvik_kpi_daily(
         _log(f"put_dashboard_souvik_kpi_daily: {e}")
         raise HTTPException(status_code=502, detail=str(e)[:400])
     return {"ok": True, "saved": saved}
+
+
+@api_router.get("/dashboard/kpi/active-persons")
+def dashboard_kpi_active_persons(auth: dict = Depends(get_current_user)):
+    """KPI person dashboards whose linked user_profiles are Active (Users page Status)."""
+    from app.kpi_person_active import get_active_kpi_person_names
+
+    return {"persons": list(get_active_kpi_person_names())}
 
 
 @api_router.get("/dashboard/kpi")
@@ -14903,6 +14917,10 @@ def update_user(
     if not data:
         return supabase.table("user_profiles").select("*").eq("id", user_id).single().execute().data
     supabase.table("user_profiles").update(data).eq("id", user_id).execute()
+    if payload.is_active is not None:
+        from app.kpi_person_active import clear_kpi_person_active_cache
+
+        clear_kpi_person_active_cache()
     out = supabase.table("users_view").select("*").eq("id", user_id).single().execute()
     d = out.data if out.data else {}
     d["role"] = _map_role(d.get("role_name", "user"))

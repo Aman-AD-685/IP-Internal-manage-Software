@@ -18,13 +18,17 @@ import {
 import { SearchOutlined, MoreOutlined, EditOutlined, StopOutlined } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
 import { usersApi } from '../../api/users'
+import { authApi } from '../../api/auth'
+import { dashboardKpiApi } from '../../api/dashboardKpi'
 import { permissionsApi, type PermissionCatalogRow } from '../../api/permissions'
 import type { User } from '../../types/auth'
 import type { SectionPermission, RoleOption } from '../../api/users'
 import { PrintExport } from '../../components/common/PrintExport'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
-import { formatDate } from '../../utils/helpers'
+import { formatDate, normalizeUserSectionPermissions } from '../../utils/helpers'
 import { useRole } from '../../hooks/useRole'
+import { useAuth } from '../../hooks/useAuth'
+import { sessionApiCacheClearLogicalPrefix } from '../../utils/sessionApiCache'
 import { ROLE_DISPLAY_NAMES, SECTION_LABELS, PERMISSION_SECTION_KEYS } from '../../utils/constants'
 
 const { Title } = Typography
@@ -32,6 +36,7 @@ const USERS_CHUNK = 15
 
 export const UserList = () => {
   const { isMasterAdmin } = useRole()
+  const { refreshUser } = useAuth()
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [users, setUsers] = useState<User[]>([])
@@ -63,6 +68,13 @@ export const UserList = () => {
   )
 
   const permissionSectionKeys = permissionRows.map((r) => r.key)
+
+  const refreshKpiVisibilityCaches = useCallback(async () => {
+    sessionApiCacheClearLogicalPrefix('checklist:users')
+    dashboardKpiApi.clearActivePersonsCache()
+    const me = await authApi.getCurrentUser()
+    if (me.data) refreshUser(normalizeUserSectionPermissions(me.data))
+  }, [refreshUser])
 
   useEffect(() => {
     if (!isMasterAdmin) return
@@ -269,6 +281,7 @@ export const UserList = () => {
       setEditModalOpen(false)
       setSelectedUser(null)
       fetchUsers()
+      void refreshKpiVisibilityCaches()
     } catch (e) {
       message.error((e as Error).message || 'Failed to update user')
     } finally {
@@ -285,6 +298,7 @@ export const UserList = () => {
       setDeactivateModalOpen(false)
       setSelectedUser(null)
       fetchUsers()
+      void refreshKpiVisibilityCaches()
     } catch (e) {
       message.error((e as Error).message || 'Failed to deactivate user')
     } finally {

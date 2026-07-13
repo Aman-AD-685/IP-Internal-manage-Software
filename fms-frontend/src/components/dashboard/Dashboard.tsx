@@ -2,6 +2,7 @@ import { Alert, Button, Card, Col, Empty, List, Modal, Row, Skeleton, Space, Typ
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { checklistApi } from '../../api/checklist'
+import { useActiveKpiPersons } from '../../hooks/useActiveKpiPersons'
 import {
   dashboardApi,
   type DashboardAttendanceLeaveUserSummary,
@@ -378,6 +379,8 @@ function DashboardChunkFallback() {
 }
 
 export function Dashboard() {
+  const activeKpiPersons = useActiveKpiPersons()
+  const activeKpiSet = useMemo(() => new Set(activeKpiPersons), [activeKpiPersons])
   const cachedSummary = sessionApiCacheGetStale<DashboardSummaryResponse>(genericLogicalKey('dashboard:summary', {}))
   const [summary, setSummary] = useState<DashboardSummaryResponse | null>(cachedSummary)
   const [users, setUsers] = useState<DashboardPerson[]>([])
@@ -448,6 +451,8 @@ export function Dashboard() {
   const adminDashboardUsers = useMemo(() => {
     if (!canShowUserOverview) return []
     return users.filter((item) => {
+      const kpiPerson = personNameFromUser(item.full_name)
+      if (kpiPerson && !activeKpiSet.has(kpiPerson)) return false
       const name = item.full_name.toLowerCase()
       const compactName = name.replace(/\s+/g, ' ').trim()
       return (
@@ -457,7 +462,7 @@ export function Dashboard() {
         !EXCLUDED_ADMIN_DASHBOARD_USERS.some((excluded) => name.includes(excluded))
       )
     })
-  }, [canShowUserOverview, users])
+  }, [canShowUserOverview, users, activeKpiSet])
 
   const attendanceSummaryUsers = useMemo(() => {
     if (canShowUserOverview) return adminDashboardUsers

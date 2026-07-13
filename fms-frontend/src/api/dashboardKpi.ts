@@ -728,4 +728,20 @@ export const dashboardKpiApi = {
   clearSouvikCache: (weekStart?: string) => {
     sessionApiCacheRemove(`dashboardKpi:souvik:week:${weekStart ?? 'current'}`)
   },
+
+  getActivePersons: () => {
+    const key = 'dashboardKpi:activePersons'
+    const cached = sessionApiCacheGet<{ persons: DashboardKpiPerson[] }>(key)
+    if (cached) return Promise.resolve(cached)
+    return apiClient
+      .get<{ persons: DashboardKpiPerson[] }>('/dashboard/kpi/active-persons')
+      .then((r) => {
+        sessionApiCacheSet(key, r.data, API_CACHE_TTL_MS.checklistUsers)
+        return r.data
+      })
+  },
+
+  clearActivePersonsCache: () => {
+    sessionApiCacheRemove('dashboardKpi:activePersons')
+  },
 }

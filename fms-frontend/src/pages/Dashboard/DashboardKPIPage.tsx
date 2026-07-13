@@ -55,6 +55,7 @@ import { useAuth } from '../../hooks/useAuth'
 import type { UserRole } from '../../types/auth'
 import { ROUTES } from '../../utils/constants'
 import { canViewDashboardKpiPerson, resolveKpiPersonForUser } from '../../utils/dashboardKpiPermissions'
+import { useActiveKpiPersons } from '../../hooks/useActiveKpiPersons'
 import { ChartAreaSkeleton, DashboardBlockSkeleton, SkeletonOverlay } from '../../components/common/skeletons'
 import { SoumyaDashboardView } from './SoumyaDashboardView'
 import { SouvikDashboardView } from './SouvikDashboardView'
@@ -216,14 +217,15 @@ const isCancelledDelegationKpiRow = (status?: string) => {
 
 export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: DashboardKPIPageProps) => {
   const { user } = useAuth()
+  const activeKpiPersons = useActiveKpiPersons()
   const userRole = (user?.role ?? 'user') as UserRole
   const sectionPermissions = user?.section_permissions
   const visibleDashboardOptions = useMemo(
     () =>
       DASHBOARD_OPTIONS.filter((opt) =>
-        canViewDashboardKpiPerson(opt.key, userRole, sectionPermissions),
+        canViewDashboardKpiPerson(opt.key, userRole, sectionPermissions, activeKpiPersons),
       ),
-    [userRole, sectionPermissions],
+    [userRole, sectionPermissions, activeKpiPersons],
   )
   const resolvedForcePerson = useMemo(
     () =>
@@ -234,9 +236,10 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
             user?.email,
             user?.full_name || user?.display_name,
             defaultPerson ?? null,
+            activeKpiPersons,
           )
         : null,
-    [forceOpen, defaultPerson, userRole, sectionPermissions, user?.email, user?.full_name, user?.display_name],
+    [forceOpen, defaultPerson, userRole, sectionPermissions, user?.email, user?.full_name, user?.display_name, activeKpiPersons],
   )
   const navigate = useNavigate()
   const location = useLocation()
@@ -601,24 +604,24 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
   useEffect(() => {
     if (!forceOpen || !resolvedForcePerson) return
     setSelectedPerson((cur) => {
-      if (cur && canViewDashboardKpiPerson(cur, userRole, sectionPermissions)) return cur
+      if (cur && canViewDashboardKpiPerson(cur, userRole, sectionPermissions, activeKpiPersons)) return cur
       return resolvedForcePerson
     })
-  }, [forceOpen, resolvedForcePerson, userRole, sectionPermissions])
+  }, [forceOpen, resolvedForcePerson, userRole, sectionPermissions, activeKpiPersons])
 
   useEffect(() => {
     if (forceOpen) return
     const raw = searchParams.get('person')?.trim()
     if (!raw) return
     const match = DASHBOARD_KPI_NAMES.find((n) => n.toLowerCase() === raw.toLowerCase())
-    if (match && canViewDashboardKpiPerson(match, userRole, sectionPermissions)) {
+    if (match && canViewDashboardKpiPerson(match, userRole, sectionPermissions, activeKpiPersons)) {
       setSelectedPerson(match)
     }
-  }, [forceOpen, searchParams, userRole, sectionPermissions])
+  }, [forceOpen, searchParams, userRole, sectionPermissions, activeKpiPersons])
 
   useEffect(() => {
     if (!selectedPerson) return
-    if (canViewDashboardKpiPerson(selectedPerson, userRole, sectionPermissions)) return
+    if (canViewDashboardKpiPerson(selectedPerson, userRole, sectionPermissions, activeKpiPersons)) return
     if (forceOpen) {
       const fallback = resolveKpiPersonForUser(
         userRole,
@@ -626,6 +629,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
         user?.email,
         user?.full_name || user?.display_name,
         defaultPerson ?? null,
+        activeKpiPersons,
       )
       if (fallback) {
         setSelectedPerson(fallback)
@@ -635,7 +639,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
     }
     setSelectedPerson(null)
     setSearchParams({}, { replace: true })
-  }, [selectedPerson, userRole, sectionPermissions, setSearchParams, forceOpen, user?.email, user?.full_name, user?.display_name, defaultPerson])
+  }, [selectedPerson, userRole, sectionPermissions, setSearchParams, forceOpen, user?.email, user?.full_name, user?.display_name, defaultPerson, activeKpiPersons])
 
   useEffect(() => {
     if (selectedPerson !== 'Adrija') {
@@ -737,7 +741,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
 
   const personAllowed =
     selectedPerson != null &&
-    canViewDashboardKpiPerson(selectedPerson, userRole, sectionPermissions)
+    canViewDashboardKpiPerson(selectedPerson, userRole, sectionPermissions, activeKpiPersons)
 
   if (selectedPerson && !personAllowed) {
     return (
