@@ -10,6 +10,7 @@ import {
   API_CACHE_TTL_MS,
   genericLogicalKey,
   sessionApiCacheGet,
+  sessionApiCacheGetStale,
   sessionApiCacheRemove,
   sessionApiCacheSet,
   invalidateAfterDashboardPaymentSubmit,
@@ -165,6 +166,14 @@ export const dashboardApi = {
       Object.entries(filters).filter(([, value]) => value != null && String(value).trim() !== ''),
     )
     const key = genericLogicalKey('dashboard:summary', params)
+    const stale = sessionApiCacheGetStale<DashboardSummaryResponse>(key)
+    if (stale) {
+      void apiClient
+        .get<DashboardSummaryResponse>('/dashboard/summary', { params })
+        .then((r) => sessionApiCacheSet(key, r.data, API_CACHE_TTL_MS.dashboardSummary))
+        .catch(() => {})
+      return stale
+    }
     const cached = sessionApiCacheGet<DashboardSummaryResponse>(key)
     if (cached) return cached
     const r = await apiClient.get<DashboardSummaryResponse>('/dashboard/summary', { params })
@@ -177,14 +186,36 @@ export const dashboardApi = {
     month?: string
     year?: number
   }): Promise<DashboardAttendanceLeaveSummaryResponse> => {
+    const userKey = body.users.map((u) => u.id).sort().join(',')
+    const key = `dashboard:attendance-leave:${userKey}:${body.month ?? ''}:${body.year ?? ''}`
+    const stale = sessionApiCacheGetStale<DashboardAttendanceLeaveSummaryResponse>(key)
+    if (stale) {
+      void apiClient
+        .post<DashboardAttendanceLeaveSummaryResponse>('/dashboard/attendance-leave-summary', body)
+        .then((r) => sessionApiCacheSet(key, r.data, API_CACHE_TTL_MS.dashboardAttendanceLeave))
+        .catch(() => {})
+      return stale
+    }
     const r = await apiClient.post<DashboardAttendanceLeaveSummaryResponse>('/dashboard/attendance-leave-summary', body)
+    sessionApiCacheSet(key, r.data, API_CACHE_TTL_MS.dashboardAttendanceLeave)
     return r.data
   },
 
   getUserWorkSummary: async (body: {
     users: { id: string; full_name: string }[]
   }): Promise<DashboardUserWorkSummaryResponse> => {
+    const userKey = body.users.map((u) => u.id).sort().join(',')
+    const key = `dashboard:user-work-summary:${userKey}`
+    const stale = sessionApiCacheGetStale<DashboardUserWorkSummaryResponse>(key)
+    if (stale) {
+      void apiClient
+        .post<DashboardUserWorkSummaryResponse>('/dashboard/user-work-summary', body)
+        .then((r) => sessionApiCacheSet(key, r.data, API_CACHE_TTL_MS.dashboardUserWorkSummary))
+        .catch(() => {})
+      return stale
+    }
     const r = await apiClient.post<DashboardUserWorkSummaryResponse>('/dashboard/user-work-summary', body)
+    sessionApiCacheSet(key, r.data, API_CACHE_TTL_MS.dashboardUserWorkSummary)
     return r.data
   },
 

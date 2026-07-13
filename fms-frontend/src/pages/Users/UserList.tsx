@@ -400,6 +400,7 @@ export const UserList = () => {
   ]
 
   const exportColumns = [
+    { key: 'id', label: 'User ID' },
     { key: 'full_name', label: 'Name' },
     { key: 'email', label: 'Email' },
     { key: 'display_name', label: 'User ID name' },
@@ -408,6 +409,7 @@ export const UserList = () => {
     { key: 'created_at', label: 'Created' },
   ]
   const exportRows = users.map((u) => ({
+    id: u.id,
     full_name: u.full_name,
     email: u.email,
     display_name: (u as User & { display_name?: string }).display_name ?? u.full_name ?? '-',

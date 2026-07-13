@@ -99,8 +99,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     if (canAccessUsers) routeKeys.push(ROUTES.USERS)
     if (canAccessSettings) routeKeys.push(ROUTES.SETTINGS)
 
-    // Start prefetch soon after layout mount — target <750ms navigation when warmed.
-    const prefetchTimer = window.setTimeout(() => startIdleRoutePrefetch(routeKeys), 900)
+    // Defer idle prefetch so first dashboard paint is not competing with background warm.
+    const prefetchTimer = window.setTimeout(() => startIdleRoutePrefetch(routeKeys), 3000)
     return () => window.clearTimeout(prefetchTimer)
   }, [user, canAccessApproval, canAccessUsers, canAccessSettings, canViewSectionByKey])
 

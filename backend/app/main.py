@@ -4657,6 +4657,174 @@ def dashboard_kpi_active_persons(auth: dict = Depends(get_current_user)):
     return {"persons": list(get_active_kpi_person_names())}
 
 
+@api_router.get("/admin/kpi-person-audit")
+def admin_kpi_person_audit(auth: dict = Depends(require_roles(["master_admin"]))):
+    """Audit map: KPI persons + profile UUIDs and all inactive users (does not change ops UI)."""
+    from app.kpi_person_active import get_kpi_person_audit_payload
+
+    return get_kpi_person_audit_payload()
+
+
+_KPI_CARD_SUMMARY_PERSONS = ("Shreyasi", "Rimpa", "Akash", "Adrija", "Souvik")
+
+
+def _clamp_kpi_percent(val) -> float | None:
+    if val is None:
+        return None
+    try:
+        n = float(val)
+        if n != n:
+            return None
+        return max(0.0, min(100.0, n))
+    except (TypeError, ValueError):
+        return None
+
+
+def _month_start_monday(d: date) -> date:
+    first = d.replace(day=1)
+    js_dow = (first.weekday() + 1) % 7
+    delta = -6 if js_dow == 0 else 1 - js_dow
+    return first + timedelta(days=delta)
+
+
+def _kpi_card_summary_from_payload(name: str, data: dict) -> dict:
+    if not isinstance(data, dict) or data.get("success") is False:
+        return {"weekly": None, "monthly": None}
+    nm = (name or "").strip().lower()
+    if nm == "shreyasi":
+        sfms = data.get("supportFMS") or {}
+        weekly = _clamp_kpi_percent(sfms.get("weeklyPercentage"))
+        monthly = _clamp_kpi_percent(sfms.get("monthlyPercentage")) or _clamp_kpi_percent(
+            (data.get("monthlyPercentages") or {}).get("supportFMS")
+        )
+        return {"weekly": weekly, "monthly": monthly}
+    akash = data.get("akashKpi") or {}
+    success = data.get("successKpi") or {}
+    adrija = data.get("adrijaSocialKpi") or {}
+    weekly = (
+        _clamp_kpi_percent(akash.get("overall_score_percent"))
+        or _clamp_kpi_percent(success.get("overallPercentage"))
+        or _clamp_kpi_percent(adrija.get("weeklyPercent"))
+    )
+    monthly = (
+        _clamp_kpi_percent(akash.get("overall_score_monthly_percent"))
+        or _clamp_kpi_percent((akash.get("monthly") or {}).get("overall_score_percent"))
+        or _clamp_kpi_percent(adrija.get("monthlyPercent"))
+        or weekly
+    )
+    return {"weekly": weekly, "monthly": monthly}
+
+
+def _souvik_kpi_card_summary() -> dict:
+    from app.souvik_dashboard_kpi import compute_souvik_week, get_souvik_weekly_log, parse_week_start
+
+    today = date.today()
+    week_res = compute_souvik_week(parse_week_start(None))
+    weekly_raw = week_res.get("weekly_percentage")
+    if weekly_raw is None:
+        comp = week_res.get("composite_score")
+        weekly = _clamp_kpi_percent(comp * 10 if comp is not None and comp <= 10 else comp)
+    else:
+        weekly = _clamp_kpi_percent(weekly_raw)
+    month_res = get_souvik_weekly_log(_month_start_monday(today), 6)
+    month_vals: list[float] = []
+    for row in month_res.get("rows") or []:
+        if not row.get("has_data"):
+            continue
+        wf = str(row.get("week_from") or "")[:10]
+        if not wf:
+            continue
+        wd = date.fromisoformat(wf)
+        if wd.month != today.month or wd.year != today.year:
+            continue
+        wp = row.get("weekly_percentage")
+        if wp is None:
+            comp = row.get("composite_score")
+            wp = comp * 10 if comp is not None and comp <= 10 else comp
+        v = _clamp_kpi_percent(wp)
+        if v is not None:
+            month_vals.append(v)
+    monthly = round(sum(month_vals) / len(month_vals), 1) if month_vals else weekly
+    return {"weekly": weekly, "monthly": monthly}
+
+
+def _kpi_card_summary_for_person(name: str, month: str, year: str, week: str) -> dict:
+    if (name or "").strip().lower() == "souvik":
+        return _souvik_kpi_card_summary()
+    data = _dashboard_kpi_data(
+        name=name,
+        month=month,
+        year=year,
+        week=week,
+        viewer_email="",
+        include_progress=False,
+    )
+    return _kpi_card_summary_from_payload(name, data)
+
+
+@cached(ttl=300, key_prefix="dash:kpi-cards:")
+def _dashboard_kpi_card_summaries_data(month: str, year: str, week: str, persons_key: str):
+    """Cached admin KPI card % batch (weekly + monthly only)."""
+    names = [p for p in persons_key.split(",") if p.strip()]
+    summaries: dict[str, dict] = {}
+    if not names:
+        return summaries
+
+    def _one(person: str) -> tuple[str, dict]:
+        try:
+            return person, _kpi_card_summary_for_person(person, month, year, week)
+        except Exception as e:
+            _log(f"kpi card summary {person}: {e}")
+            return person, {"weekly": None, "monthly": None}
+
+    with ThreadPoolExecutor(max_workers=min(4, len(names))) as pool:
+        for person, summary in pool.map(_one, names):
+            summaries[person] = summary
+    return summaries
+
+
+@api_router.get("/dashboard/kpi-card-summaries")
+def dashboard_kpi_card_summaries(
+    month: str | None = Query(None, description="Month: Jan..Dec"),
+    year: str | None = Query(None, description="Year"),
+    week: str | None = Query(None, description="Week: week 1..week 5"),
+    persons: str | None = Query(None, description="Comma-separated KPI persons; default admin card set"),
+    auth: dict = Depends(get_current_user),
+    current: dict = Depends(get_current_user_with_role),
+):
+    """Weekly/monthly KPI % for admin dashboard user cards — one round trip, parallel backend."""
+    if current.get("role") not in ("admin", "master_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    from app.section_permissions_util import require_dashboard_kpi_person
+
+    if not month or not year or not week:
+        today = date.today()
+        this_week_start = today - timedelta(days=today.weekday())
+        prev_start, _prev_end = prior_kpi_calendar_week_range(this_week_start)
+        month = _MONTH_NAMES[prev_start.month - 1]
+        year = str(prev_start.year)
+        week = f"week {week_of_month_for_date(prev_start)}"
+    requested = [
+        p.strip()
+        for p in (persons or "").split(",")
+        if p.strip()
+    ] or list(_KPI_CARD_SUMMARY_PERSONS)
+    allowed: list[str] = []
+    for person in requested:
+        try:
+            require_dashboard_kpi_person(auth["id"], person)
+            allowed.append(person)
+        except HTTPException:
+            continue
+    persons_key = ",".join(allowed)
+    summaries = _dashboard_kpi_card_summaries_data(month, year, week, persons_key)
+    return {
+        "success": True,
+        "filters": {"month": month, "year": year, "week": week},
+        "summaries": summaries,
+    }
+
+
 @api_router.get("/dashboard/kpi")
 def dashboard_kpi(
     name: str = Query(..., description="Person name: Shreyasi, Rimpa, Akash, Adrija, Soumya, etc."),
@@ -6475,7 +6643,6 @@ def dashboard_trends(auth: dict = Depends(get_current_user)):
     except KeyError:
         pass
     now = datetime.utcnow()
-    # Week windows are Monday 00:00:00 -> Sunday 23:59:59 (UTC), last 7 weeks including current week.
     current_week_start = now - timedelta(days=now.weekday())
     current_week_start = datetime(
         current_week_start.year,
@@ -6485,46 +6652,62 @@ def dashboard_trends(auth: dict = Depends(get_current_user)):
         0,
         0,
     )
-    data = []
+    week_windows: list[tuple[datetime, datetime, str]] = []
     for i in range(6, -1, -1):
         week_start = current_week_start - timedelta(weeks=i)
         week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
         label = f"{week_start.strftime('%d %b')} - {week_end.strftime('%d %b')}"
-        try:
-            q = (
-                supabase.table("tickets")
-                .select(
-                    "id, assignee_id, created_at, type, resolved_at, planned_2, actual_2, actual_1, status_2"
-                )
-                .in_("type", ["chore", "bug"])
-                .gte("created_at", week_start.isoformat())
-                .lte("created_at", week_end.isoformat())
+        week_windows.append((week_start, week_end, label))
+    buckets = {label: {"response_delay": 0, "completion_delay": 0} for _, _, label in week_windows}
+    range_start = week_windows[0][0]
+    range_end = week_windows[-1][1]
+    try:
+        r = (
+            supabase.table("tickets")
+            .select(
+                "id, assignee_id, created_at, type, resolved_at, planned_2, actual_2, actual_1, status_2"
             )
-            r = q.execute()
-            tickets = r.data or []
-            response_delay = sum(1 for t in tickets if not t.get("assignee_id"))
-            completion_delay = sum(
-                1
-                for t in tickets
-                if _has_completion_delay(
-                    t.get("resolved_at"),
-                    t.get("created_at"),
-                    t.get("type"),
-                    t.get("planned_2"),
-                    t.get("actual_2"),
-                    t.get("status_2"),
-                    t.get("actual_1"),
-                )[0]
-            )
-            data.append(
-                {
-                    "month": label,
-                    "response_delay": response_delay,
-                    "completion_delay": completion_delay,
-                }
-            )
-        except Exception:
-            data.append({"month": label, "response_delay": 0, "completion_delay": 0})
+            .in_("type", ["chore", "bug"])
+            .gte("created_at", range_start.isoformat())
+            .lte("created_at", range_end.isoformat())
+            .execute()
+        )
+        tickets = r.data or []
+        for t in tickets:
+            created_raw = t.get("created_at")
+            if not created_raw:
+                continue
+            try:
+                created_dt = datetime.fromisoformat(str(created_raw).replace("Z", "+00:00"))
+                if created_dt.tzinfo is not None:
+                    created_dt = created_dt.replace(tzinfo=None)
+            except Exception:
+                continue
+            label = None
+            for week_start, week_end, week_label in week_windows:
+                if week_start <= created_dt <= week_end:
+                    label = week_label
+                    break
+            if not label:
+                continue
+            if not t.get("assignee_id"):
+                buckets[label]["response_delay"] += 1
+            if _has_completion_delay(
+                t.get("resolved_at"),
+                t.get("created_at"),
+                t.get("type"),
+                t.get("planned_2"),
+                t.get("actual_2"),
+                t.get("status_2"),
+                t.get("actual_1"),
+            )[0]:
+                buckets[label]["completion_delay"] += 1
+    except Exception:
+        pass
+    data = [
+        {"month": label, **buckets[label]}
+        for _, _, label in week_windows
+    ]
     out = {"data": data}
     _DASH_TRENDS_CACHE["global"] = out
     return out
@@ -15914,7 +16097,7 @@ def dashboard_user_work_summary(
         if str(item.get("id") or "").strip()
     }
 
-    for user_id in user_ids:
+    def _checklist_summary_for_user(user_id: str) -> None:
         try:
             checklist_rows = _checklist_occurrences_for_user(
                 user_id,
@@ -15937,6 +16120,10 @@ def dashboard_user_work_summary(
             }
         except Exception as e:
             _log(f"dashboard user checklist summary: {e}")
+
+    if user_ids:
+        with ThreadPoolExecutor(max_workers=min(4, len(user_ids))) as pool:
+            list(pool.map(_checklist_summary_for_user, user_ids))
 
     try:
         if user_ids:

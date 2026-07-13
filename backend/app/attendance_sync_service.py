@@ -525,55 +525,112 @@ def get_monthly_attendance_leave_summary(
     leave_by_user: dict[str, set[date]] = {user_id: set() for user_id in summaries}
     latest_attendance_date: date | None = None
 
-    rows = (
-        supabase.table("attendance_sync_records")
-        .select("source_table,payload")
-        .limit(10000)
-        .execute()
-        .data
-        or []
-    )
+    att_rows: list[dict[str, Any]] = []
+    leave_rows: list[dict[str, Any]] = []
+    try:
+        att_rows = (
+            supabase.table("attendance_sync_attendance")
+            .select("employee_name, attendance_date, status, final_status")
+            .gte("attendance_date", start.isoformat())
+            .lte("attendance_date", end.isoformat())
+            .limit(5000)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        pass
+    try:
+        leave_rows = (
+            supabase.table("attendance_sync_leave")
+            .select("employee_name, leave_start_date, leave_end_date, status")
+            .lte("leave_start_date", end.isoformat())
+            .gte("leave_end_date", start.isoformat())
+            .limit(2000)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        pass
 
-    for row in rows:
-        if not _looks_like_attendance_table(row.get("source_table")):
-            continue
-        payload = row.get("source_payload") if isinstance(row.get("source_payload"), dict) else row.get("payload") or row
-        if not isinstance(payload, dict):
-            continue
-        attendance_date = _parse_date(row.get("attendance_date")) or _attendance_date(payload)
-        status_payload = dict(payload)
-        if row.get("status") is not None:
-            status_payload["status"] = row.get("status")
-        if row.get("final_status") is not None:
-            status_payload["final_status"] = row.get("final_status")
-        status = _attendance_status(status_payload)
-        if not attendance_date or attendance_date < start or attendance_date > end or status not in ("P", "A"):
-            continue
-        latest_attendance_date = max(latest_attendance_date, attendance_date) if latest_attendance_date else attendance_date
-        row_name = row.get("employee_name") or _payload_name(payload)
-        for user_id, user_name in names_by_id.items():
-            if _name_matches(row_name, user_name):
-                # If a source has more than one mark in a day, Present wins over Absent.
-                if attendance_by_user[user_id].get(attendance_date) != "P":
-                    attendance_by_user[user_id][attendance_date] = status
-
-    leave_rows = rows
-
-    for row in leave_rows:
-        if not _looks_like_leave_table(row.get("source_table")):
-            continue
-        payload = row.get("payload")
-        if not isinstance(payload, dict) or not _is_countable_leave(payload):
-            continue
-        leave_start, leave_end = _leave_date_range(payload)
-        if not leave_start or not leave_end or leave_end < start or leave_start > end:
-            continue
-        row_name = _payload_name(payload)
-        for user_id, user_name in names_by_id.items():
-            if _name_matches(row_name, user_name):
-                clipped_start = max(leave_start, start)
-                clipped_end = min(leave_end, end)
-                leave_by_user[user_id].update(_iter_dates(clipped_start, clipped_end))
+    if att_rows or leave_rows:
+        for row in att_rows:
+            attendance_date = _parse_date(row.get("attendance_date"))
+            status_payload = {
+                "status": row.get("status"),
+                "final_status": row.get("final_status"),
+            }
+            status = _attendance_status(status_payload)
+            if not attendance_date or attendance_date < start or attendance_date > end or status not in ("P", "A"):
+                continue
+            latest_attendance_date = (
+                max(latest_attendance_date, attendance_date) if latest_attendance_date else attendance_date
+            )
+            row_name = row.get("employee_name") or ""
+            for user_id, user_name in names_by_id.items():
+                if _name_matches(row_name, user_name):
+                    if attendance_by_user[user_id].get(attendance_date) != "P":
+                        attendance_by_user[user_id][attendance_date] = status
+        for row in leave_rows:
+            payload = {
+                "start_date": row.get("leave_start_date"),
+                "end_date": row.get("leave_end_date"),
+                "status": row.get("status"),
+            }
+            if not _is_countable_leave(payload):
+                continue
+            leave_start, leave_end = _leave_date_range(payload)
+            if not leave_start or not leave_end or leave_end < start or leave_start > end:
+                continue
+            row_name = row.get("employee_name") or _payload_name(payload)
+            for user_id, user_name in names_by_id.items():
+                if _name_matches(row_name, user_name):
+                    clipped_start = max(leave_start, start)
+                    clipped_end = min(leave_end, end)
+                    leave_by_user[user_id].update(_iter_dates(clipped_start, clipped_end))
+    else:
+        rows = (
+            supabase.table("attendance_sync_records")
+            .select("source_table,payload")
+            .limit(10000)
+            .execute()
+            .data
+            or []
+        )
+        for row in rows:
+            if not _looks_like_attendance_table(row.get("source_table")):
+                continue
+            payload = row.get("payload") or {}
+            if not isinstance(payload, dict):
+                continue
+            attendance_date = _attendance_date(payload)
+            status = _attendance_status(payload)
+            if not attendance_date or attendance_date < start or attendance_date > end or status not in ("P", "A"):
+                continue
+            latest_attendance_date = (
+                max(latest_attendance_date, attendance_date) if latest_attendance_date else attendance_date
+            )
+            row_name = _payload_name(payload)
+            for user_id, user_name in names_by_id.items():
+                if _name_matches(row_name, user_name):
+                    if attendance_by_user[user_id].get(attendance_date) != "P":
+                        attendance_by_user[user_id][attendance_date] = status
+        for row in rows:
+            if not _looks_like_leave_table(row.get("source_table")):
+                continue
+            payload = row.get("payload")
+            if not isinstance(payload, dict) or not _is_countable_leave(payload):
+                continue
+            leave_start, leave_end = _leave_date_range(payload)
+            if not leave_start or not leave_end or leave_end < start or leave_start > end:
+                continue
+            row_name = _payload_name(payload)
+            for user_id, user_name in names_by_id.items():
+                if _name_matches(row_name, user_name):
+                    clipped_start = max(leave_start, start)
+                    clipped_end = min(leave_end, end)
+                    leave_by_user[user_id].update(_iter_dates(clipped_start, clipped_end))
 
     data_until = latest_attendance_date or min(end, datetime.now(timezone(timedelta(hours=5, minutes=30))).date())
     data_until = min(max(data_until, start), end)

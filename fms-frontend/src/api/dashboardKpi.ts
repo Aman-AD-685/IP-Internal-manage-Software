@@ -744,4 +744,27 @@ export const dashboardKpiApi = {
   clearActivePersonsCache: () => {
     sessionApiCacheRemove('dashboardKpi:activePersons')
   },
+
+  getCardSummaries: async (filters: { month: string; year: string; week: string }) => {
+    const key = `dashboardKpi:cardSummaries:${filters.year}:${filters.month}:${filters.week}`
+    const stale = sessionApiCacheGet<{ summaries: Record<string, { weekly: number | null; monthly: number | null }> }>(key)
+    if (stale?.summaries) {
+      void apiClient
+        .get<{ summaries: Record<string, { weekly: number | null; monthly: number | null }> }>(
+          '/dashboard/kpi-card-summaries',
+          { params: filters },
+        )
+        .then((r) => sessionApiCacheSet(key, r.data, API_CACHE_TTL_MS.dashboardKpiCardSummaries))
+        .catch(() => {})
+      return stale
+    }
+    const data = await apiClient
+      .get<{ summaries: Record<string, { weekly: number | null; monthly: number | null }> }>(
+        '/dashboard/kpi-card-summaries',
+        { params: filters },
+      )
+      .then((r) => r.data)
+    sessionApiCacheSet(key, data, API_CACHE_TTL_MS.dashboardKpiCardSummaries)
+    return data
+  },
 }
