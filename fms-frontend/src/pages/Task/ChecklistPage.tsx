@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   Card,
   Typography,
@@ -25,6 +25,7 @@ import {
   type ChecklistOccurrence,
 } from '../../api/checklist'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
+import { SectionEmptyState } from '../../components/common/SectionEmptyState'
 import { DEFAULT_INFINITE_CHUNK, useInfiniteScrollChunk } from '../../hooks/useInfiniteScrollChunk'
 import { useContextMenu, buildChecklistRowMenu, useContextMenuTrigger, buildPageSurfaceMenu } from '../../contextMenu'
 import { ContextMenuTarget } from '../../components/common/ContextMenuTarget'
@@ -38,6 +39,13 @@ import { ChecklistNaModal } from '../../components/tasks/ChecklistNaModal'
 const { Title, Text } = Typography
 
 type FilterType = 'today' | 'completed' | 'overdue' | 'upcoming'
+
+const CHECKLIST_FILTER_LABELS: Record<FilterType, string> = {
+  today: 'today',
+  completed: 'completed',
+  overdue: 'overdue (date crossed)',
+  upcoming: 'upcoming',
+}
 
 const formatDate = (d: string) => dayjs(d).format('DD/MM/YYYY')
 const formatDay = (d: string) => dayjs(d).format('dddd')
@@ -68,6 +76,7 @@ export const ChecklistPage = () => {
   const [users, setUsers] = useState<{ id: string; full_name: string }[]>([])
   const [selectedUserId, setSelectedUserId] = useState<string | undefined>(undefined)
   const initialChecklistUserSet = useRef(false)
+  const loadGenerationRef = useRef(0)
   const [referenceNoFilter, setReferenceNoFilter] = useState<string>('__all__')
   const [filter, setFilter] = useState<FilterType>('today')
   const [loading, setLoading] = useState(false)
@@ -86,6 +95,7 @@ export const ChecklistPage = () => {
 
   const loadChecklistData = useCallback(() => {
     const uid = apiUserId
+    const generation = ++loadGenerationRef.current
     const tasksKey = genericLogicalKey('checklist:tasks', { user_id: uid, reference_no: refNoParam })
     const occKey = genericLogicalKey('checklist:occurrences', {
       filter,
@@ -95,6 +105,7 @@ export const ChecklistPage = () => {
     const cachedTasks = sessionApiCacheGet<{ tasks: ChecklistTask[] }>(tasksKey)
     const cachedOcc = sessionApiCacheGet<{ occurrences: ChecklistOccurrence[] }>(occKey)
     if (cachedTasks?.tasks && cachedOcc?.occurrences) {
+      if (generation !== loadGenerationRef.current) return
       setTasks(cachedTasks.tasks)
       setOccurrences(cachedOcc.occurrences)
       setLoading(false)
@@ -108,13 +119,20 @@ export const ChecklistPage = () => {
       isAdmin ? checklistApi.getUsers() : Promise.resolve({ users: [] as { id: string; full_name: string }[] }),
     ])
       .then(([tasksRes, occRes, deptRes, usersRes]) => {
+        if (generation !== loadGenerationRef.current) return
         setTasks(tasksRes.tasks || [])
         setOccurrences(occRes.occurrences || [])
         setDepartments(deptRes.departments || [])
         setUsers(usersRes.users || [])
       })
-      .catch(() => message.error('Failed to load checklist'))
-      .finally(() => setLoading(false))
+      .catch(() => {
+        if (generation !== loadGenerationRef.current) return
+        message.error('Failed to load checklist')
+      })
+      .finally(() => {
+        if (generation !== loadGenerationRef.current) return
+        setLoading(false)
+      })
   }, [apiUserId, refNoParam, filter, isAdmin])
 
   useEffect(() => {
@@ -123,27 +141,36 @@ export const ChecklistPage = () => {
 
   // Default user filter to logged-in user (admins can switch to another user or All Users)
   useEffect(() => {
-    if (user?.id && !initialChecklistUserSet.current) {
-      const userIdFromUrl = new URLSearchParams(location.search).get('userId')?.trim()
-      if (isAdmin && userIdFromUrl === 'all') {
-        setSelectedUserId(CHECKLIST_ALL_USERS)
-      } else if (isAdmin && userIdFromUrl) {
-        setSelectedUserId(userIdFromUrl)
-      } else {
-        setSelectedUserId(user.id)
-      }
-      initialChecklistUserSet.current = true
+    if (!user?.id || initialChecklistUserSet.current) return
+    const userIdFromUrl = new URLSearchParams(location.search).get('userId')?.trim()
+    if (isAdmin && userIdFromUrl === 'all') {
+      setSelectedUserId(CHECKLIST_ALL_USERS)
+    } else if (isAdmin && userIdFromUrl) {
+      setSelectedUserId(userIdFromUrl)
+    } else {
+      setSelectedUserId(user.id)
     }
+    initialChecklistUserSet.current = true
   }, [isAdmin, location.search, user?.id])
 
   useEffect(() => {
-    if (!user?.id) return
+    if (!user?.id || !initialChecklistUserSet.current) return
     loadChecklistData()
   }, [user?.id, selectedUserId, filter, refNoParam, loadChecklistData])
 
+  const tasksForUser = useMemo(() => {
+    if (!apiUserId) return tasks
+    return tasks.filter((t) => String(t.doer_id) === String(apiUserId))
+  }, [tasks, apiUserId])
+
+  const occurrencesForUser = useMemo(() => {
+    if (!apiUserId) return occurrences
+    return occurrences.filter((o) => String(o.doer_id) === String(apiUserId))
+  }, [occurrences, apiUserId])
+
   const referenceNoOptions = [
     { label: 'All', value: '__all__' },
-    ...Array.from(new Set(tasks.map((t) => t.reference_no).filter(Boolean)))
+    ...Array.from(new Set(tasksForUser.map((t) => t.reference_no).filter(Boolean)))
       .sort()
       .map((ref) => ({ label: ref!, value: ref! })),
   ]
@@ -264,7 +291,35 @@ export const ChecklistPage = () => {
     total: totalOccurrences,
     visibleCount: visibleOccurrenceCount,
     hasMore: occurrencesHasMore,
-  } = useInfiniteScrollChunk({ items: occurrences, chunkSize: DEFAULT_INFINITE_CHUNK, loading })
+  } = useInfiniteScrollChunk({ items: occurrencesForUser, chunkSize: DEFAULT_INFINITE_CHUNK, loading })
+
+  const checklistEmptyContent = useMemo(() => {
+    if (loading) return undefined
+    if (referenceNoFilter !== '__all__') {
+      return (
+        <SectionEmptyState
+          variant="no-filter-results"
+          title="No checklist tasks for this reference."
+          primaryAction={{
+            label: 'Clear reference filter',
+            onClick: () => setReferenceNoFilter('__all__'),
+          }}
+        />
+      )
+    }
+    return (
+      <SectionEmptyState
+        variant="no-data"
+        title={`No ${CHECKLIST_FILTER_LABELS[filter]} tasks.`}
+        description={
+          filter === 'today'
+            ? 'Add a recurring task or switch to another tab.'
+            : 'Try another filter tab or add a task.'
+        }
+        primaryAction={{ label: 'Add Task', onClick: () => setAddTaskModalOpen(true) }}
+      />
+    )
+  }, [loading, referenceNoFilter, filter])
 
   const checklistCreateHref = buildOpenActionUrl(
     location.pathname,
@@ -284,15 +339,22 @@ export const ChecklistPage = () => {
   )
 
   return (
-    <div style={{ padding: 24 }} {...pageSurfaceMenu}>
-      <Title level={4} className="page-main-heading">
-        <CheckSquareOutlined style={{ marginRight: 8 }} />
-        Checklist
-      </Title>
-
-      {/* Add Task button only - form opens in modal */}
-      <div style={{ marginBottom: 24 }}>
-        <Space wrap>
+    <div style={{ maxWidth: 1600, margin: '0 auto', padding: '0 0 16px' }} {...pageSurfaceMenu}>
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          marginBottom: 16,
+        }}
+      >
+        <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
+          <CheckSquareOutlined style={{ marginRight: 8 }} />
+          Checklist
+        </Title>
+        <Space wrap size="small">
           <ContextMenuTarget openHref={checklistCreateHref} openLabel="Add Task">
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddTaskModalOpen(true)}>
               Add Task
@@ -304,13 +366,9 @@ export const ChecklistPage = () => {
         </Space>
       </div>
 
-      {/* Upload Holiday List - from Dec 15 for next year (Admin only) */}
       {isAdmin && canUploadHolidays && (
-        <Card style={{ marginBottom: 24 }}>
-          <Button
-            icon={<UploadOutlined />}
-            onClick={() => setHolidayModalOpen(true)}
-          >
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Button icon={<UploadOutlined />} onClick={() => setHolidayModalOpen(true)}>
             Upload Holiday List
           </Button>
           <Text type="secondary" style={{ marginLeft: 12 }}>
@@ -319,44 +377,23 @@ export const ChecklistPage = () => {
         </Card>
       )}
 
-      {/* User filter for Admin / Master Admin */}
-      {isAdmin && users.length > 0 && (
-        <Card style={{ marginBottom: 24 }}>
-          <Space>
-            <Text>Filter by User:</Text>
-            <AntSelect
-              showSearch
-              optionFilterProp="label"
-              placeholder="All users"
-              style={{ width: 220 }}
-              value={selectedUserId ?? CHECKLIST_ALL_USERS}
-              onChange={(v) => setSelectedUserId(v ?? CHECKLIST_ALL_USERS)}
-              options={[
-                { label: 'All Users', value: CHECKLIST_ALL_USERS },
-                ...users.map((u) => ({ label: u.full_name, value: u.id })),
-              ]}
-            />
-          </Space>
-        </Card>
-      )}
-
-      {/* Task List with filter dropdown */}
       <Card
         title="Task List"
+        className="checklist-task-list-card"
         extra={
-          <Space wrap>
+          <Space wrap size="small" className="checklist-task-list-filters">
             <Text type="secondary">Reference No:</Text>
             <AntSelect
               value={referenceNoFilter}
               onChange={setReferenceNoFilter}
-              style={{ width: 140 }}
+              style={{ width: 130, minWidth: 100 }}
               options={referenceNoOptions}
             />
             <Text type="secondary">Filter:</Text>
             <AntSelect
               value={filter}
               onChange={(v) => setFilter(v as FilterType)}
-              style={{ width: 240 }}
+              style={{ width: 220, minWidth: 160 }}
               options={[
                 { value: 'today', label: "Today's Tasks" },
                 { value: 'completed', label: 'Completed' },
@@ -364,6 +401,21 @@ export const ChecklistPage = () => {
                 { value: 'upcoming', label: 'Upcoming' },
               ]}
             />
+            {isAdmin && users.length > 0 ? (
+              <AntSelect
+                showSearch
+                optionFilterProp="label"
+                placeholder="All users"
+                aria-label="User"
+                style={{ width: 180, minWidth: 140 }}
+                value={selectedUserId ?? CHECKLIST_ALL_USERS}
+                onChange={(v) => setSelectedUserId(v ?? CHECKLIST_ALL_USERS)}
+                options={[
+                  { label: 'All Users', value: CHECKLIST_ALL_USERS },
+                  ...users.map((u) => ({ label: u.full_name, value: u.id })),
+                ]}
+              />
+            ) : null}
           </Space>
         }
       >
@@ -375,6 +427,7 @@ export const ChecklistPage = () => {
               rowKey={(r) => `${r.task_id}-${r.occurrence_date}`}
               loading={false}
               pagination={false}
+              locale={{ emptyText: checklistEmptyContent }}
               onRow={(record) => ({
                 onContextMenu: (e) => {
                   e.preventDefault()

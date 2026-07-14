@@ -164,11 +164,8 @@ export function ClientPaymentPage() {
   } | null>(null)
   const [paymentReceiveCreatedAt, setPaymentReceiveCreatedAt] = useState<string | null>(null)
   const [currentFollowupNo, setCurrentFollowupNo] = useState(1)
-  const [companyNameFilter, setCompanyNameFilter] = useState('')
   const [exportOpen, setExportOpen] = useState(false)
   const [selectedExportColumns, setSelectedExportColumns] = useState<string[]>([])
-  /** Open list only: show rows where Invoice Sent is saved but payment is not yet received. */
-  const [awaitingPaymentReceiveOnly, setAwaitingPaymentReceiveOnly] = useState(false)
   /** active = default list (hide NA); na = only NA-marked invoices */
   const [naListView, setNaListView] = useState<'active' | 'na'>('active')
   const [markedNaSupported, setMarkedNaSupported] = useState(false)
@@ -1227,22 +1224,7 @@ export function ClientPaymentPage() {
     daysSinceCreated >= 0 &&
     daysSinceCreated <= CLIENT_PAYMENT_EDIT_DAYS
 
-  const companyFilterNorm = companyNameFilter.trim().toLowerCase()
-  const filteredRecords = useMemo(() => {
-    let list = records
-    if (companyFilterNorm) {
-      list = list.filter((r) => (r.company_name || '').toLowerCase().includes(companyFilterNorm))
-    }
-    if (awaitingPaymentReceiveOnly && isOpenList) {
-      list = list.filter((r) => r.invoice_sent_submitted && r.status !== 'Completed')
-    }
-    return list
-  }, [records, companyFilterNorm, awaitingPaymentReceiveOnly, isOpenList])
-
-  const awaitingPaymentReceiveCount = useMemo(
-    () => records.filter((r) => r.invoice_sent_submitted && r.status !== 'Completed').length,
-    [records],
-  )
+  const filteredRecords = records
 
   const clientPaymentChunkSize = isCompRegister ? Math.max(filteredRecords.length, 1) : DEFAULT_INFINITE_CHUNK
 
@@ -1295,48 +1277,42 @@ export function ClientPaymentPage() {
     isOpenList && openListTotal > 0 && records.length < openListTotal
 
   return (
-    <div style={{ padding: 24 }}>
+    <div style={{ maxWidth: 1600, margin: '0 auto', padding: '0 0 16px' }}>
       <Space
         className="page-toolbar-row"
-        style={{ marginBottom: 24, width: '100%', alignItems: 'center' }}
+        style={{ marginBottom: 16, width: '100%', alignItems: 'center', justifyContent: 'space-between' }}
         wrap
         size="middle"
       >
-        <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
-          {pageTitle}
-        </Title>
-        <OperationsSectionTabs module="client-payment" />
         <Space wrap align="center" size="middle">
+          <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
+            {pageTitle}
+          </Title>
+          <OperationsSectionTabs module="client-payment" />
+        </Space>
+        <Space wrap align="center" size="small">
           {isOpenList ? (
-            <>
-              <Select
-                aria-label="Invoice list filter"
-                style={{ width: 168 }}
-                value={naListView}
-                options={[
-                  { value: 'active', label: 'Active invoices' },
-                  { value: 'na', label: 'NA only' },
-                ]}
-                onChange={(v) => setNaListView(v as 'active' | 'na')}
-                disabled={!markedNaSupported}
-                title={
-                  markedNaSupported
-                    ? undefined
-                    : 'Run database/CLIENT_PAYMENT_MARKED_NA.sql in Supabase to enable NA filter'
-                }
-              />
-              <Checkbox checked={awaitingPaymentReceiveOnly} onChange={(e) => setAwaitingPaymentReceiveOnly(e.target.checked)}>
-                Awaiting Payment Received
-              </Checkbox>
-              <Text type="secondary" style={{ whiteSpace: 'nowrap' }}>
-                {awaitingPaymentReceiveCount} row{awaitingPaymentReceiveCount === 1 ? '' : 's'} need Payment Received
-              </Text>
-            </>
+            <Select
+              aria-label="Invoice list filter"
+              style={{ width: 168 }}
+              value={naListView}
+              options={[
+                { value: 'active', label: 'Active invoices' },
+                { value: 'na', label: 'NA only' },
+              ]}
+              onChange={(v) => setNaListView(v as 'active' | 'na')}
+              disabled={!markedNaSupported}
+              title={
+                markedNaSupported
+                  ? undefined
+                  : 'Run database/CLIENT_PAYMENT_MARKED_NA.sql in Supabase to enable NA filter'
+              }
+            />
           ) : null}
           {isCompRegister ? (
             <Select
               aria-label="Filter completed invoices by genre"
-              style={{ width: 240 }}
+              style={{ width: 220 }}
               value={compRegisterGenre || 'all'}
               options={[
                 { value: 'all', label: 'All genres (Q + M + HY)' },
@@ -1351,21 +1327,7 @@ export function ClientPaymentPage() {
               }}
             />
           ) : null}
-          <Input.Search
-            allowClear
-            placeholder="Search company name"
-            style={{ width: 'min(100vw - 48px, 320px)', minWidth: 200 }}
-            value={companyNameFilter}
-            onChange={(e) => setCompanyNameFilter(e.target.value)}
-            onSearch={(v) => setCompanyNameFilter(v)}
-            aria-label="Filter invoices by company name"
-          />
-          {companyFilterNorm ? (
-            <Text type="secondary">
-              {filteredRecords.length} of {records.length} rows
-            </Text>
-          ) : null}
-          {isOpenList && (
+          {isOpenList ? (
             <>
               <Button icon={<PlusOutlined />} onClick={openAddCompanyModal}>
                 Add Company
@@ -1374,13 +1336,13 @@ export function ClientPaymentPage() {
                 Add Invoice
               </Button>
             </>
-          )}
+          ) : null}
           <Button onClick={openExport}>Export</Button>
         </Space>
       </Space>
 
       {isOpenList ? (
-        <div style={{ marginBottom: 24 }}>
+        <div style={{ marginBottom: 16 }}>
           <PaymentAmountKpiCards loadFromApi refreshKey={kpiRefreshKey} />
         </div>
       ) : null}
@@ -1410,9 +1372,9 @@ export function ClientPaymentPage() {
                           </>
                         ) : (
                           <>
-                            Showing {visibleFilteredRecordCount} of {companyFilterNorm || awaitingPaymentReceiveOnly ? totalFilteredRecords : openListTotal || totalFilteredRecords} rows
+                            Showing {visibleFilteredRecordCount} of {openListTotal || totalFilteredRecords} rows
                             {filteredRecordsHasMore ? ' · scroll to show loaded rows' : ''}
-                            {!companyFilterNorm && !awaitingPaymentReceiveOnly && openListHasMoreServer ? (
+                            {openListHasMoreServer ? (
                               <Button
                                 size="small"
                                 type="link"

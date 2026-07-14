@@ -120,6 +120,33 @@ export const SuccessCardsRowSkeleton = () => (
   </Row>
 )
 
+/** KPI overview — two progress ring placeholders */
+export const KpiRingsSkeleton = () => (
+  <Row gutter={[16, 16]} className="universal-dashboard-kpi-rings" style={{ minHeight: 140 }}>
+    {[0, 1].map((i) => (
+      <Col xs={12} key={i} style={{ textAlign: 'center' }}>
+        <Skeleton.Avatar active size={88} shape="circle" />
+        <Skeleton.Input active size="small" style={{ width: 64, marginTop: 12, display: 'block', marginInline: 'auto' }} />
+      </Col>
+    ))}
+  </Row>
+)
+
+/** Support FMS — three small KPI tiles on Dashboard KPI page */
+export const SupportFmsTilesSkeleton = () => (
+  <Card className="kpi-section-card kpi-section-card--support-fms" style={{ marginTop: 16 }}>
+    <Row gutter={[16, 16]}>
+      {(['Response Delay', 'Completion Delay', 'Pending Chores & Bugs'] as const).map((label) => (
+        <Col xs={24} md={8} key={label}>
+          <Card size="small" title={label} className="kpi-support-card">
+            <Skeleton active paragraph={{ rows: 2 }} title={false} />
+          </Card>
+        </Col>
+      ))}
+    </Row>
+  </Card>
+)
+
 /** Full-page shell while auth or route data loads */
 export const PageSkeleton = () => (
   <div style={{ minHeight: '100vh', padding: 24, maxWidth: 1400, margin: '0 auto' }}>

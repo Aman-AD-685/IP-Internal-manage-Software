@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom'
 import { Layout } from 'antd'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
+import { MobileBottomNav } from './MobileBottomNav'
 import { SupportFormModal, type SupportFormPrefill } from '../forms/SupportFormModal'
 import { softSuggestionsApi } from '../../api/softSuggestions'
 import type { Ticket } from '../../api/tickets'
@@ -163,6 +164,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
         }}
       />
       <AmiMascot userName={user?.full_name || user?.email} />
+      <MobileBottomNav onMore={() => setSidebarOpen(true)} />
     </Layout>
   )
 }

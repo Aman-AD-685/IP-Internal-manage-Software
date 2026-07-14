@@ -247,14 +247,14 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
         {canImprovementI1 ? (
           <ContextMenuTarget openHref={improvementI1Href} openLabel="I - 1">
             <Button type="default" onClick={() => setI1Open(true)} className="kpi-header-trigger-btn">
-              I - 1
+              I-1
             </Button>
           </ContextMenuTarget>
         ) : null}
         {canImprovement ? (
           <ContextMenuTarget openHref={improvementHref} openLabel="Improvement">
             <Button type="default" icon={<BulbOutlined />} onClick={() => setImprovementOpen(true)}>
-              Improvement
+              <span className="header-desktop-label">Improvement</span>
             </Button>
           </ContextMenuTarget>
         ) : null}
@@ -274,7 +274,7 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
               overlayClassName="kpi-header-dropdown"
             >
               <Button type="default" icon={<DashboardOutlined />} className="kpi-header-trigger-btn">
-                Dashboard - KPI
+                <span className="header-desktop-label">Dashboard - KPI</span>
               </Button>
             </Dropdown>
           </ContextMenuTarget>
@@ -363,7 +363,7 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
           </Badge>
         </Dropdown>
         <Space>
-          <div style={{ textAlign: 'right' }}>
+          <div className="header-user-name" style={{ textAlign: 'right' }}>
             <Text strong style={{ display: 'block' }}>{user?.full_name}</Text>
           </div>
           <Dropdown menu={{ items: menuItems }} placement="bottomRight">

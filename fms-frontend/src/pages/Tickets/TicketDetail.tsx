@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { Card, Typography, Tag, Descriptions, Button, Space, message } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import { ticketsApi } from '../../api/tickets'
-import { LoadingSpinner } from '../../components/common/LoadingSpinner'
+import { DetailPageSkeleton } from '../../components/common/skeletons'
 import { PrintExport } from '../../components/common/PrintExport'
 import { formatDate } from '../../utils/helpers'
 import { ROUTES } from '../../utils/constants'
@@ -53,7 +53,7 @@ export const TicketDetail = () => {
     }
   }
 
-  if (loading) return <LoadingSpinner fullPage />
+  if (loading) return <DetailPageSkeleton />
   if (!ticket) return <div>Ticket not found</div>
 
   const getStatusColor = (status: string) => {

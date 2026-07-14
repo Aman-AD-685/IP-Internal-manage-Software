@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Industry Prime — IP Internal Management Software | Complete Documentation</title>
+<style>
+  :root{
+    --primary:#60A5FA;
+    --primary-dark:#2563EB;
+    --accent:#F59E0B;
+    --bg:#F5F7FB;
+    --sidebar-bg:#EEF1F6;
+    --card:#FFFFFF;
+    --text:#0F172A;
+    --text-2:#64748B;
+    --success:#22C55E;
+    --danger:#EF4444;
+    --border:#E2E8F0;
+    --code-bg:#0F172A;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth;scroll-padding-top:16px}
+  body{font-family:"Segoe UI",system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.6}
+  .layout{display:flex;min-height:100vh}
+
+  /* ---------- Sidebar TOC ---------- */
+  nav.toc{width:270px;flex-shrink:0;background:var(--sidebar-bg);border-right:1px solid var(--border);padding:24px 0;position:sticky;top:0;height:100vh;overflow-y:auto}
+  nav.toc .brand{padding:0 20px 18px;border-bottom:1px solid var(--border);margin-bottom:12px}
+  nav.toc .brand .logo{font-size:18px;font-weight:700;color:var(--primary-dark)}
+  nav.toc .brand .sub{font-size:11.5px;color:var(--text-2)}
+  nav.toc a{display:block;padding:7px 20px;color:var(--text-2);text-decoration:none;font-size:13.5px;border-left:3px solid transparent}
+  nav.toc a:hover{background:#E3E9F2;color:var(--text)}
+  nav.toc a.h{font-weight:600;color:var(--text);margin-top:6px}
+  nav.toc a.s{padding-left:34px;font-size:12.5px}
+
+  /* ---------- Main ---------- */
+  main{flex:1;max-width:1080px;padding:36px 48px 80px}
+  header.hero{background:linear-gradient(135deg,#1E3A5F 0%,#2563EB 60%,#60A5FA 100%);color:#fff;border-radius:14px;padding:38px 40px;margin-bottom:36px}
+  header.hero h1{font-size:30px;margin-bottom:6px}
+  header.hero p.tag{font-size:15px;opacity:.92;max-width:760px}
+  header.hero .chips{margin-top:16px;display:flex;flex-wrap:wrap;gap:8px}
+  .chip{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.3);padding:4px 12px;border-radius:99px;font-size:12.5px}
+  .chip.orange{background:var(--accent);border-color:var(--accent);font-weight:600}
+
+  section{margin-bottom:44px}
+  h2{font-size:22px;padding-bottom:8px;border-bottom:3px solid var(--primary);margin-bottom:18px;scroll-margin-top:20px}
+  h3{font-size:16.5px;margin:22px 0 10px;color:var(--primary-dark);scroll-margin-top:20px}
+  h4{font-size:14px;margin:16px 0 6px}
+  p{margin-bottom:10px}
+  ul,ol{margin:0 0 12px 22px}
+  li{margin-bottom:4px}
+  a{color:var(--primary-dark)}
+
+  .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px 22px;margin-bottom:14px;box-shadow:0 1px 2px rgba(15,23,42,.05)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin-bottom:14px}
+  .grid .card{margin-bottom:0}
+  .card h4{margin-top:0;color:var(--primary-dark)}
+  .card .kicker{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--accent);font-weight:700;margin-bottom:4px}
+
+  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:16px;font-size:13.5px}
+  th{background:#1E3A5F;color:#fff;text-align:left;padding:9px 12px;font-weight:600}
+  td{padding:8px 12px;border-top:1px solid var(--border);vertical-align:top}
+  tr:nth-child(even) td{background:#F8FAFD}
+
+  code{background:#E8EEF7;color:#1E3A5F;padding:1px 6px;border-radius:4px;font-family:Consolas,"Courier New",monospace;font-size:12.5px}
+  pre{background:var(--code-bg);color:#E2E8F0;padding:16px 18px;border-radius:8px;overflow-x:auto;margin-bottom:16px;font-size:13px;line-height:1.5}
+  pre code{background:none;color:inherit;padding:0}
+
+  .badge{display:inline-block;padding:1px 9px;border-radius:99px;font-size:11.5px;font-weight:600;margin-right:4px}
+  .badge.get{background:#DBEAFE;color:#1D4ED8}
+  .badge.post{background:#DCFCE7;color:#15803D}
+  .badge.put{background:#FEF3C7;color:#B45309}
+  .badge.del{background:#FEE2E2;color:#B91C1C}
+  .badge.ws{background:#EDE9FE;color:#6D28D9}
+  .badge.role{background:#E8EEF7;color:#1E3A5F}
+  .badge.ok{background:#DCFCE7;color:#15803D}
+  .badge.warn{background:#FEF3C7;color:#B45309}
+
+  /* ---------- Workflow steps ---------- */
+  .flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:14px 0 18px}
+  .flow .step{background:var(--card);border:1px solid var(--border);border-left:4px solid var(--primary);border-radius:8px;padding:10px 14px;font-size:13px;min-width:150px;max-width:230px;flex:1}
+  .flow .step b{display:block;color:var(--primary-dark);font-size:12.5px}
+  .flow .arrow{align-self:center;padding:0 10px;color:var(--accent);font-size:20px;font-weight:700}
+  .flow .step.end{border-left-color:var(--success)}
+  .flow .step.alert{border-left-color:var(--danger)}
+
+  /* ---------- Architecture diagram ---------- */
+  .arch{display:flex;flex-direction:column;gap:10px;margin:14px 0 18px}
+  .arch .tier{display:flex;gap:12px;align-items:stretch}
+  .arch .box{flex:1;border-radius:10px;padding:14px 16px;font-size:13px;border:1px solid var(--border)}
+  .arch .box b{display:block;font-size:14px;margin-bottom:3px}
+  .arch .fe{background:#EFF6FF;border-color:#93C5FD}
+  .arch .be{background:#FFF7ED;border-color:#FCD34D}
+  .arch .db{background:#F0FDF4;border-color:#86EFAC}
+  .arch .ext{background:#FAF5FF;border-color:#D8B4FE}
+  .arch .down{ text-align:center;color:var(--text-2);font-size:12px}
+
+  /* ---------- UI mock ---------- */
+  .uimock{border:1px solid var(--border);border-radius:10px;overflow:hidden;margin:14px 0 18px;background:var(--card);font-size:12.5px}
+  .uimock .mhead{background:#fff;border-bottom:1px solid var(--border);padding:9px 16px;display:flex;justify-content:space-between;align-items:center}
+  .uimock .mhead .t{font-weight:700;color:var(--primary-dark)}
+  .uimock .mhead .r{color:var(--text-2)}
+  .uimock .mbody{display:flex;min-height:230px}
+  .uimock .mside{width:190px;background:var(--sidebar-bg);border-right:1px solid var(--border);padding:10px 0}
+  .uimock .mside div{padding:6px 16px;color:var(--text-2)}
+  .uimock .mside div.sel{background:#DBEAFE;color:var(--primary-dark);font-weight:600;border-right:3px solid var(--primary)}
+  .uimock .mside div.grp{font-weight:700;color:var(--text);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-top:6px}
+  .uimock .mmain{flex:1;background:var(--bg);padding:14px}
+  .uimock .mcards{display:flex;gap:10px;margin-bottom:12px}
+  .uimock .mcard{flex:1;background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px 12px}
+  .uimock .mcard .n{font-size:19px;font-weight:700;color:var(--primary-dark)}
+  .uimock .mtbl{background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text-2)}
+  .swatches{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0 16px}
+  .sw{width:150px;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#fff}
+  .sw .c{height:44px}
+  .sw .l{padding:6px 10px;font-size:11.5px}
+  .sw .l b{display:block;font-size:12px}
+
+  .note{border-left:4px solid var(--accent);background:#FFFBEB;padding:12px 16px;border-radius:0 8px 8px 0;margin-bottom:14px;font-size:13.5px}
+  .note.blue{border-left-color:var(--primary);background:#EFF6FF}
+  .note.red{border-left-color:var(--danger);background:#FEF2F2}
+
+  footer{border-top:1px solid var(--border);padding-top:18px;color:var(--text-2);font-size:12.5px}
+
+  /* Mobile doc nav — top bar + full-screen TOC (single nav.toc reused) */
+  .doc-topbar{display:none;align-items:center;gap:12px;padding:10px 14px;background:#fff;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:40}
+  .doc-topbar-title{font-weight:700;font-size:14px;color:var(--primary-dark);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .doc-menu-btn,.doc-menu-close{appearance:none;border:1px solid var(--border);background:var(--sidebar-bg);color:var(--text);border-radius:8px;padding:8px 12px;font-size:14px;font-weight:600;cursor:pointer;line-height:1.2}
+  .doc-menu-btn:focus-visible,.doc-menu-close:focus-visible,nav.toc a:focus-visible{outline:2px solid var(--primary-dark);outline-offset:2px}
+  .doc-toc-drawer-head{display:none;align-items:center;justify-content:space-between;gap:12px;padding:0 20px 14px;border-bottom:1px solid var(--border);margin-bottom:12px}
+  .doc-toc-backdrop{display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:45}
+  body.doc-nav-open{overflow:hidden}
+
+  @media (max-width:900px){
+    .doc-topbar{display:flex}
+    .layout{flex-direction:column}
+    nav.toc{display:none}
+    body.doc-nav-open nav.toc{
+      display:block;position:fixed;inset:0;width:100%;height:100%;z-index:50;
+      padding:16px 0 32px;border-right:none
+    }
+    body.doc-nav-open .doc-toc-drawer-head{display:flex}
+    body.doc-nav-open .doc-toc-backdrop{display:block}
+    body.doc-nav-open nav.toc .brand{display:none}
+    main{padding:20px}
+    .arch .tier{flex-direction:column}
+    h2,h3{scroll-margin-top:64px}
+  }
+  @media print{
+    .doc-topbar,.doc-toc-backdrop,.doc-toc-drawer-head{display:none!important}
+    nav.toc{display:none!important}
+    main{max-width:none;padding:0}
+    header.hero{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  }
+</style>
+</head>
+<body>
+<div class="doc-toc-backdrop" id="doc-toc-backdrop" hidden></div>
+<header class="doc-topbar" aria-label="Document toolbar">
+  <button type="button" class="doc-menu-btn" id="doc-menu-open" aria-expanded="false" aria-controls="doc-toc">☰ Menu</button>
+  <span class="doc-topbar-title">Software Documentation</span>
+</header>
+<div class="layout">
+
+<!-- ============ TABLE OF CONTENTS ============ -->
+<nav class="toc" id="doc-toc" aria-label="Contents">
+  <div class="doc-toc-drawer-head">
+    <strong>Contents</strong>
+    <button type="button" class="doc-menu-close" id="doc-menu-close" aria-label="Close menu">×</button>
+  </div>
+  <div class="brand">
+    <div class="logo">Industry Prime</div>
+    <div class="sub">IP Internal Management Software — Documentation</div>
+  </div>
+  <a href="#overview" class="h">1. Overview</a>
+  <a href="#tech-stack" class="h">2. Tech Stack</a>
+  <a href="#architecture" class="h">3. Architecture</a>
+  <a href="#arch-backend" class="s">Backend structure</a>
+  <a href="#arch-frontend" class="s">Frontend structure</a>
+  <a href="#modules" class="h">4. Modules</a>
+  <a href="#design" class="h">5. Current Design (UI)</a>
+  <a href="#design-theme" class="s">Theme &amp; branding</a>
+  <a href="#design-nav" class="s">Navigation</a>
+  <a href="#mobile-doc-nav" class="s">Mobile HTML doc nav</a>
+  <a href="#design-pages" class="s">Pages</a>
+  <a href="#design-loading" class="s">Skeleton loading</a>
+  <a href="#design-empty" class="s">Empty states</a>
+  <a href="#roles" class="h">6. Roles &amp; Permissions</a>
+  <a href="#workflows" class="h">7. Workflows</a>
+  <a href="#wf-auth" class="s">Authentication</a>
+  <a href="#wf-ticket" class="s">Support ticket lifecycle</a>
+  <a href="#wf-payment" class="s">Client payment</a>
+  <a href="#wf-onboarding" class="s">Onboarding &amp; training</a>
+  <a href="#wf-task" class="s">Checklist &amp; delegation</a>
+  <a href="#wf-leads" class="s">Leads pipeline</a>
+  <a href="#wf-kpi" class="s">KPI dashboards</a>
+  <a href="#api" class="h">8. API Reference</a>
+  <a href="#database" class="h">9. Database Schema</a>
+  <a href="#jobs" class="h">10. Cron Jobs &amp; Email</a>
+  <a href="#deployment" class="h">11. Run &amp; Deployment</a>
+  <a href="#env" class="s">Environment variables</a>
+  <a href="#docs-index" class="h">12. Further Docs</a>
+</nav>
+
+<!-- ============ MAIN CONTENT ============ -->
+<main>
+
+<header class="hero">
+  <h1>Industry Prime — IP Internal Management Software</h1>
+  <p class="tag">Internal operations web application for Industry Prime teams: support tickets with multi-stage SLA, client onboarding, invoice &amp; payment tracking, payment ageing, training pipelines, lead management, daily task checklists, and per-person KPI dashboards — all behind role- and section-based access control.</p>
+  <div class="chips">
+    <span class="chip orange">Production</span>
+    <span class="chip">React 18 + TypeScript + Vite</span>
+    <span class="chip">Ant Design</span>
+    <span class="chip">FastAPI (Python 3.11)</span>
+    <span class="chip">Supabase / PostgreSQL</span>
+    <span class="chip">Vercel + Render</span>
+  </div>
+</header>
+
+<!-- ==================== 1. OVERVIEW ==================== -->
+<section id="overview">
+  <h2>1. Overview</h2>
+  <p><strong>Industry Prime — IP Internal Management Software</strong> (also known as <em>industryprime</em>, previously an FMS-style system) is the internal management platform used by Industry Prime's operations, support, success, onboarding, and sales teams. It is a single web application with one shared login, where each user sees only the sections granted to them.</p>
+
+  <table>
+    <tr><th>Item</th><th>Value</th></tr>
+    <tr><td>Product name</td><td>Industry Prime — IP Internal Management Software (<code>APP_NAME = 'IP Internal Management Software'</code>)</td></tr>
+    <tr><td>Live frontend</td><td><a href="https://industryprime.vercel.app">https://industryprime.vercel.app</a> (Vercel)</td></tr>
+    <tr><td>Live API</td><td><a href="https://ip-internal-manage-software.onrender.com">https://ip-internal-manage-software.onrender.com</a> (Render)</td></tr>
+    <tr><td>Repository layout</td><td><code>fms-frontend/</code> (SPA) · <code>backend/</code> (FastAPI) · <code>database/</code> &amp; <code>docs/</code> (SQL + module guides)</td></tr>
+    <tr><td>Users &amp; roles</td><td><code>user</code>, <code>approver</code>, <code>admin</code>, <code>master_admin</code> + per-section view/edit flags</td></tr>
+  </table>
+
+  <h3>What the software does</h3>
+  <div class="grid">
+    <div class="card"><div class="kicker">Support</div><h4>Tickets &amp; SLA</h4>Chores, bugs and features with a 4-stage workflow, planned vs actual dates, staging, feature approval via email, quality solutions, attachments, and repeat-issue detection.</div>
+    <div class="card"><div class="kicker">Onboarding</div><h4>Client Onboarding</h4>Payment-status records, pre-onboarding checklists, POC and setup stages, organisation master and item-cleaning steps.</div>
+    <div class="card"><div class="kicker">Finance</div><h4>Client Payment</h4>Raised invoices, invoice-sent records, follow-ups 1–10, intercept flows, payment received, discontinuation, and a payment ageing report.</div>
+    <div class="card"><div class="kicker">Training</div><h4>Client Training</h4>Per-client training stages, day-0 checklist, and links from feature training back to support tickets.</div>
+    <div class="card"><div class="kicker">Success</div><h4>Performance Monitoring</h4>Per-company performance grid, POC follow-ups, follow-up click tracking, NA exclusion, and success KPI dashboards.</div>
+    <div class="card"><div class="kicker">Sales</div><h4>Client to Lead</h4>Lead pipeline with per-stage JSON data, closed leads, and TSV/sheet import.</div>
+    <div class="card"><div class="kicker">Task</div><h4>Checklist &amp; Delegation</h4>Recurring daily checklists with holidays and NA marking, delegated tasks, and daily reminder emails.</div>
+    <div class="card"><div class="kicker">Analytics</div><h4>Dashboards &amp; KPIs</h4>Universal dashboard, support dashboard, and per-person KPI boards (Shreyasi, Rimpa, Akash, Adrija, Soumya, Souvik) with daily work-log scoring.</div>
+    <div class="card"><div class="kicker">Admin</div><h4>Users &amp; Settings</h4>User management, section-permission matrix, email/cron configuration, escalation receivers, and a global system lock.</div>
+  </div>
+</section>
+
+<!-- ==================== 2. TECH STACK ==================== -->
+<section id="tech-stack">
+  <h2>2. Tech Stack</h2>
+  <table>
+    <tr><th>Layer</th><th>Technology</th><th>Details</th></tr>
+    <tr><td>Frontend</td><td>React 18, TypeScript, Vite 5</td><td>SPA in <code>fms-frontend/</code>; entry <code>src/main.tsx</code> → <code>src/App.tsx</code></td></tr>
+    <tr><td>UI library</td><td>Ant Design (<code>antd</code> + <code>@ant-design/icons</code>)</td><td>Custom industrial theme in <code>src/theme/industrialTheme.ts</code></td></tr>
+    <tr><td>Data fetching</td><td>TanStack React Query + Axios</td><td>API clients in <code>src/api/*.ts</code>; dates via <code>dayjs</code></td></tr>
+    <tr><td>Charts</td><td>Recharts, react-simple-maps</td><td>KPI graphs and maps; animations via <code>framer-motion</code></td></tr>
+    <tr><td>Backend</td><td>FastAPI on Python 3.11, Uvicorn</td><td>Monolithic core <code>backend/app/main.py</code> (~100 endpoints) + separate route modules</td></tr>
+    <tr><td>Database / Auth / Storage</td><td>Supabase (PostgreSQL, Auth, Storage, PostgREST)</td><td>JWT auth; attachments in bucket <code>ticket-attachments</code>; RLS strategy in <code>05_SECURITY_RLS_STRATEGY.md</code></td></tr>
+    <tr><td>Email</td><td>SendGrid API with SMTP fallback</td><td><code>backend/app/utils/email.py</code>; supports Postmark, Brevo, Gmail SMTP</td></tr>
+    <tr><td>Scheduling</td><td>cron-job.org (external)</td><td>Calls secured cron endpoints with <code>X-Cron-Secret</code> headers</td></tr>
+    <tr><td>Hosting</td><td>Vercel (frontend) + Render (API)</td><td>Render keepalive via GitHub Action pinging <code>/health</code> every 5 min</td></tr>
+    <tr><td>Optional infra</td><td>Docker, NGINX</td><td><code>backend/Dockerfile</code> (port 8000), <code>docker-compose.nginx.yml</code> load balancer</td></tr>
+  </table>
+  <div class="note">The legacy docs <code>01_HIGH_LEVEL_ARCHITECTURE.md</code>–<code>05_SECURITY_RLS_STRATEGY.md</code> describe a Next.js + Tailwind stack. The <strong>actual, current stack</strong> is React + Vite + Ant Design as listed above (confirmed by <code>README.md</code> and the code in <code>fms-frontend/</code>).</div>
+</section>
+
+<!-- ==================== 3. ARCHITECTURE ==================== -->
+<section id="architecture">
+  <h2>3. Architecture</h2>
+
+  <div class="arch">
+    <div class="tier">
+      <div class="box fe"><b>Browser — Vite SPA (Vercel)</b>React + Ant Design · React Query cache · JWT in sessionStorage (mirrored to localStorage for cross-tab) · <code>ProtectedRoute</code> guards by role + section keys</div>
+    </div>
+    <div class="down">▼ &nbsp; HTTPS — dev proxy <code>/api/*</code> or <code>VITE_API_BASE_URL</code> in production &nbsp; ▼</div>
+    <div class="tier">
+      <div class="box be"><b>FastAPI backend (Render)</b><code>backend/app/main.py</code> + route modules · auth middleware validates Supabase JWT · section-permission checks · rate limiting · in-process TTL caches (<code>cachetools</code>) · WebSocket <code>/ws</code> for system-lock + release broadcasts</div>
+    </div>
+    <div class="down">▼ &nbsp; Supabase client / PostgREST / Storage API &nbsp; ▼</div>
+    <div class="tier">
+      <div class="box db"><b>Supabase</b>PostgreSQL (all business tables) · Auth (email + password, confirmation mails) · Storage bucket <code>ticket-attachments</code></div>
+      <div class="box ext"><b>External services</b>cron-job.org → cron endpoints · SendGrid / SMTP for email · second Supabase project as attendance source · GitHub Action keepalive</div>
+    </div>
+  </div>
+
+  <p>Every API route is mounted twice — at the root (e.g. <code>/tickets</code>) and under <code>/api</code> (e.g. <code>/api/tickets</code>) — so both the dev proxy and direct production calls work with the same code.</p>
+
+  <h3 id="arch-backend">Backend structure</h3>
+  <table>
+    <tr><th>File</th><th>Responsibility</th></tr>
+    <tr><td><code>app/main.py</code></td><td>Core: auth, tickets, dashboards, companies, onboarding, client payment, training, success, tasks, leads, users/permissions, solutions, staging (~100 endpoints)</td></tr>
+    <tr><td><code>app/feature_approval_reminder_routes.py</code></td><td>Feature-approval reminder recipients, schedule, logs, cron run</td></tr>
+    <tr><td><code>app/approval_email_pages.py</code></td><td>Public (no-login) HTML approve/reject/hold pages: <code>/approval/email-action</code></td></tr>
+    <tr><td><code>app/escalation_email_routes.py</code> + <code>escalation_email_service.py</code></td><td>Escalation email config, receivers, preview, cron sends</td></tr>
+    <tr><td><code>app/cron_email_routes.py</code> + <code>cron_email_batch.py</code></td><td>Batch runner <code>/cron/run-all-emails</code>, job keys, working-day check</td></tr>
+    <tr><td><code>app/improvement_suggestions_routes.py</code></td><td>Improvement button + I-1 board CRUD</td></tr>
+    <tr><td><code>app/soft_suggestions_routes.py</code></td><td>IP Suggestion / IP Details CRUD</td></tr>
+    <tr><td><code>app/system_lock_routes.py</code></td><td>Global read-only lock: status, lock/unlock, audit</td></tr>
+    <tr><td><code>app/ws_routes.py</code></td><td>WebSocket <code>/ws</code>; release notify broadcast</td></tr>
+    <tr><td><code>app/attendance_sync_routes.py</code></td><td>Mirror attendance data from a second Supabase project</td></tr>
+    <tr><td><code>app/auth_middleware.py</code>, <code>section_permissions_util.py</code>, <code>rate_limit.py</code></td><td>JWT validation, section-permission helper, rate limiting</td></tr>
+    <tr><td><code>app/dashboard_kpi_sections.py</code>, <code>payment_ageing.py</code>, <code>ticket_similarity.py</code>, <code>ticket_na.py</code>, <code>performance_na.py</code></td><td>Domain helpers: KPI pillars, ageing math, similar-ticket detection, NA logic</td></tr>
+    <tr><td><code>app/utils/email.py</code>, <code>app/supabase_client.py</code></td><td>Email provider abstraction; Supabase client factory</td></tr>
+  </table>
+
+  <h3 id="arch-frontend">Frontend structure</h3>
+  <table>
+    <tr><th>Area</th><th>Files</th></tr>
+    <tr><td>Routing &amp; shell</td><td><code>src/App.tsx</code> (routes), <code>src/utils/constants.ts</code> (<code>ROUTES</code>, <code>SECTION_LABELS</code>, <code>PERMISSION_SECTION_KEYS</code>), <code>AppLayout</code>, <code>Sidebar</code>, <code>Header</code>, <code>ProtectedRoute</code></td></tr>
+    <tr><td>Auth pages</td><td><code>src/pages/auth/</code> — Login, Register, Forgot Password, Reset Password; public <code>/approval/confirm</code></td></tr>
+    <tr><td>Dashboards</td><td><code>components/dashboard/Dashboard.tsx</code>, <code>pages/Dashboard/DashboardKPIPage.tsx</code>, <code>pages/Support/SupportDashboard.tsx</code></td></tr>
+    <tr><td>Support</td><td><code>pages/Tickets/TicketList.tsx</code>, <code>TicketDetail.tsx</code>, <code>pages/Staging/StagingList.tsx</code></td></tr>
+    <tr><td>Task</td><td><code>pages/Task/ChecklistPage.tsx</code>, <code>DelegationPage.tsx</code></td></tr>
+    <tr><td>Success</td><td><code>pages/Success/PerformanceMonitoringPage.tsx</code>, <code>CompPerformPage.tsx</code>, <code>DashboardPage.tsx</code></td></tr>
+    <tr><td>Onboarding / Payment</td><td><code>pages/Onboarding/PaymentStatusPage.tsx</code>, <code>ClientPaymentPage.tsx</code>, <code>PaymentAgeingReportPage.tsx</code>, <code>PendingPaymentDetailsPage.tsx</code></td></tr>
+    <tr><td>Training / DB Client / Leads</td><td><code>pages/Training/ClientTrainingPage.tsx</code>, <code>pages/DbClient/ClientOnbPage.tsx</code>, <code>DbDashPage.tsx</code>, <code>pages/Leads/LeadListPage.tsx</code>, <code>LeadImportPage.tsx</code></td></tr>
+    <tr><td>Admin</td><td><code>pages/Users/UserList.tsx</code>, <code>pages/Settings/SettingsPage.tsx</code></td></tr>
+    <tr><td>API layer</td><td><code>src/api/axios.ts</code> plus per-domain clients (<code>tickets.ts</code>, <code>dashboard.ts</code>, <code>onboarding.ts</code>, …)</td></tr>
+  </table>
+</section>
+
+<!-- ==================== 4. MODULES ==================== -->
+<section id="modules">
+  <h2>4. Modules</h2>
+  <table>
+    <tr><th>Module</th><th>Route(s)</th><th>What it covers</th></tr>
+    <tr><td><b>Universal Dashboard</b></td><td><code>/dashboard</code></td><td>Today snapshot, my work, KPI overview, operations tiles, attendance/leave summary, payment actions</td></tr>
+    <tr><td><b>Dashboard KPI</b></td><td><code>/dashboard/kpi</code>, <code>/success/dashboard</code></td><td>Per-person weekly/monthly KPI cards, checklist/delegation %, support FMS %, daily work-log entry</td></tr>
+    <tr><td><b>Support</b></td><td><code>/tickets</code>, <code>/tickets/:id</code>, <code>/staging</code>, <code>/support/dashboard</code></td><td>Chores &amp; Bugs, Feature, Approval Status, Register of Tickets, staging deployments, support statistics</td></tr>
+    <tr><td><b>Success</b></td><td><code>/success/performance</code>, <code>/success/comp-perform</code>, <code>/success/su-dash</code></td><td>Company performance monitoring, comp-perform view, success dashboards</td></tr>
+    <tr><td><b>Client to Lead</b></td><td><code>/client-to-lead/leads</code>, <code>/client-to-lead/import</code></td><td>Lead pipeline, closed leads, import from sheet</td></tr>
+    <tr><td><b>Onboarding</b></td><td><code>/onboarding/payment-status</code></td><td>Record of onboarding: payment status, pre-onboarding, POC, setup stages</td></tr>
+    <tr><td><b>Client Payment</b></td><td><code>/onboarding/client-payment</code> (+ <code>payment-ageing</code>, <code>pending-payment-details</code>)</td><td>Raised invoices, follow-ups, intercepts, receipts, ageing report</td></tr>
+    <tr><td><b>Training</b></td><td><code>/training/client-training</code></td><td>Client training stages and day-0 checklist</td></tr>
+    <tr><td><b>DB Client</b></td><td><code>/db-client/client-onb</code>, <code>/db-client/db-dash</code></td><td>Client onboarding tracker (active/inactive), DB dashboard (email-restricted)</td></tr>
+    <tr><td><b>Task</b></td><td><code>/task/checklist</code>, <code>/task/delegation</code></td><td>Daily checklist with NA/holidays; delegated tasks; email reminders</td></tr>
+    <tr><td><b>Suggestions</b></td><td>Header drawers</td><td>IP Suggestion, IP Details, Improvement, I-1 board</td></tr>
+    <tr><td><b>Admin</b></td><td><code>/users</code>, <code>/settings</code></td><td>User management, permission matrix, email/cron settings, escalation config, system lock</td></tr>
+  </table>
+</section>
+
+<!-- ==================== 5. CURRENT DESIGN ==================== -->
+<section id="design">
+  <h2>5. Current Design (UI)</h2>
+
+  <h3 id="design-theme">Theme &amp; branding</h3>
+  <p>The UI follows the <em>industrial theme</em> defined in <code>fms-frontend/src/theme/industrialTheme.ts</code> (full spec in <code>docs/INDUSTRIAL_UI_DESIGN_SPEC.md</code>, mockups in <code>docs/mockups/</code>). Font stack: <strong>Segoe UI / system-ui</strong>. The application title shown in the header is <strong>IP Internal Management Software</strong>.</p>
+
+  <div class="swatches">
+    <div class="sw"><div class="c" style="background:#60A5FA"></div><div class="l"><b>#60A5FA</b>Primary blue — links, selected menu items</div></div>
+    <div class="sw"><div class="c" style="background:#F59E0B"></div><div class="l"><b>#F59E0B</b>Accent orange — primary buttons</div></div>
+    <div class="sw"><div class="c" style="background:#F5F7FB"></div><div class="l"><b>#F5F7FB</b>Page background</div></div>
+    <div class="sw"><div class="c" style="background:#EEF1F6"></div><div class="l"><b>#EEF1F6</b>Sidebar background</div></div>
+    <div class="sw"><div class="c" style="background:#0F172A"></div><div class="l"><b>#0F172A</b>Primary text (secondary: #64748B)</div></div>
+    <div class="sw"><div class="c" style="background:#22C55E"></div><div class="l"><b>#22C55E</b>Success green</div></div>
+    <div class="sw"><div class="c" style="background:#EF4444"></div><div class="l"><b>#EF4444</b>Danger red</div></div>
+  </div>
+
+  <h3 id="design-nav">Navigation &amp; layout</h3>
+  <p>The app uses a fixed left sidebar (<code>Sidebar.tsx</code>) with an expandable <em>Operations</em> group, a top header with the notification bell (stage-2 remark alerts) and drawer buttons, and a main content area. A representative layout:</p>
+
+  <div class="uimock">
+    <div class="mhead"><span class="t">IP Internal Management Software</span><span class="r">🔔 &nbsp; IP Suggestion · IP Details · Improvement · I-1 &nbsp; | &nbsp; user@industryprime</span></div>
+    <div class="mbody">
+      <div class="mside">
+        <div class="sel">Dashboard</div>
+        <div class="grp">Operations</div>
+        <div>Support ▾ &nbsp;<span style="font-size:10px">(Chores &amp; Bugs · Staging · Feature · Approval Status · Register)</span></div>
+        <div>Success ▾</div>
+        <div>Client to Lead ▾</div>
+        <div>Onboarding ▾</div>
+        <div>Training ▾</div>
+        <div>Client Payment ▾</div>
+        <div>DB Client ▾</div>
+        <div class="grp">Task</div>
+        <div>Checklist · Delegation</div>
+        <div class="grp">Admin</div>
+        <div>Users · Settings</div>
+      </div>
+      <div class="mmain">
+        <div class="mcards">
+          <div class="mcard"><div class="n">24</div>Open tickets</div>
+          <div class="mcard"><div class="n">92%</div>Checklist today</div>
+          <div class="mcard"><div class="n">7</div>Pending follow-ups</div>
+          <div class="mcard"><div class="n">₹ 4.2L</div>Payments due</div>
+        </div>
+        <div class="mtbl">Operations tiles · KPI overview · Attendance &amp; leave summary · Recent activity …</div>
+      </div>
+    </div>
+  </div>
+
+  <p>Sidebar items appear only when the logged-in user has the matching section permission. Two items additionally use email allowlists: <em>Pending Payment Details</em> and <em>DB-Dash</em>.</p>
+  <p><strong>Live app (React):</strong> On desktop/tablet, navigation uses a hamburger + Ant Design <code>Drawer</code> (<code>Header.tsx</code> / <code>Sidebar.tsx</code>). On phones (≤767px) the drawer is <strong>full-screen</strong> and a bottom tab bar offers Dashboard / Tickets / Tasks / More (<code>MobileBottomNav.tsx</code>). See <code>docs/MOBILE_DOC_NAV.md</code>.</p>
+
+  <h3 id="mobile-doc-nav">Mobile navigation for this HTML documentation</h3>
+  <div class="note red">Critical UX: historically <code>@media (max-width:900px){ nav.toc{display:none} }</code> hid the TOC with no replacement. This HTML file and <code>USER_GUIDE.html</code> now expose Contents via a top <strong>☰ Menu</strong> that opens the same <code>nav.toc</code> full-screen.</div>
+  <table>
+    <tr><th>Item</th><th>Detail</th></tr>
+    <tr><td>Root cause</td><td>TOC hard-hidden under 900px; no toggle control</td></tr>
+    <tr><td>Files</td><td><code>SOFTWARE_DOCUMENTATION.html</code>, <code>USER_GUIDE.html</code></td></tr>
+    <tr><td>Approach</td><td>Single <code>nav.toc</code> reused. On mobile, default <code>display:none</code>; <code>body.doc-nav-open</code> makes it <code>position:fixed; inset:0</code></td></tr>
+    <tr><td>Controls</td><td><code>#doc-menu-open</code>, <code>#doc-menu-close</code>, <code>#doc-toc-backdrop</code>; Escape closes; TOC anchor click closes</td></tr>
+    <tr><td>A11y</td><td><code>aria-expanded</code>, <code>aria-controls</code>, focus move to Close on open / Menu on close, focus-visible outlines</td></tr>
+    <tr><td>Desktop ≥901px</td><td>Sticky left TOC unchanged; top bar hidden</td></tr>
+    <tr><td>Print</td><td>TOC and top bar remain hidden</td></tr>
+    <tr><td>Non-goals</td><td>React layout changes; bottom tab bar; Ant Design in static HTML; npm deps</td></tr>
+  </table>
+  <div class="note blue">Staff-facing steps live in <code>USER_GUIDE.html</code> § <em>Using this guide on a phone</em>. Repo copy: <code>docs/MOBILE_DOC_NAV.md</code>.</div>
+
+  <h3 id="design-pages">What each major page shows</h3>
+  <table>
+    <tr><th>Page</th><th>Content</th></tr>
+    <tr><td>Universal Dashboard</td><td>Today snapshot, my work, KPI overview, operations tiles (support / success / onboarding / payment / training), attendance &amp; leave summary, payment actions</td></tr>
+    <tr><td>Dashboard KPI</td><td>Per-person weekly/monthly KPI cards, checklist &amp; delegation completion %, support FMS %, lazily-loaded detail modals, daily score entry</td></tr>
+    <tr><td>Support Dashboard</td><td>Open queue statistics, filtered views, weekly details, feature ticket boards</td></tr>
+    <tr><td>Tickets</td><td>Tabbed sections (Chores &amp; Bugs / Feature / Approval / Register), rich filters, SLA-delay columns, detail drawers, attachments, responses, stage-2 remarks</td></tr>
+    <tr><td>Staging</td><td>Staging deployment list and workflow actions</td></tr>
+    <tr><td>Checklist / Delegation</td><td>Task lists with complete / NA actions, holiday awareness, admin per-user filters</td></tr>
+    <tr><td>Client Payment</td><td>Raised-invoice grid; drawers for invoice sent, follow-ups 1–10, intercepts, receipts, discontinuation; payment ageing report</td></tr>
+    <tr><td>Performance Monitoring</td><td>Company performance grid with training, features, follow-ups, and NA exclusion</td></tr>
+    <tr><td>Leads</td><td>Pipeline list plus a multi-stage detail editor per lead; sheet import page</td></tr>
+    <tr><td>Users / Settings</td><td>User admin with view/edit permission matrix; settings for profile, approval emails, escalation receivers, reminder emails, system lock</td></tr>
+  </table>
+
+  <h3 id="design-loading">Skeleton loading states</h3>
+  <div class="note blue">Medium priority UI/Design. Full rollout spec: <code>docs/UI_LOADING_AND_EMPTY_STATES.md</code>. Staff wording: <code>USER_GUIDE.html#loading-states</code>.</div>
+  <p><strong>Problem:</strong> Generic centered <code>Spin</code> / blank screens cause layout shift when data arrives, so the UI feels slower than measured load time.</p>
+  <p><strong>Goal:</strong> Layout-matched Ant Design <code>Skeleton</code> placeholders (cards, table rows, chart blocks) so perceived load feels ~30–40% faster with the same network time. Prefer <code>skeletons.tsx</code> exports over new ad-hoc spinners.</p>
+
+  <h4>Shared toolkit (<code>fms-frontend/src/components/common/skeletons.tsx</code>)</h4>
+  <table>
+    <tr><th>Export</th><th>Use when</th></tr>
+    <tr><td><code>PageSkeleton</code></td><td>Route lazy-load (<code>Suspense</code>), auth bootstrap</td></tr>
+    <tr><td><code>DashboardBlockSkeleton</code></td><td>KPI tiles + table block (Dashboard KPI, DbDash)</td></tr>
+    <tr><td><code>TableWithSkeletonLoading</code></td><td>Any Ant <code>Table</code> first load — set Table <code>loading={false}</code></td></tr>
+    <tr><td><code>SkeletonOverlay</code></td><td>Section refresh over existing shell (Support Dashboard, Settings)</td></tr>
+    <tr><td><code>ChartAreaSkeleton</code></td><td>Lazy Recharts chunks</td></tr>
+    <tr><td><code>ModalContentSkeleton</code></td><td>Drawer / modal body first paint</td></tr>
+    <tr><td><code>DetailPageSkeleton</code></td><td>Lead / ticket detail pages</td></tr>
+    <tr><td><code>TableLoadMoreSkeleton</code></td><td>Infinite scroll / load-more footer</td></tr>
+    <tr><td><code>SoumyaDashboardSkeleton</code></td><td>Soumya KPI dashboard</td></tr>
+    <tr><td><code>KpiRingsSkeleton</code></td><td>KPI overview progress rings (<code>KpiOverview</code>)</td></tr>
+    <tr><td><code>SupportFmsTilesSkeleton</code></td><td>Support FMS tile row on Dashboard KPI</td></tr>
+    <tr><td><code>SuccessCardsRowSkeleton</code></td><td>Payment KPI card row (<code>PaymentAmountKpiCards</code>)</td></tr>
+  </table>
+  <div class="note green"><strong>Implemented (Jul 2026):</strong> P0 skeletons wired — <code>KpiOverview</code> (<code>KpiRingsSkeleton</code>), <code>PaymentAmountKpiCards</code>, <code>TicketDetail</code> (<code>DetailPageSkeleton</code>), Dashboard KPI Support FMS tiles (<code>SupportFmsTilesSkeleton</code>). Most list pages already use <code>TableWithSkeletonLoading</code>.</div>
+  <div class="note red">Do <strong>not</strong> use Ant <code>Table loading={true}</code> with the default spinner (column overlap / tiny centered indicator). Prefer explicit skeleton imports over the legacy <code>LoadingSpinner</code> name for new code.</div>
+
+  <h4>Dashboard bootstrap (keep + extend)</h4>
+  <div class="flow">
+    <div class="step"><b>Login</b><code>warmupAfterLogin</code> / route prefetch</div>
+    <div class="arrow">→</div>
+    <div class="step"><b>Cache hit</b><code>sessionApiCacheGetStale('dashboard:summary')</code> → instant paint</div>
+    <div class="arrow">→</div>
+    <div class="step"><b>Cache miss</b><code>DashboardSkeleton</code> → <code>getSummary()</code></div>
+    <div class="arrow">→</div>
+    <div class="step end"><b>Lazy chunks</b>OperationsOverview · MyWork · KpiOverview</div>
+  </div>
+  <p><strong>Remaining gap:</strong> Some drawers/modals still use <code>Spin</code> (P1 — <code>OperationsOverview</code>, ticket drawers). Sub-widgets on Dashboard KPI detail modal still spin during fetch.</p>
+
+  <h4>Implementation rules</h4>
+  <ol>
+    <li><strong>Reserve height</strong> — table area ≥280px, charts ≥280px, Support overlay ~480px.</li>
+    <li><strong>One pattern per surface</strong> — tables → <code>TableWithSkeletonLoading</code>; cards → row skeleton; modals → <code>ModalContentSkeleton</code>.</li>
+    <li><strong><code>aria-busy</code></strong> — already on <code>SkeletonOverlay</code>; keep on full-page wrappers.</li>
+    <li><strong>No double loading</strong> — if parent shows skeleton, child must not also spin.</li>
+    <li><strong>Cache-first unchanged</strong> — skeleton only when <code>loading &amp;&amp; !cachedData</code>.</li>
+  </ol>
+
+  <h4>Rollout priority (skeleton)</h4>
+  <table>
+    <tr><th>Priority</th><th>File</th><th>Change</th></tr>
+    <tr><td><span class="badge ok">Done</span></td><td><code>KpiOverview.tsx</code></td><td><code>KpiRingsSkeleton</code></td></tr>
+    <tr><td><span class="badge ok">Done</span></td><td><code>PaymentAmountKpiCards.tsx</code></td><td><code>SuccessCardsRowSkeleton</code></td></tr>
+    <tr><td><span class="badge ok">Done</span></td><td><code>TicketDetail.tsx</code></td><td><code>DetailPageSkeleton</code></td></tr>
+    <tr><td><span class="badge ok">Done</span></td><td><code>DashboardKPIPage.tsx</code></td><td><code>SupportFmsTilesSkeleton</code></td></tr>
+    <tr><td><span class="badge get">P1</span></td><td><code>OperationsOverview.tsx</code></td><td>Modal tables → <code>TableWithSkeletonLoading</code></td></tr>
+    <tr><td><span class="badge get">P1</span></td><td>Ticket / Staging / Chores drawers</td><td><code>ModalContentSkeleton</code></td></tr>
+    <tr><td><span class="badge ok">P2</span></td><td><code>UserList.tsx</code>, <code>SystemControlSettings.tsx</code>, <code>SolutionList.tsx</code></td><td>Load-more skeleton / overlay / single table skeleton path</td></tr>
+  </table>
+
+  <h4>Test plan (skeleton)</h4>
+  <ul>
+    <li>Hard refresh Dashboard — no full-page white flash; skeleton → tiles without vertical jump.</li>
+    <li>Throttle network (Slow 3G) — table pages show row-shaped placeholders, not a center spinner.</li>
+    <li>Repeat visit with session cache — cached data paints immediately, no skeleton flash.</li>
+    <li>Lighthouse CLS — no regression on Dashboard, TicketList, Dashboard KPI.</li>
+  </ul>
+
+  <h3 id="design-empty">Empty states</h3>
+  <div class="note blue">Medium priority UI/Design. Full rollout spec: <code>docs/UI_LOADING_AND_EMPTY_STATES.md</code>. Staff wording: <code>USER_GUIDE.html#empty-states</code>.</div>
+  <p><strong>Problem:</strong> Most list pages still show Ant Design’s default “No data” with no context — confusing for new users and when filters hide all rows.</p>
+  <p><strong>Goal:</strong> Every empty list answers <em>why is it empty?</em> and <em>what should I do next?</em> with a clear explanation and call-to-action.</p>
+
+  <h4>Two cases (every list)</h4>
+  <table>
+    <tr><th>Case</th><th>Copy pattern</th><th>CTA examples</th></tr>
+    <tr><td><strong>Truly empty</strong></td><td>“No open tickets yet.”</td><td>Create Ticket, Add Task, Add Lead</td></tr>
+    <tr><td><strong>Filter-empty</strong></td><td>“No tickets match this filter.”</td><td>Clear filters, Widen date range</td></tr>
+    <tr><td><strong>No permission</strong></td><td>Section not granted</td><td>Ask admin (Users → permissions)</td></tr>
+  </table>
+
+  <h4>Shared component</h4>
+  <p><code>fms-frontend/src/components/common/SectionEmptyState.tsx</code> — variants: <code>no-data</code> | <code>no-filter-results</code> | <code>no-permission</code>. Wire via <code>Table locale.emptyText</code> or <code>&lt;Empty description&gt;</code> + primary <code>Button</code>.</p>
+  <div class="note green"><strong>Phase 1 implemented (Jul 2026):</strong> <code>SectionEmptyState</code> wired on <code>TicketList</code>, <code>ChecklistPage</code>, <code>DelegationPage</code>, <code>LeadListPage</code> — filter-aware copy + Clear filters / Add Task / Add Lead / Support Dashboard CTAs.</div>
+  <pre><code>type SectionEmptyStateProps = {
+  variant: 'no-data' | 'no-filter-results' | 'no-permission'
+  title: string
+  description?: string
+  primaryAction?: { label: string; onClick: () =&gt; void }
+  secondaryAction?: { label: string; onClick: () =&gt; void }
+}</code></pre>
+  <p><strong>Reference pages already good:</strong> <code>PerformanceMonitoringPage.tsx</code> (filter-aware + Add POC), <code>ClientTrainingPage.tsx</code> (workflow CTA). <code>TicketList.tsx</code> now uses <code>SectionEmptyState</code> for section + filter empty.</p>
+
+  <h4>Per-section empty copy &amp; CTAs</h4>
+  <table>
+    <tr><th>Section</th><th>Truly empty</th><th>Filter-empty</th><th>Primary CTA</th></tr>
+    <tr><td>Support / Tickets</td><td>No tickets in this section</td><td>No matches for search/filters</td><td>Submit Support Ticket · Clear filters</td></tr>
+    <tr><td>Checklist</td><td>No tasks for Today</td><td>No tasks for selected filter</td><td>Add Task</td></tr>
+    <tr><td>Delegation</td><td>No delegation tasks</td><td>Ref/date filter cleared all rows</td><td>Add Task</td></tr>
+    <tr><td>Leads</td><td>No open leads</td><td>Company/stage/ref filters</td><td>Add Lead Details</td></tr>
+    <tr><td>Staging</td><td>No staging records</td><td>Client filter</td><td>Navigate to Support</td></tr>
+    <tr><td>Users</td><td>No users</td><td>Search no match</td><td>Adjust search</td></tr>
+    <tr><td>Solutions</td><td>No solutions for ticket</td><td>—</td><td>Propose solution</td></tr>
+    <tr><td>Performance Monitoring</td><td>No active companies</td><td>NA filter empty</td><td>Add POC Details <span class="badge ok">exists</span></td></tr>
+    <tr><td>Client Training</td><td>No clients</td><td>—</td><td>Onboarding path <span class="badge ok">exists</span></td></tr>
+    <tr><td>Dashboard KPI</td><td>Not assigned / no data</td><td>Week filter empty</td><td>Open KPI / pick week <span class="badge warn">partial</span></td></tr>
+    <tr><td>Db Dash</td><td>No records from API</td><td>Org/company filter</td><td>Link to onboarding</td></tr>
+  </table>
+
+  <h4>Visual (industrial UI)</h4>
+  <ul>
+    <li>Center inside card/table body (not full viewport, except permission-denied).</li>
+    <li>Icon: Ant <code>Empty.PRESENTED_IMAGE_SIMPLE</code> or custom SVG ≤120px (no CDN).</li>
+    <li>Title 15–16px semibold <code>#0F172A</code>; description 13–14px <code>#64748B</code>, max 2 lines.</li>
+    <li>Primary button: accent <code>#F59E0B</code> or primary <code>#2563EB</code>; secondary link “Clear filters”.</li>
+  </ul>
+
+  <h4>Rollout phases (empty)</h4>
+  <table>
+    <tr><th>Phase</th><th>Scope</th></tr>
+    <tr><td><strong>1</strong></td><td><span class="badge ok">Done</span> <code>SectionEmptyState</code>; TicketList, Checklist, Delegation, LeadList</td></tr>
+    <tr><td><strong>2</strong></td><td>Staging, Users, Solutions, CompPerform, DbDash filter-empty</td></tr>
+    <tr><td><strong>3</strong></td><td>Dashboard panels (KpiOverview, OperationsOverview CTAs); KPI page consistency</td></tr>
+  </table>
+
+  <h4>Non-goals &amp; success metrics</h4>
+  <ul>
+    <li><strong>Non-goals:</strong> backend empty APIs; Lottie library; skeleton on auth submit buttons; replacing every sub-200ms modal <code>Spin</code>.</li>
+    <li><strong>Targets:</strong> zero default Ant “No data” on Phase-2 tables; zero Spin-only first load on P1 tables; filter-empty has one-tap Clear filters; CLS not worse on Dashboard / Tickets.</li>
+  </ul>
+
+  <h4>Test plan (empty)</h4>
+  <ol>
+    <li>New user with zero tickets — explanation + create path (not generic “No data”).</li>
+    <li>Filter that excludes all rows — different copy + Clear filters.</li>
+    <li>Clear filters — table repopulates; empty state hidden.</li>
+    <li>Mobile — empty block readable; CTA ≥44px touch target.</li>
+  </ol>
+</section>
+
+<!-- ==================== 6. ROLES & PERMISSIONS ==================== -->
+<section id="roles">
+  <h2>6. Roles &amp; Permissions</h2>
+  <p>Access control has two layers, enforced both in the frontend (<code>ProtectedRoute</code>, sidebar filtering) and the backend (<code>section_permissions_util.py</code>, per-endpoint checks):</p>
+  <ol>
+    <li><strong>Role</strong> — <span class="badge role">user</span> <span class="badge role">approver</span> <span class="badge role">admin</span> <span class="badge role">master_admin</span> stored via <code>user_profiles.role_id → roles</code>.</li>
+    <li><strong>Section permissions</strong> — per-user <code>can_view</code> / <code>can_edit</code> flags in <code>user_section_permissions</code>, keyed by section.</li>
+  </ol>
+  <p>Section keys (kept in sync between <code>PERMISSION_SECTION_KEYS</code> in <code>constants.ts</code> and <code>SECTION_KEYS</code> in <code>main.py</code>):</p>
+  <div class="card" style="font-size:13px"><code>dashboard</code> · <code>dashboard_kpi</code> · <code>improvement</code> · <code>improvement_i1</code> · <code>soft_sugg</code> · <code>soft_sugg_details</code> · <code>support_dashboard</code> · <code>all_tickets</code> · <code>chores_bugs</code> · <code>staging</code> · <code>feature</code> · <code>approval_status</code> · <code>completed_chores_bugs</code> · <code>rejected_tickets</code> · <code>completed_feature</code> · <code>solution</code> · <code>task</code> · <code>success_performance</code> · <code>success_comp_perform</code> · <code>client_to_lead</code> · <code>leads</code> · <code>onboarding</code> · <code>onboarding_payment_status</code> · <code>client_payment</code> · <code>training</code> · <code>db_client</code> · <code>settings</code> · <code>users</code></div>
+  <ul>
+    <li><strong>master_admin</strong> automatically receives all dashboard permissions from the backend.</li>
+    <li><strong>admin</strong> gets management and global-filter capabilities plus whatever section flags are assigned in the matrix.</li>
+    <li><strong>Normal users</strong> see only their own scoped data and explicitly granted sections.</li>
+  </ul>
+  <div class="note blue">Project convention: grant dashboard sections through <code>user_section_permissions</code> (<code>can_view=true</code>), <strong>never</strong> by adding <code>if email === …</code> rules. Only two legacy pages (Pending Payment Details, DB-Dash) still use email allowlists.</div>
+</section>
+
+<!-- ==================== 7. WORKFLOWS ==================== -->
+<section id="workflows">
+  <h2>7. Workflows</h2>
+
+  <h3 id="wf-auth">7.1 Authentication</h3>
+  <div class="flow">
+    <div class="step"><b>Register</b><code>POST /auth/register</code> → Supabase sends confirmation mail</div>
+    <div class="arrow">→</div>
+    <div class="step"><b>Confirm email</b><code>GET /auth/confirm</code> → confirmation-success page</div>
+    <div class="arrow">→</div>
+    <div class="step"><b>Login</b><code>POST /auth/login</code> → JWT stored (session + local mirror)</div>
+    <div class="arrow">→</div>
+    <div class="step"><b>Load profile</b><code>GET /users/me</code> → role + section permissions</div>
+    <div class="arrow">→</div>
+    <div class="step end"><b>App</b>Sidebar &amp; routes filtered by permissions</div>
+  </div>
+  <p>Forgot/reset password uses <code>/auth/forgot-password/*</code> and <code>/auth/recovery-password/*</code> with the public <code>/reset-password</code> page (recovery token held in sessionStorage). <code>ProtectedRoute</code> checks authentication, required <code>sectionKeys</code>, and optional <code>emailAllowlist</code> per route.</p>
+
+  <h3 id="wf-ticket">7.2 Support ticket lifecycle</h3>
+  <div class="flow">
+    <div class="step"><b>Create</b>Support form (draft auto-saved in <code>support_ticket_drafts</code>) → <code>POST /tickets</code></div>
+    <div class="arrow">→</div>
+    <div class="step"><b>Reference no.</b>DB trigger assigns <code>EX-CH-0001</code> / <code>EX-BU-0001</code> / <code>EX-FE-0001</code></div>
+    <div class="arrow">→</div>
+    <div class="step"><b>Stages 1–4</b><code>status_1..4</code> with planned vs actual dates (SLA delay computed)</div>
+    <div class="arrow">→</div>
+    <div class="step"><b>Staging</b><code>/tickets/{id}/mark-staging</code>, staging deployments</div>
+    <div class="arrow">→</div>
+    <div class="step end"><b>Live + review</b><code>live_*</code>, quality solution, register of tickets</div>
+  </div>
+  <ul>
+    <li><strong>Feature approval:</strong> feature tickets generate email tokens; approvers act via the public <code>/approval/email-action</code> HTML page or in-app <code>/approval/confirm</code>. All actions log to <code>approval_logs</code>.</li>
+    <li><strong>Promotion:</strong> a chore/bug can be promoted to a feature (<code>/tickets/{id}/promote-to-feature</code>) or sent back from staging.</li>
+    <li><strong>Attachments:</strong> uploaded via <code>POST /upload</code> to the Supabase Storage bucket <code>ticket-attachments</code>.</li>
+    <li><strong>Repeats &amp; similarity:</strong> <code>/tickets/similar</code> and <code>repeat_of_ticket_id</code> detect repeated issues.</li>
+    <li><strong>Stage-2 remarks:</strong> notify assignees via the header bell (<code>/activity/stage2-remark-notifications</code>).</li>
+  </ul>
+
+  <h3 id="wf-payment">7.3 Client payment</h3>
+  <div class="flow">
+    <div class="step"><b>Raise invoice</b><code>POST /onboarding/client-payment</code></div>
+    <div class="arrow">→</div>
+    <div class="step"><b>Invoice sent</b>Sent record with date/mode</div>
+    <div class="arrow">→</div>
+    <div class="step"><b>Follow-ups 1–10</b>Follow-up records; intercept tags where needed</div>
+    <div class="arrow">→</div>
+    <div class="step end"><b>Payment received</b>Receipt recorded — or discontinuation</div>
+  </div>
+  <p>The <strong>Payment Ageing Report</strong> (<code>/onboarding/client-payment/payment-ageing</code>, logic in <code>payment_ageing.py</code>) buckets outstanding amounts by age. Quick payment actions can also be submitted from the dashboard (<code>POST /dashboard/payment-actions/submit</code>). Rows can be excluded with <code>marked-na</code>.</p>
+
+  <h3 id="wf-onboarding">7.4 Onboarding &amp; training</h3>
+  <div class="flow">
+    <div class="step"><b>Onboarding record</b><code>POST /onboarding/payment-status</code></div>
+    <div class="arrow">→</div>
+    <div class="step"><b>Pre-onboarding</b>Checklist items per record</div>
+    <div class="arrow">→</div>
+    <div class="step"><b>POC &amp; setup</b>POC checklists, org master, item cleaning</div>
+    <div class="arrow">→</div>
+    <div class="step"><b>Training</b>Assign trainer, day-0 checklist, per-stage status (<code>/training/clients/*</code>)</div>
+    <div class="arrow">→</div>
+    <div class="step end"><b>Success</b>Company enters performance monitoring (<code>/success/performance</code>)</div>
+  </div>
+
+  <h3 id="wf-task">7.5 Checklist &amp; delegation</h3>
+  <div class="flow">
+    <div class="step"><b>Define tasks</b>Recurring checklist tasks per user/department; one-off delegation tasks</div>
+    <div class="arrow">→</div>
+    <div class="step"><b>Daily occurrences</b>Generated respecting <code>checklist_holidays</code> and working days</div>
+    <div class="arrow">→</div>
+    <div class="step"><b>Complete / NA</b><code>/checklist/tasks/{id}/complete</code> or <code>mark-na</code></div>
+    <div class="arrow">→</div>
+    <div class="step end"><b>Reminders</b>Daily cron emails for pending checklist, delegation, and a pending digest</div>
+  </div>
+  <p>Completion percentages feed directly into the per-person KPI dashboards.</p>
+
+  <h3 id="wf-leads">7.6 Leads pipeline</h3>
+  <p>Leads are created manually (<code>POST /leads</code>) or imported from TSV/sheets (<code>/client-to-lead/import</code>). Each lead carries per-stage JSON in <code>lead_stage_data</code> (e.g. <code>lead_details</code>, <code>contacted</code>, …) updated via <code>PUT /leads/{id}/stages/{stage_slug}</code>. Closed leads are listed separately.</p>
+
+  <h3 id="wf-kpi">7.7 KPI dashboards</h3>
+  <ol>
+    <li>The universal dashboard first calls <code>GET /dashboard/bootstrap</code> for a fast initial paint, then loads details lazily.</li>
+    <li>Per-person KPI: <code>GET /dashboard/kpi?person=&amp;month=&amp;week=</code> — the backend enforces who may view whose board (<code>require_dashboard_kpi_person</code>).</li>
+    <li>Daily scores are entered into <code>kpi_daily_work_log</code>; specialized boards exist for Soumya (SLA snapshots), Souvik (EA tracker), and Adrija (social KPI).</li>
+    <li>Backend caches are invalidated whenever tickets, checklist, or delegation data change, so KPI numbers stay current.</li>
+  </ol>
+</section>
+
+<!-- ==================== 8. API REFERENCE ==================== -->
+<section id="api">
+  <h2>8. API Reference</h2>
+  <p>All routes are served at the root and under <code>/api</code>. Authenticated routes require the Supabase JWT as a Bearer token; cron routes require their secret header instead. Highlights per domain:</p>
+
+  <h3>Health &amp; meta</h3>
+  <table>
+    <tr><td><span class="badge get">GET</span><code>/health</code>, <code>/health/db</code>, <code>/health/supabase</code></td><td>Liveness and dependency checks (used by Render keepalive)</td></tr>
+    <tr><td><span class="badge get">GET</span><code>/app/release</code></td><td>Release key powering the "refresh for new features" banner</td></tr>
+  </table>
+
+  <h3>Auth</h3>
+  <table>
+    <tr><td><span class="badge post">POST</span><code>/auth/register</code>, <code>/auth/register-simple</code>, <code>/auth/login</code>, <code>/auth/logout</code>, <code>/auth/refresh</code></td><td>Registration and session management</td></tr>
+    <tr><td><span class="badge post">POST</span><code>/auth/forgot-password/lookup|complete</code>, <code>/auth/recovery-password/*</code>, <code>/auth/resend-confirmation</code> · <span class="badge get">GET</span><code>/auth/confirm</code></td><td>Password recovery and email confirmation</td></tr>
+    <tr><td><span class="badge get">GET</span><code>/users/me</code></td><td>Profile + role + section permissions</td></tr>
+  </table>
+
+  <h3>Tickets &amp; support</h3>
+  <table>
+    <tr><td><span class="badge get">GET</span><span class="badge post">POST</span><span class="badge put">PUT</span><span class="badge del">DEL</span><code>/tickets</code>, <code>/tickets/{id}</code></td><td>CRUD with rich filters</td></tr>
+    <tr><td><span class="badge get">GET</span><code>/tickets/similar</code>, <code>/tickets/repeat-counts</code>, <code>/tickets/{id}/repeats</code></td><td>Similar / repeated issue detection</td></tr>
+    <tr><td><span class="badge post">POST</span><code>/tickets/{id}/mark-staging</code>, <code>/promote-to-feature</code>, <code>/staging-back</code>, <code>/quality-solution</code></td><td>Workflow transitions</td></tr>
+    <tr><td><span class="badge get">GET</span><span class="badge post">POST</span><code>/tickets/{id}/responses</code>, <code>/tickets/{id}/stage2-remarks</code></td><td>Response thread and stage-2 remarks</td></tr>
+    <tr><td><span class="badge get">GET</span><span class="badge put">PUT</span><span class="badge del">DEL</span><code>/drafts/support-ticket</code></td><td>Per-user support-form draft</td></tr>
+    <tr><td><span class="badge post">POST</span><code>/upload</code></td><td>Attachment upload → Supabase Storage</td></tr>
+    <tr><td><span class="badge get">GET</span><span class="badge post">POST</span><code>/approval/*</code>, <code>/approval/email-action</code></td><td>Token-based email approval (public HTML page, no login)</td></tr>
+    <tr><td><span class="badge get">GET</span><span class="badge post">POST</span><span class="badge put">PUT</span><code>/solutions</code>, <code>/solutions/ticket/{ticket_id}</code>, <code>/staging/deployments</code></td><td>Solutions 1 &amp; 2, staging deployments</td></tr>
+  </table>
+
+  <h3>Dashboards &amp; KPI</h3>
+  <table>
+    <tr><td><span class="badge get">GET</span><code>/dashboard/bootstrap</code>, <code>/summary</code>, <code>/metrics</code>, <code>/detail</code>, <code>/trends</code>, <code>/support-details</code>, <code>/operation-details</code></td><td>Universal dashboard + drill-downs</td></tr>
+    <tr><td><span class="badge get">GET</span><code>/dashboard/kpi</code>, <code>/dashboard/kpi/support-fms-details</code>, <code>/dashboard/soumya-kpi</code>, <code>/dashboard/souvik-kpi/*</code>, <code>/dashboard/success-kpi-till-date</code></td><td>Per-person and success KPIs</td></tr>
+    <tr><td><span class="badge get">GET</span><span class="badge put">PUT</span><code>/dashboard/kpi-daily-log</code>, <code>/dashboard/adrija-social-kpi-daily</code></td><td>Daily score entry</td></tr>
+    <tr><td><span class="badge get">GET</span><code>/support-dashboard/stats</code>, <code>/filtered</code>, <code>/weekly-details</code>, <code>/feature-tickets</code></td><td>Support dashboard</td></tr>
+    <tr><td><span class="badge post">POST</span><code>/dashboard/payment-actions/submit</code>, <code>/dashboard/user-work-summary</code>, <code>/dashboard/attendance-leave-summary</code></td><td>Dashboard actions &amp; summaries</td></tr>
+  </table>
+
+  <h3>Business domains</h3>
+  <table>
+    <tr><td>Companies &amp; lookups</td><td><code>/companies</code>, <code>/companies/for-invoice</code>, <code>/companies/with-divisions</code>, <code>/pages</code>, <code>/divisions</code></td></tr>
+    <tr><td>Onboarding</td><td><code>/onboarding/payment-status</code> + child routes (<code>pre-onboarding</code>, POC, setup, org-master, item-cleaning)</td></tr>
+    <tr><td>Client payment</td><td><code>/onboarding/client-payment/*</code> (raised, sent, followups, intercept, payment-receive, discontinuation, ageing, <code>marked-na</code>)</td></tr>
+    <tr><td>Training</td><td><code>/training/clients/*</code>, <code>/training/stages-config</code>, <code>/training/users</code></td></tr>
+    <tr><td>Success</td><td><code>/success/performance/*</code> (list, details, features, training, followups, POC, followup-click, <code>marked-na</code>)</td></tr>
+    <tr><td>Task</td><td><code>/checklist/tasks</code>, <code>/occurrences</code>, <code>/departments</code>, <code>/holidays</code>, <code>…/complete</code>, <code>…/mark-na</code>; <code>/delegation/tasks</code></td></tr>
+    <tr><td>Leads</td><td><code>/leads</code>, <code>/leads/{id}</code>, <code>/leads/active</code>, <code>/leads/by-reference/{ref}</code>, <code>/leads/{id}/stages/{stage_slug}</code>, <code>/leads/stages</code>, <code>/leads/users</code></td></tr>
+    <tr><td>DB Client</td><td><code>/db-client/client-onb</code>, <code>/db-client/client-onb/{row_id}/*</code></td></tr>
+    <tr><td>Suggestions</td><td><code>/improvement-suggestions/*</code>, <code>/soft-suggestions/*</code></td></tr>
+    <tr><td>Users &amp; permissions</td><td><code>/users</code>, <code>/users/{id}</code>, <code>/users/{id}/section-permissions</code>, <code>/roles</code>, <code>/permissions/section-catalog</code></td></tr>
+    <tr><td>System</td><td><code>/system-lock/*</code> · <span class="badge ws">WS</span><code>/ws?token=</code> (lock + release broadcasts)</td></tr>
+  </table>
+
+  <h3>Cron &amp; email endpoints (secret-header protected)</h3>
+  <table>
+    <tr><td><code>/cron/run-all-emails</code></td><td>Batch: all email jobs (see <a href="#jobs">§10</a>)</td></tr>
+    <tr><td><code>/checklist/send-daily-reminders</code>, <code>/delegation/send-daily-reminders</code>, <code>/reminders/send-pending-digest</code></td><td>Task reminder emails</td></tr>
+    <tr><td><code>/feature-approval-reminders/run</code></td><td>Feature approval reminder emails</td></tr>
+    <tr><td><code>/escalation/send-pending-mails</code>, <code>/send-critical-mails</code>, <code>/send-stage-mails</code></td><td>Escalation emails</td></tr>
+    <tr><td><code>/cron/attendance-sync</code>, <code>/cron/soumya-sla-scan</code>, <code>/smtp/test</code></td><td>Attendance import, SLA scan, SMTP test</td></tr>
+  </table>
+</section>
+
+<!-- ==================== 9. DATABASE ==================== -->
+<section id="database">
+  <h2>9. Database Schema</h2>
+  <p>All data lives in Supabase PostgreSQL. SQL is modular — each feature has its own script under <code>database/</code> or <code>docs/SUPABASE_*.sql</code>. Key tables by domain:</p>
+
+  <h3>Auth &amp; permissions</h3>
+  <table>
+    <tr><th>Table</th><th>Purpose / key fields</th></tr>
+    <tr><td><code>auth.users</code></td><td>Supabase Auth (email + password)</td></tr>
+    <tr><td><code>user_profiles</code></td><td><code>id</code>, <code>full_name</code>, <code>email</code>, <code>role_id → roles</code>, <code>is_active</code></td></tr>
+    <tr><td><code>roles</code></td><td><code>user</code>, <code>approver</code>, <code>admin</code>, <code>master_admin</code></td></tr>
+    <tr><td><code>user_section_permissions</code></td><td><code>user_id</code>, <code>section_key</code>, <code>can_view</code>, <code>can_edit</code></td></tr>
+  </table>
+
+  <h3>Support core</h3>
+  <table>
+    <tr><th>Table</th><th>Purpose</th></tr>
+    <tr><td><code>tickets</code></td><td>Multi-stage ticket: <code>reference_no</code>, <code>title</code>, <code>description</code>, <code>type</code> (chore/bug/feature), <code>status</code>, <code>priority</code>, <code>company_id → companies</code>, <code>page</code>/<code>division</code>, <code>approval_status</code>, <code>status_1..4</code>, <code>planned_2..4</code>, <code>actual_1..4</code>, <code>quality_solution</code>, <code>staging_planned</code>, <code>live_*</code>, <code>attachment_url</code>, <code>repeat_of_ticket_id</code></td></tr>
+    <tr><td><code>ticket_responses</code>, <code>ticket_stage2_remarks</code>, <code>ticket_history</code></td><td>Response thread, stage-2 remarks, audit trail</td></tr>
+    <tr><td><code>support_ticket_drafts</code></td><td>Per-user draft JSON of the support form</td></tr>
+    <tr><td><code>companies</code>, <code>divisions</code>, <code>pages</code></td><td>Master data</td></tr>
+    <tr><td><code>solutions</code>, staging tables</td><td>Solutions 1 &amp; 2; staging deployments</td></tr>
+    <tr><td><code>approval_tokens</code>, <code>approval_logs</code></td><td>Email-approval tokens and audit</td></tr>
+  </table>
+
+  <h3>Other domains</h3>
+  <table>
+    <tr><th>Domain</th><th>Tables</th></tr>
+    <tr><td>Task</td><td><code>checklist_tasks</code>, <code>checklist_occurrence_na</code>, <code>checklist_holidays</code>, <code>checklist_reminder_sent</code>, <code>delegation_tasks</code>, <code>delegation_reminder_sent</code>, <code>pending_reminder_sent</code></td></tr>
+    <tr><td>Onboarding &amp; payment</td><td><code>onboarding_payment_status</code> (+ <code>onboarding_pre_onboarding</code>, checklist child tables), <code>onboarding_client_payment</code> (+ <code>_sent</code>, follow-up tables), payment-ageing tables</td></tr>
+    <tr><td>Training &amp; success</td><td><code>performance_monitoring</code> (with <code>marked_na</code>), training tables, <code>success_followup_click_events</code></td></tr>
+    <tr><td>Leads</td><td><code>leads</code> ↔ <code>lead_stage_data</code> (per-stage JSON by <code>lead_id</code>)</td></tr>
+    <tr><td>KPI</td><td><code>kpi_daily_work_log</code>, <code>onboarding_adrija_social_kpi_day</code>, <code>souvik_kpi_daily</code>, <code>soumya_sla_weekly_snapshots</code></td></tr>
+    <tr><td>Email &amp; cron</td><td><code>feature_approval_*</code>, <code>escalation_*</code>, <code>notification_*</code>, reminder-sent dedup tables</td></tr>
+    <tr><td>System</td><td><code>system_lock_settings</code>, <code>system_lock_audit</code>, <code>app_release_broadcast</code>, <code>attendance_sync_records</code>, <code>attendance_sync_runs</code>, <code>stage2_remark_notification_seen</code></td></tr>
+  </table>
+
+  <h3>Key relationships</h3>
+  <pre><code>user_profiles.role_id            → roles.id
+user_section_permissions.user_id → user_profiles.id
+tickets.company_id               → companies.id
+onboarding_* child tables        → onboarding_payment_status.id
+onboarding_client_payment_sent.client_payment_id → onboarding_client_payment.id
+lead_stage_data.lead_id          → leads.id
+performance_monitoring.company_id → companies.id</code></pre>
+
+  <div class="note">Ticket reference numbers (<code>EX-CH-0001</code>, <code>EX-BU-0001</code>, <code>EX-FE-0001</code>) are assigned by a database trigger — see <code>database/TICKETS_REFERENCE_AND_TIME_DELAY_GUIDE.md</code>. Full schema-design background: <code>04_DATABASE_SCHEMA.md</code> and <code>DATABASE_SCHEMA_DESIGN.md</code>.</div>
+</section>
+
+<!-- ==================== 10. JOBS & EMAIL ==================== -->
+<section id="jobs">
+  <h2>10. Cron Jobs &amp; Email</h2>
+  <p>There is no in-app scheduler. All recurring work is triggered by <strong>cron-job.org</strong> calling secured endpoints (setup guide: <code>database/CRON_JOB_ORG_SETUP.md</code>). The batch runner <code>/cron/run-all-emails</code> executes these job keys from <code>cron_email_batch.py</code>:</p>
+  <table>
+    <tr><th>Job key</th><th>What it sends</th><th>Standalone endpoint / secret</th></tr>
+    <tr><td><code>feature_approval</code></td><td>Feature-approval reminder emails to configured recipients</td><td><code>/feature-approval-reminders/run</code> · <code>FEATURE_APPROVAL_CRON_SECRET</code></td></tr>
+    <tr><td><code>checklist_daily</code></td><td>Daily checklist reminders per user</td><td><code>/checklist/send-daily-reminders</code> · <code>CHECKLIST_CRON_SECRET</code></td></tr>
+    <tr><td><code>delegation_daily</code></td><td>Daily delegation reminders</td><td><code>/delegation/send-daily-reminders</code> · <code>DELEGATION_CRON_SECRET</code></td></tr>
+    <tr><td><code>pending_digest</code></td><td>Pending-work digest email</td><td><code>/reminders/send-pending-digest</code></td></tr>
+    <tr><td><code>escalation_pending</code> / <code>escalation_critical</code> / <code>escalation_stages</code></td><td>Escalation emails for pending, critical, and stage-delayed tickets</td><td><code>/escalation/send-*-mails</code> · <code>ESCALATION_CRON_SECRET</code></td></tr>
+  </table>
+  <p>Additional scheduled endpoints outside the batch: <code>/cron/attendance-sync</code> (mirrors attendance from a second Supabase project into <code>attendance_sync_records</code>) and <code>/cron/soumya-sla-scan</code> (weekly SLA snapshots). Deduplication tables (<code>*_reminder_sent</code>) prevent duplicate mails. A working-day check (<code>/cron/working-day</code>) skips holidays.</p>
+  <p><strong>Email delivery:</strong> SendGrid HTTP API is preferred on Render (SMTP ports can be blocked); the system falls back to SMTP (Postmark / Brevo / Gmail) per <code>EMAIL_PROVIDER</code> / <code>EMAIL_SMTP_FALLBACK</code> settings in <code>backend/app/utils/email.py</code>.</p>
+  <p><strong>Keepalive:</strong> <code>.github/workflows/render-keepalive.yml</code> pings <code>/health</code> every 5 minutes so the free Render instance stays warm.</p>
+</section>
+
+<!-- ==================== 11. RUN & DEPLOY ==================== -->
+<section id="deployment">
+  <h2>11. Run &amp; Deployment</h2>
+
+  <h3>Local development</h3>
+  <pre><code># Backend (FastAPI on port 8020)
+cd backend
+python -m venv venv
+venv\Scripts\activate          # Windows
+pip install -r requirements.txt
+# copy backend/.env.example → backend/.env and fill Supabase keys + secrets
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8020
+
+# Frontend (Vite dev server on port 3001, /api proxied to the backend)
+cd fms-frontend
+npm install
+# copy fms-frontend/.env.example → .env ; set VITE_API_BASE_URL=http://127.0.0.1:8020
+npm run dev</code></pre>
+  <p>Convenience scripts: <code>start-all.ps1</code> / <code>start-all.bat</code> at the repo root, <code>backend/start-backend.ps1</code>.</p>
+
+  <h3>Production</h3>
+  <table>
+    <tr><th>Target</th><th>Configuration</th></tr>
+    <tr><td>Vercel (frontend)</td><td>Root directory <code>fms-frontend</code>, build <code>npm run build</code>, output <code>dist</code>; SPA rewrites in <code>fms-frontend/vercel.json</code>; env <code>VITE_API_BASE_URL</code> → Render API URL</td></tr>
+    <tr><td>Render (backend)</td><td>Docker (<code>backend/Dockerfile</code>, Python 3.11-slim) or native Python; <code>uvicorn app.main:app --host 0.0.0.0 --port 8000</code>; all backend env vars set in the Render dashboard</td></tr>
+    <tr><td>Supabase</td><td>Run module SQL from <code>database/</code> and <code>docs/</code> (indexes, RLS, per-feature tables); Storage bucket <code>ticket-attachments</code> with policies</td></tr>
+    <tr><td>cron-job.org</td><td>Jobs hitting cron endpoints with the matching secret headers</td></tr>
+  </table>
+  <p>Full walkthrough: <code>DEPLOYMENT_GUIDE.md</code>; go-live checklist: <code>FINAL_DEPLOY_CHECKLIST.md</code>.</p>
+
+  <h3 id="env">Environment variables (names only)</h3>
+  <table>
+    <tr><th>Group</th><th>Variables</th></tr>
+    <tr><td>Supabase (backend)</td><td><code>SUPABASE_URL</code>, <code>SUPABASE_SERVICE_ROLE_KEY</code>, <code>SUPABASE_ANON_KEY</code>, <code>SUPABASE_DB_URL</code>, <code>SUPABASE_ATTACHMENT_BUCKET</code></td></tr>
+    <tr><td>Auth / CORS</td><td><code>JWT_AUDIENCE</code>, <code>JWT_ISSUER</code>, <code>FRONTEND_URL</code>, <code>PUBLIC_API_URL</code>, <code>CORS_ORIGINS</code> (+ <code>CORS_ORIGIN_1..10</code>)</td></tr>
+    <tr><td>Email</td><td><code>SENDGRID_API_KEY</code>, <code>SENDGRID_FROM_EMAIL</code>, <code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_USER</code>, <code>SMTP_PASSWORD</code>, <code>EMAIL_PROVIDER</code>, <code>EMAIL_USE_SMTP</code>, <code>EMAIL_SMTP_FALLBACK</code>, <code>EMAIL_TEST_REDIRECT</code>, Postmark/Brevo equivalents</td></tr>
+    <tr><td>Cron secrets</td><td><code>CHECKLIST_CRON_SECRET</code>, <code>DELEGATION_CRON_SECRET</code>, <code>FEATURE_APPROVAL_CRON_SECRET</code>, <code>ESCALATION_CRON_SECRET</code>, <code>NOTIFICATION_CRON_SECRET</code>, <code>SCHEDULER_CRON_SECRET</code>, <code>ATTENDANCE_SYNC_CRON_SECRET</code>, <code>SMTP_TEST_SECRET</code></td></tr>
+    <tr><td>Attendance sync</td><td><code>ATTENDANCE_SOURCE_SUPABASE_URL</code>, <code>ATTENDANCE_SOURCE_SERVICE_ROLE_KEY</code>, <code>ATTENDANCE_SYNC_*</code> (tables, key columns, page size)</td></tr>
+    <tr><td>Misc backend</td><td><code>ROLE_CACHE_TTL_SEC</code>, <code>RATE_LIMIT_DEV_BYPASS</code>, <code>LOG_LEVEL</code>, <code>RENDER_EXTERNAL_URL</code></td></tr>
+    <tr><td>Frontend</td><td><code>VITE_API_BASE_URL</code>, <code>VITE_API_URL</code>, <code>VITE_DEV_SAME_ORIGIN_PROXY</code>, <code>VITE_ENABLE_ROUTE_DATA_PREFETCH</code>, <code>VITE_APP_RELEASE_KEY</code></td></tr>
+  </table>
+  <div class="note red">Never commit <code>.env</code>, <code>backend_errors.log</code>, <code>__pycache__</code>, or any credentials to git.</div>
+</section>
+
+<!-- ==================== 12. FURTHER DOCS ==================== -->
+<section id="docs-index">
+  <h2>12. Further Documentation in this Repo</h2>
+  <table>
+    <tr><th>Document</th><th>Content</th></tr>
+    <tr><td><code>README.md</code></td><td>Authoritative product overview, stack, quick start, permission model</td></tr>
+    <tr><td><code>01_HIGH_LEVEL_ARCHITECTURE.md</code> … <code>05_SECURITY_RLS_STRATEGY.md</code></td><td>Original architecture / module / API / schema / RLS design docs <span class="badge warn">partially outdated (mention Next.js)</span></td></tr>
+    <tr><td><code>DEPLOYMENT_GUIDE.md</code>, <code>FINAL_DEPLOY_CHECKLIST.md</code></td><td>Vercel + Render deployment steps and go-live checklist</td></tr>
+    <tr><td><code>docs/INDUSTRIAL_UI_DESIGN_SPEC.md</code> + <code>docs/mockups/</code></td><td>UI design spec and page mockups</td></tr>
+    <tr><td><code>database/*.md</code>, <code>database/*.sql</code>, <code>docs/SUPABASE_*.sql</code></td><td>Per-module SQL setup and guides (tickets, checklist, delegation, leads import, section permissions, cron setup, payment ageing, DB client)</td></tr>
+    <tr><td><code>docs/PERFORMANCE_OPTIMIZATION.md</code>, <code>PERF_FIXES_CODE_AND_DB.md</code></td><td>Performance work: indexes, caching, fast-load patterns</td></tr>
+    <tr><td><code>docs/RENDER_KEEPALIVE_SETUP.md</code>, <code>docs/FAST_LOAD_AND_LOAD_BALANCER.md</code></td><td>Keepalive and optional NGINX load balancer</td></tr>
+    <tr><td><code>docs/UI_LOADING_AND_EMPTY_STATES.md</code></td><td>Skeleton loading + empty state rollout (canonical). Mirrored under Design § Skeleton loading / Empty states in this HTML doc.</td></tr>
+    <tr><td><code>docs/MOBILE_DOC_NAV.md</code></td><td>Mobile TOC for standalone HTML docs (hamburger + full-screen Contents)</td></tr>
+    <tr><td><code>TESTING.md</code>, <code>DASHBOARD_TEST_GUIDE.md</code>, <code>READY_TEST_PRODUCTION.md</code></td><td>Testing and production-smoke guides</td></tr>
+  </table>
+</section>
+
+<footer>
+  Industry Prime — IP Internal Management Software · Complete technical documentation · Generated July 10, 2026 from the current codebase (<code>fms-frontend/</code>, <code>backend/</code>, <code>database/</code>, <code>docs/</code>). Single self-contained HTML file — no external dependencies; safe to open offline, share, or print.
+</footer>
+
+</main>
+</div>
+<script>
+(function () {
+  var body = document.body;
+  var openBtn = document.getElementById('doc-menu-open');
+  var closeBtn = document.getElementById('doc-menu-close');
+  var backdrop = document.getElementById('doc-toc-backdrop');
+  var toc = document.getElementById('doc-toc');
+  if (!openBtn || !toc) return;
+
+  function setOpen(open) {
+    body.classList.toggle('doc-nav-open', open);
+    openBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (backdrop) {
+      if (open) backdrop.removeAttribute('hidden');
+      else backdrop.setAttribute('hidden', '');
+    }
+    if (open && closeBtn) closeBtn.focus();
+    else if (!open) openBtn.focus();
+  }
+
+  openBtn.addEventListener('click', function () {
+    setOpen(!body.classList.contains('doc-nav-open'));
+  });
+  if (closeBtn) closeBtn.addEventListener('click', function () { setOpen(false); });
+  if (backdrop) backdrop.addEventListener('click', function () { setOpen(false); });
+  toc.querySelectorAll('a[href^="#"]').forEach(function (a) {
+    a.addEventListener('click', function () { setOpen(false); });
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && body.classList.contains('doc-nav-open')) setOpen(false);
+  });
+})();
+</script>
+</body>
+</html>

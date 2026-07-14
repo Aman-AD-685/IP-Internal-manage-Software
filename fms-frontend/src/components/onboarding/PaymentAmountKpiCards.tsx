@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Alert, Card, Col, Row, Spin, Typography } from 'antd'
+import { Alert, Card, Col, Row, Typography } from 'antd'
+import { SuccessCardsRowSkeleton } from '../common/skeletons'
 import type { AxiosError } from 'axios'
 import { apiClient } from '../../api/axios'
 import { API_ENDPOINTS } from '../../utils/constants'
@@ -149,13 +150,11 @@ export function PaymentAmountKpiCards({ kpis: kpisProp, loadFromApi, refreshKey 
   }, [load, refreshKey])
 
   const kpis = kpisProp ?? kpisFetched
-  const lifetimeRaised = kpis?.lifetime_raised_excl_na
-  const naUnpaidExcluded = kpis?.na_marked_unpaid_invoice_total
 
   if (loadFromApi && loading) {
     return (
-      <div style={{ marginBottom: 24, textAlign: 'center', padding: '32px 0' }}>
-        <Spin tip="Loading payment totals…" />
+      <div style={{ marginBottom: 16 }}>
+        <SuccessCardsRowSkeleton />
       </div>
     )
   }
@@ -165,7 +164,7 @@ export function PaymentAmountKpiCards({ kpis: kpisProp, loadFromApi, refreshKey 
       <Alert
         type="warning"
         showIcon
-        style={{ marginBottom: 24 }}
+        style={{ marginBottom: 16 }}
         message="Payment summary unavailable"
         description={loadError}
       />
@@ -173,7 +172,7 @@ export function PaymentAmountKpiCards({ kpis: kpisProp, loadFromApi, refreshKey 
   }
 
   return (
-    <Row gutter={[16, 16]}>
+    <Row gutter={[12, 12]}>
       <Col xs={24} md={8}>
         <KpiSummaryCard
           heading="Quarterly amount"
@@ -230,33 +229,6 @@ export function PaymentAmountKpiCards({ kpis: kpisProp, loadFromApi, refreshKey 
           }
         />
       </Col>
-      {(kpis && (typeof lifetimeRaised === 'number' || (naUnpaidExcluded ?? 0) > 0)) || kpis?.kpi_scope_note ? (
-        <Col span={24}>
-          {typeof lifetimeRaised === 'number' ? (
-            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
-              <Text strong style={{ color: 'inherit' }}>
-                Lifetime invoiced (all dates, excl. NA):
-              </Text>{' '}
-              ₹{fmt(lifetimeRaised)}
-              {(naUnpaidExcluded ?? 0) > 0 ? (
-                <>
-                  {' '}
-                  ·{' '}
-                  <Text strong style={{ color: 'inherit' }}>
-                    Unpaid marked NA (excluded from amounts above):
-                  </Text>{' '}
-                  ₹{fmt(naUnpaidExcluded ?? 0)}
-                </>
-              ) : null}
-            </Text>
-          ) : null}
-          {kpis?.kpi_scope_note ? (
-            <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
-              {kpis.kpi_scope_note}
-            </Text>
-          ) : null}
-        </Col>
-      ) : null}
     </Row>
   )
 }

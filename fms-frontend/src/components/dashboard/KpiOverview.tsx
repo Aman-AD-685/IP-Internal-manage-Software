@@ -1,4 +1,5 @@
-import { Button, Card, Col, Empty, Progress, Row, Space, Spin, Typography } from 'antd'
+import { Button, Card, Col, Empty, Progress, Row, Space, Typography } from 'antd'
+import { KpiRingsSkeleton } from '../common/skeletons'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -254,7 +255,7 @@ export function KpiOverview({ user, selectedUserName, selectedUserEmail }: KpiOv
           )}
         </div>
         {loading ? (
-          <Spin />
+          <KpiRingsSkeleton />
         ) : !selectedPerson ? (
           <Empty description="No KPI dashboard is assigned for this user." />
         ) : error || !hasOverview ? (

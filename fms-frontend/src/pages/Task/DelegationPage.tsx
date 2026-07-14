@@ -22,6 +22,7 @@ import { delegationApi, type DelegationTask } from '../../api/delegation'
 import { uploadAttachment } from '../../api/upload'
 import { PrintExport } from '../../components/common/PrintExport'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
+import { SectionEmptyState } from '../../components/common/SectionEmptyState'
 import { DEFAULT_INFINITE_CHUNK, useInfiniteScrollChunk } from '../../hooks/useInfiniteScrollChunk'
 import { useContextMenu, buildDelegationRowMenu, useContextMenuTrigger, buildPageSurfaceMenu } from '../../contextMenu'
 import { ContextMenuTarget } from '../../components/common/ContextMenuTarget'
@@ -126,6 +127,42 @@ export const DelegationPage = () => {
     })
     return rows
   }, [tasks, referenceNoFilter, delegationOnRangeFilter])
+
+  const hasDelegationClientFilters =
+    referenceNoFilter !== '__all__' || Boolean(delegationOnRangeFilter?.[0] && delegationOnRangeFilter?.[1])
+
+  const clearDelegationClientFilters = useCallback(() => {
+    setReferenceNoFilter('__all__')
+    setDelegationOnRangeFilter(null)
+  }, [])
+
+  const delegationEmptyContent = useMemo(() => {
+    if (loading) return undefined
+    if (tasks.length > 0 && displayTasks.length === 0 && hasDelegationClientFilters) {
+      return (
+        <SectionEmptyState
+          variant="no-filter-results"
+          title="No delegation tasks match your reference or date filters."
+          primaryAction={{ label: 'Clear filters', onClick: clearDelegationClientFilters }}
+        />
+      )
+    }
+    return (
+      <SectionEmptyState
+        variant="no-data"
+        title={`No ${statusFilter} delegation tasks.`}
+        description="Add a task or change the status filter above."
+        primaryAction={{ label: 'Add Delegation Task', onClick: () => setModalOpen(true) }}
+      />
+    )
+  }, [
+    loading,
+    tasks.length,
+    displayTasks.length,
+    hasDelegationClientFilters,
+    clearDelegationClientFilters,
+    statusFilter,
+  ])
 
   const delegationExportData = useMemo(() => {
     const fmt = (d: string | undefined) => (d ? dayjs(d).format('DD/MM/YYYY') : '')
@@ -511,6 +548,7 @@ export const DelegationPage = () => {
               rowKey="id"
               loading={false}
               pagination={false}
+              locale={{ emptyText: delegationEmptyContent }}
               onRow={(record) => ({
                 onContextMenu: (e) => handleRowContextMenu(record, e),
               })}

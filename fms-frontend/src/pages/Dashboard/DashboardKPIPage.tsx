@@ -56,7 +56,7 @@ import type { UserRole } from '../../types/auth'
 import { ROUTES } from '../../utils/constants'
 import { canViewDashboardKpiPerson, resolveKpiPersonForUser } from '../../utils/dashboardKpiPermissions'
 import { useActiveKpiPersons } from '../../hooks/useActiveKpiPersons'
-import { ChartAreaSkeleton, DashboardBlockSkeleton, SkeletonOverlay } from '../../components/common/skeletons'
+import { ChartAreaSkeleton, DashboardBlockSkeleton, SkeletonOverlay, SupportFmsTilesSkeleton } from '../../components/common/skeletons'
 import { SoumyaDashboardView } from './SoumyaDashboardView'
 import { SouvikDashboardView } from './SouvikDashboardView'
 import {
@@ -872,19 +872,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
         {loading && <DashboardBlockSkeleton />}
 
         {loading && showsStandardSupportFms(selectedPerson) && !supportFMS && (
-          <Card className="kpi-section-card kpi-section-card--support-fms" style={{ marginTop: 16 }}>
-            <Row gutter={[16, 16]}>
-              {(['Response Delay', 'Completion Delay', 'Pending Chores & Bugs'] as const).map((label) => (
-                <Col xs={24} md={8} key={label}>
-                  <Card size="small" title={label} className="kpi-support-card">
-                    <div style={{ minHeight: 72, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Spin tip="Loading Support FMS…" />
-                    </div>
-                  </Card>
-                </Col>
-              ))}
-            </Row>
-          </Card>
+          <SupportFmsTilesSkeleton />
         )}
 
         {!loading && data && data.success !== false && (
