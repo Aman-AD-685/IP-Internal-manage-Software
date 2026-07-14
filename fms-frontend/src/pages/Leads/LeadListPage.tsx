@@ -7,6 +7,7 @@ import dayjs from 'dayjs'
 import { ROUTES } from '../../utils/constants'
 import { leadsApi, type Lead } from '../../api/leads'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
+import { SectionEmptyState } from '../../components/common/SectionEmptyState'
 import { DEFAULT_INFINITE_CHUNK, useInfiniteScrollChunk } from '../../hooks/useInfiniteScrollChunk'
 import { OperationsSectionTabs } from '../../components/common/OperationsSectionTabs'
 
@@ -86,6 +87,38 @@ export const LeadListPage = () => {
     }
     return result
   }, [leads, filterCompany, filterStage, filterReferenceNo, filterDateRange])
+
+  const hasLeadFilters = Boolean(
+    filterCompany || filterStage || filterReferenceNo || filterDateRange?.[0] || filterDateRange?.[1],
+  )
+
+  const clearLeadFilters = () => {
+    setFilterCompany(undefined)
+    setFilterStage(undefined)
+    setFilterReferenceNo(undefined)
+    setFilterDateRange(null)
+  }
+
+  const leadEmptyContent = useMemo(() => {
+    if (loading) return undefined
+    if (leads.length > 0 && filteredLeads.length === 0 && hasLeadFilters) {
+      return (
+        <SectionEmptyState
+          variant="no-filter-results"
+          title={`No ${isClosedLeads ? 'closed' : 'open'} leads match your filters.`}
+          primaryAction={{ label: 'Clear filters', onClick: clearLeadFilters }}
+        />
+      )
+    }
+    return (
+      <SectionEmptyState
+        variant="no-data"
+        title={isClosedLeads ? 'No closed leads yet.' : 'No open leads yet.'}
+        description="Add lead details to start tracking the pipeline."
+        primaryAction={{ label: 'Add Lead Details', onClick: () => setAddModalOpen(true) }}
+      />
+    )
+  }, [loading, leads.length, filteredLeads.length, hasLeadFilters, isClosedLeads])
 
   const {
     visibleItems: visibleLeads,
@@ -183,7 +216,7 @@ export const LeadListPage = () => {
             onChange={(dates) => setFilterDateRange(dates as [Dayjs | null, Dayjs | null] | null)}
             allowClear
           />
-          <Button onClick={() => { setFilterCompany(undefined); setFilterStage(undefined); setFilterReferenceNo(undefined); setFilterDateRange(null) }}>
+          <Button onClick={clearLeadFilters}>
             Clear filters
           </Button>
         </Space>
@@ -192,6 +225,7 @@ export const LeadListPage = () => {
           <div ref={leadTableContainerRef}>
             <Table
             loading={false}
+            locale={{ emptyText: leadEmptyContent }}
             dataSource={visibleLeads}
             rowKey="id"
             onRow={(record) => ({

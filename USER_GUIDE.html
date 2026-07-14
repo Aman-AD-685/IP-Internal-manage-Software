@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>User Guide — IP Internal Management Software</title>
+<style>
+  :root{
+    --primary:#60A5FA;
+    --primary-dark:#2563EB;
+    --accent:#F59E0B;
+    --bg:#F5F7FB;
+    --sidebar-bg:#EEF1F6;
+    --card:#FFFFFF;
+    --text:#0F172A;
+    --text-2:#64748B;
+    --success:#22C55E;
+    --danger:#EF4444;
+    --border:#E2E8F0;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{font-family:"Segoe UI",system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.7;font-size:15px}
+  .layout{display:flex;min-height:100vh}
+
+  nav.toc{width:260px;flex-shrink:0;background:var(--sidebar-bg);border-right:1px solid var(--border);padding:24px 0;position:sticky;top:0;height:100vh;overflow-y:auto}
+  nav.toc .brand{padding:0 20px 16px;border-bottom:1px solid var(--border);margin-bottom:12px}
+  nav.toc .brand .logo{font-size:17px;font-weight:700;color:var(--primary-dark)}
+  nav.toc .brand .sub{font-size:12px;color:var(--text-2)}
+  nav.toc a{display:block;padding:8px 20px;color:var(--text-2);text-decoration:none;font-size:13.5px}
+  nav.toc a:hover{background:#E3E9F2;color:var(--text)}
+  nav.toc a.h{font-weight:600;color:var(--text)}
+
+  main{flex:1;max-width:960px;padding:36px 48px 80px}
+  header.hero{background:linear-gradient(135deg,#1E3A5F 0%,#2563EB 60%,#60A5FA 100%);color:#fff;border-radius:14px;padding:36px 40px;margin-bottom:36px}
+  header.hero h1{font-size:28px;margin-bottom:8px}
+  header.hero p{font-size:15.5px;opacity:.94;max-width:720px}
+
+  section{margin-bottom:42px}
+  h2{font-size:22px;padding-bottom:8px;border-bottom:3px solid var(--primary);margin-bottom:16px;scroll-margin-top:20px}
+  h3{font-size:16.5px;margin:22px 0 8px;color:var(--primary-dark)}
+  p{margin-bottom:10px}
+  ul,ol{margin:0 0 14px 24px}
+  li{margin-bottom:6px}
+  b{color:var(--text)}
+
+  .steps{counter-reset:step;list-style:none;margin:12px 0 18px;padding:0}
+  .steps li{counter-increment:step;position:relative;padding:10px 14px 10px 52px;background:var(--card);border:1px solid var(--border);border-radius:10px;margin-bottom:8px}
+  .steps li::before{content:counter(step);position:absolute;left:12px;top:50%;transform:translateY(-50%);width:28px;height:28px;border-radius:50%;background:var(--primary-dark);color:#fff;font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center}
+
+  .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px 20px;margin-bottom:12px}
+  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:16px;font-size:14px}
+  th{background:#1E3A5F;color:#fff;text-align:left;padding:9px 12px;font-weight:600}
+  td{padding:9px 12px;border-top:1px solid var(--border);vertical-align:top}
+  tr:nth-child(even) td{background:#F8FAFD}
+
+  .tip{border-left:4px solid var(--success);background:#F0FDF4;padding:12px 16px;border-radius:0 8px 8px 0;margin-bottom:14px}
+  .tip::before{content:"✅ Tip: ";font-weight:700;color:#15803D}
+  .warn{border-left:4px solid var(--accent);background:#FFFBEB;padding:12px 16px;border-radius:0 8px 8px 0;margin-bottom:14px}
+  .warn::before{content:"⚠️ Important: ";font-weight:700;color:#B45309}
+  .info{border-left:4px solid var(--primary);background:#EFF6FF;padding:12px 16px;border-radius:0 8px 8px 0;margin-bottom:14px}
+  .info::before{content:"ℹ️ Note: ";font-weight:700;color:var(--primary-dark)}
+
+  .btn{display:inline-block;background:var(--accent);color:#fff;font-weight:600;padding:1px 10px;border-radius:6px;font-size:13px}
+  .menu{display:inline-block;background:#E8EEF7;color:#1E3A5F;font-weight:600;padding:1px 8px;border-radius:5px;font-size:13px}
+  .tag{display:inline-block;padding:1px 9px;border-radius:99px;font-size:12px;font-weight:600;margin-right:4px}
+  .tag.blue{background:#DBEAFE;color:#1D4ED8}
+  .tag.green{background:#DCFCE7;color:#15803D}
+  .tag.orange{background:#FEF3C7;color:#B45309}
+  .tag.red{background:#FEE2E2;color:#B91C1C}
+
+  .flow{display:flex;flex-wrap:wrap;align-items:stretch;margin:12px 0 16px}
+  .flow .step{background:var(--card);border:1px solid var(--border);border-left:4px solid var(--primary);border-radius:8px;padding:8px 12px;font-size:13px;min-width:120px;flex:1;max-width:210px}
+  .flow .step b{display:block;color:var(--primary-dark);font-size:12.5px}
+  .flow .arrow{align-self:center;padding:0 8px;color:var(--accent);font-size:18px;font-weight:700}
+  .flow .step.end{border-left-color:var(--success)}
+
+  footer{border-top:1px solid var(--border);padding-top:18px;color:var(--text-2);font-size:12.5px}
+
+  /* Mobile doc nav — top bar + full-screen TOC (single nav.toc reused) */
+  .doc-topbar{display:none;align-items:center;gap:12px;padding:10px 14px;background:#fff;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:40}
+  .doc-topbar-title{font-weight:700;font-size:14px;color:var(--primary-dark);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .doc-menu-btn,.doc-menu-close{appearance:none;border:1px solid var(--border);background:var(--sidebar-bg);color:var(--text);border-radius:8px;padding:8px 12px;font-size:14px;font-weight:600;cursor:pointer;line-height:1.2}
+  .doc-menu-btn:focus-visible,.doc-menu-close:focus-visible,nav.toc a:focus-visible{outline:2px solid var(--primary-dark);outline-offset:2px}
+  .doc-toc-drawer-head{display:none;align-items:center;justify-content:space-between;gap:12px;padding:0 20px 14px;border-bottom:1px solid var(--border);margin-bottom:12px}
+  .doc-toc-backdrop{display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:45}
+  body.doc-nav-open{overflow:hidden}
+
+  @media (max-width:900px){
+    .doc-topbar{display:flex}
+    .layout{flex-direction:column}
+    nav.toc{display:none}
+    body.doc-nav-open nav.toc{
+      display:block;position:fixed;inset:0;width:100%;height:100%;z-index:50;
+      padding:16px 0 32px;border-right:none
+    }
+    body.doc-nav-open .doc-toc-drawer-head{display:flex}
+    body.doc-nav-open .doc-toc-backdrop{display:block}
+    body.doc-nav-open nav.toc .brand{display:none}
+    main{padding:20px}
+    h2{scroll-margin-top:64px}
+  }
+  @media print{
+    .doc-topbar,.doc-toc-backdrop,.doc-toc-drawer-head{display:none!important}
+    nav.toc{display:none!important}
+    main{max-width:none;padding:0}
+    header.hero{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  }
+</style>
+</head>
+<body>
+<div class="doc-toc-backdrop" id="doc-toc-backdrop" hidden></div>
+<header class="doc-topbar" aria-label="Document toolbar">
+  <button type="button" class="doc-menu-btn" id="doc-menu-open" aria-expanded="false" aria-controls="doc-toc">☰ Menu</button>
+  <span class="doc-topbar-title">User Guide</span>
+</header>
+<div class="layout">
+
+<nav class="toc" id="doc-toc" aria-label="Contents">
+  <div class="doc-toc-drawer-head">
+    <strong>Contents</strong>
+    <button type="button" class="doc-menu-close" id="doc-menu-close" aria-label="Close menu">×</button>
+  </div>
+  <div class="brand">
+    <div class="logo">Industry Prime</div>
+    <div class="sub">User Guide — how to use the software</div>
+  </div>
+  <a href="#phone" class="h">Using this guide on a phone</a>
+  <a href="#what" class="h">1. What is this software?</a>
+  <a href="#start" class="h">2. Getting started (login)</a>
+  <a href="#screen" class="h">3. Understanding the screen</a>
+  <a href="#loading-states" class="h">Loading — what you see while data loads</a>
+  <a href="#empty-states" class="h">Empty lists — no rows yet or no matches</a>
+  <a href="#dashboard" class="h">4. Dashboard</a>
+  <a href="#tickets" class="h">5. Support tickets</a>
+  <a href="#task" class="h">6. Checklist &amp; Delegation</a>
+  <a href="#onboarding" class="h">7. Onboarding</a>
+  <a href="#payment" class="h">8. Client Payment</a>
+  <a href="#training" class="h">9. Training</a>
+  <a href="#success" class="h">10. Success (Performance)</a>
+  <a href="#leads" class="h">11. Client to Lead</a>
+  <a href="#kpi" class="h">12. KPI &amp; scores</a>
+  <a href="#emails" class="h">13. Emails you will get</a>
+  <a href="#admin" class="h">14. For admins</a>
+  <a href="#help" class="h">15. Common problems &amp; help</a>
+</nav>
+
+<main>
+
+<header class="hero">
+  <h1>User Guide — IP Internal Management Software</h1>
+  <p>A simple guide that explains, in plain language, how to use every part of the software: login, dashboard, tickets, daily tasks, payments, training, leads, and more. No technical knowledge needed.</p>
+</header>
+
+<!-- ==================== PHONE NAV ==================== -->
+<section id="phone">
+  <h2>Using this guide on a phone</h2>
+  <p>On a phone or narrow screen, the left <b>Contents</b> list is tucked away so the page is readable. Use the bar at the top of the page to open it again.</p>
+  <div class="info">This applies to this HTML User Guide (and the technical documentation file). The live website also has phone navigation: use <b>☰</b> at the top and the bottom tabs (<b>Dashboard / Tickets / Tasks / More</b>) after you log in — see <a href="#screen">Understanding the screen</a>.</div>
+  <h3>What was wrong before</h3>
+  <ul>
+    <li>On small screens the Contents sidebar disappeared completely.</li>
+    <li>There was no button to show it again, so you could only scroll — not jump between sections.</li>
+  </ul>
+  <h3>How to use Contents on a phone</h3>
+  <ol class="steps">
+    <li>Open this file on your phone.</li>
+    <li>Tap <b>☰ Menu</b> at the top.</li>
+    <li>Choose a section (for example <b>5. Support tickets</b>).</li>
+    <li>The page jumps to that section and the menu closes. Tap <b>Menu</b> again anytime.</li>
+  </ol>
+  <div class="tip">You can also close the menu with the <b>×</b> button, by tapping the dimmed area outside the list, or by pressing Escape on a keyboard.</div>
+  <h3>What does not change</h3>
+  <ul>
+    <li>On a wide screen (laptop/desktop) you still see the left Contents sidebar as before.</li>
+    <li>Printing or “Save as PDF” still hides the Contents list so the pages stay clean.</li>
+  </ul>
+</section>
+
+<!-- ==================== 1 ==================== -->
+<section id="what">
+  <h2>1. What is this software?</h2>
+  <p><b>IP Internal Management Software</b> is the one website where all Industry Prime team members do their daily work. Instead of many spreadsheets and WhatsApp messages, everything is in one place:</p>
+  <ul>
+    <li><b>Support</b> — report and track client problems and feature requests (tickets).</li>
+    <li><b>Task</b> — your daily checklist and tasks given to you by others.</li>
+    <li><b>Onboarding &amp; Payment</b> — track new clients, invoices, and pending payments.</li>
+    <li><b>Training</b> — track which client has finished which training step.</li>
+    <li><b>Success</b> — monitor how clients are using the product and follow up with them.</li>
+    <li><b>Leads</b> — track potential new clients from first contact to closing.</li>
+    <li><b>Dashboard &amp; KPI</b> — see your work summary and performance scores.</li>
+  </ul>
+  <p>You open it in your web browser at: <a href="https://industryprime.vercel.app"><b>https://industryprime.vercel.app</b></a></p>
+  <div class="info">You will only see the menus that are related to your job. If a colleague sees a menu that you don't see, it just means they have permission for that section and you don't. Your admin can give you access.</div>
+</section>
+
+<!-- ==================== 2 ==================== -->
+<section id="start">
+  <h2>2. Getting started — register and login</h2>
+
+  <h3>First time? Create your account</h3>
+  <ol class="steps">
+    <li>Open <b>https://industryprime.vercel.app</b> in Chrome or Edge.</li>
+    <li>Click <span class="btn">Register</span> and fill in your name, work email, and a password.</li>
+    <li>Open your email inbox — you will get a <b>confirmation email</b>. Click the link inside it.</li>
+    <li>After confirming, come back to the website and <b>login</b> with your email and password.</li>
+  </ol>
+  <div class="warn">If the confirmation email does not arrive, check your Spam folder. You can also click <b>"Resend confirmation"</b> on the login page.</div>
+
+  <h3>Forgot your password?</h3>
+  <ol class="steps">
+    <li>On the login page, click <span class="btn">Forgot Password</span>.</li>
+    <li>Enter your email — you will get a reset link by email.</li>
+    <li>Click the link and type your new password.</li>
+  </ol>
+</section>
+
+<!-- ==================== 3 ==================== -->
+<section id="screen">
+  <h2>3. Understanding the screen</h2>
+  <p>After login, the screen has three parts:</p>
+  <table>
+    <tr><th>Part</th><th>What it is for</th></tr>
+    <tr><td><b>Left menu (desktop)</b></td><td>The main menu. Click a name to open that section. <span class="menu">Operations</span> opens into sub-menus like Support, Success, Onboarding, Training, Client Payment.</td></tr>
+    <tr><td><b>☰ Menu (phone)</b></td><td>On a phone, the left menu is hidden until you tap the <b>☰</b> button at the top-left. It opens a full-screen menu. Tap a page name, or tap <b>×</b> / outside to close.</td></tr>
+    <tr><td><b>Bottom tabs (phone)</b></td><td>Quick jumps: <b>Dashboard</b>, <b>Tickets</b>, <b>Tasks</b>, and <b>More</b> (opens the full menu for everything else).</td></tr>
+    <tr><td><b>Top header</b></td><td>Shows the software name, the <b>🔔 bell</b> (notifications when someone writes a remark on your ticket), quick buttons like <span class="menu">IP Suggestion</span> and <span class="menu">Improvement</span> (to send ideas/suggestions), and your profile.</td></tr>
+    <tr><td><b>Main area</b></td><td>The page you are working on — lists, forms, and reports appear here.</td></tr>
+  </table>
+  <div class="tip">On a phone, use <b>☰</b> and the bottom tabs. (The HTML guide’s own Contents menu is separate — see <a href="#phone">Using this guide on a phone</a>.)</div>
+  <div class="tip">If you see a message saying <b>"new version available — refresh"</b>, just press refresh (F5). It means the team released an update.</div>
+  <div class="info">Sometimes admins put the system in <b>lock mode</b> for maintenance. During lock, you can view data but not change it. Wait a few minutes and try again.</div>
+</section>
+
+<!-- ==================== LOADING ==================== -->
+<section id="loading-states">
+  <h2>Loading — what you see while data loads</h2>
+  <p>When you open a page or refresh, the software fetches your data from the server. Instead of a blank screen or a small spinning circle in the middle, you will see <b>grey placeholder shapes</b> that match what is coming — card blocks, table rows, or chart areas.</p>
+  <h3>Why this matters</h3>
+  <ul>
+    <li>The layout stays stable — nothing jumps when numbers and rows appear.</li>
+    <li>The page feels faster even when the actual load time is the same.</li>
+    <li>You can tell <b>what kind of content</b> is loading (dashboard cards vs a long table).</li>
+  </ul>
+  <h3>What you will see</h3>
+  <table>
+    <tr><th>Where</th><th>Loading appearance</th></tr>
+    <tr><td><b>Dashboard</b></td><td>Soft grey tiles where operation counts and KPI cards will appear, then real numbers fade in.</td></tr>
+    <tr><td><b>Ticket / task lists</b></td><td>Table-shaped grey rows (header + several lines) until your tickets or tasks load.</td></tr>
+    <tr><td><b>KPI dashboard</b></td><td>Card grid + chart block placeholders; charts load after the main numbers.</td></tr>
+    <tr><td><b>Opening a ticket drawer</b></td><td>Short grey lines inside the panel until ticket details load.</td></tr>
+  </table>
+  <div class="tip">If placeholders stay for more than ~10 seconds on a slow connection, wait or refresh once. First load of the day may be slower while the server wakes up — see <a href="#help">Common problems</a>.</div>
+  <div class="info">Repeat visits are faster: the Dashboard often shows cached summary data immediately, then quietly updates in the background.</div>
+</section>
+
+<!-- ==================== EMPTY ==================== -->
+<section id="empty-states">
+  <h2>Empty lists — no rows yet or no matches</h2>
+  <p>When a table has nothing to show, you should see a <b>clear message</b> and often a <b>button</b> — not a tiny “No data” line with no explanation.</p>
+  <h3>Two different situations</h3>
+  <table>
+    <tr><th>Situation</th><th>What it means</th><th>What to do</th></tr>
+    <tr><td><b>Nothing here yet</b></td><td>You (or your team) have not created any records in this section.</td><td>Use the suggested action — e.g. <span class="btn">Submit Support Ticket</span>, <span class="btn">Add Task</span>, <span class="btn">Add Lead Details</span>.</td></tr>
+    <tr><td><b>Filters hid everything</b></td><td>Records exist, but your search, date range, or filters exclude all rows.</td><td>Tap <b>Clear filters</b> or widen the date range, then try again.</td></tr>
+    <tr><td><b>No permission</b></td><td>This section is not enabled for your account.</td><td>Ask your admin under <span class="menu">Users → permissions</span> — not a bug.</td></tr>
+  </table>
+  <h3>Examples by section</h3>
+  <ul>
+    <li><b>Support tickets</b> — “No open tickets matching this filter” vs “No tickets yet” with a path to create one.</li>
+    <li><b>Checklist / Delegation</b> — “No tasks for Today” vs “No tasks match your search” with <b>Add Task</b>.</li>
+    <li><b>Leads</b> — “No open leads” with <b>Add Lead Details</b>, or filter-empty with <b>Clear filters</b>.</li>
+    <li><b>Performance Monitoring</b> — “No active companies” with guidance to add POC details (already detailed on that page).</li>
+    <li><b>KPI dashboard</b> — “No KPI dashboard assigned” — admin must grant KPI access or assign a person dashboard.</li>
+  </ul>
+  <div class="warn">If you expect data but see an empty list, check the filter chips and date picker at the top of the page before reporting a problem.</div>
+</section>
+
+<!-- ==================== 4 ==================== -->
+<section id="dashboard">
+  <h2>4. Dashboard — your daily starting point</h2>
+  <p>Click <span class="menu">Dashboard</span> in the sidebar. This is your home page. It shows:</p>
+  <ul>
+    <li><b>Today's snapshot</b> — what needs your attention today.</li>
+    <li><b>My work</b> — your open tickets, pending checklist items, and delegated tasks.</li>
+    <li><b>KPI overview</b> — your performance scores (see <a href="#kpi">section 12</a>).</li>
+    <li><b>Operations tiles</b> — quick numbers from Support, Success, Onboarding, Payment, and Training (you only see the tiles you have permission for).</li>
+    <li><b>Attendance &amp; leave summary</b> — attendance information pulled in automatically.</li>
+  </ul>
+  <div class="tip">Start every morning from the Dashboard — it tells you what is pending before anyone has to remind you.</div>
+</section>
+
+<!-- ==================== 5 ==================== -->
+<section id="tickets">
+  <h2>5. Support tickets — reporting problems and requests</h2>
+  <p>A <b>ticket</b> is one record of a client problem or request. There are three types:</p>
+  <table>
+    <tr><th>Type</th><th>Meaning</th><th>Reference number looks like</th></tr>
+    <tr><td><span class="tag blue">Chore</span></td><td>A small routine job (data change, setting, small help)</td><td>EX-CH-0001</td></tr>
+    <tr><td><span class="tag red">Bug</span></td><td>Something in the product is broken or wrong</td><td>EX-BU-0001</td></tr>
+    <tr><td><span class="tag orange">Feature</span></td><td>A request for something new to be built</td><td>EX-FE-0001</td></tr>
+  </table>
+
+  <h3>How to create a ticket</h3>
+  <ol class="steps">
+    <li>Go to <span class="menu">Operations → Support → Chores &amp; Bugs</span> (or Feature).</li>
+    <li>Click the button to create a new ticket. A form opens.</li>
+    <li>Fill in: <b>company</b>, <b>which page/part of the product</b>, <b>title</b>, and a clear <b>description</b>. Choose the type (chore / bug / feature) and priority.</li>
+    <li>If you have a screenshot or file, <b>attach</b> it — a picture makes solving much faster.</li>
+    <li>Submit. The system gives it a reference number automatically (like EX-BU-0042).</li>
+  </ol>
+  <div class="tip">If you close the form halfway, don't worry — the software <b>saves your draft automatically</b>. When you open the form again, your text is still there.</div>
+  <div class="info">When you type a ticket, the system also checks if a <b>similar ticket already exists</b>, so the same problem is not reported twice.</div>
+
+  <h3>What happens to a ticket after you create it (the 4 stages)</h3>
+  <div class="flow">
+    <div class="step"><b>Stage 1</b>Ticket received and checked</div>
+    <div class="arrow">→</div>
+    <div class="step"><b>Stage 2</b>Work planned &amp; in progress (remarks can be added)</div>
+    <div class="arrow">→</div>
+    <div class="step"><b>Stage 3</b>Solution ready, testing on staging</div>
+    <div class="arrow">→</div>
+    <div class="step end"><b>Stage 4</b>Live for the client + quality review</div>
+  </div>
+  <p>Each stage has a <b>planned date</b> and an <b>actual date</b>. If actual is later than planned, the ticket shows a <b>delay</b> — this is how the SLA (service time promise) is tracked.</p>
+
+  <h3>Feature approval (only for Feature tickets)</h3>
+  <p>New features need approval before work starts. The approver gets an <b>email with Approve / Reject / Hold buttons</b> — they can click directly from the email, no login needed. You can see the current status under <span class="menu">Support → Approval Status</span>.</p>
+
+  <h3>Other things you can do</h3>
+  <ul>
+    <li><b>Responses</b> — write updates/questions on a ticket so everyone sees the history.</li>
+    <li><b>Stage-2 remarks</b> — special remarks during work; the assigned person gets a 🔔 bell notification.</li>
+    <li><b>Promote to feature</b> — if a chore/bug turns out to be a new feature request, it can be converted.</li>
+    <li><b>Register of Tickets</b> — the full list of all tickets, with filters, for review and reporting.</li>
+  </ul>
+</section>
+
+<!-- ==================== 6 ==================== -->
+<section id="task">
+  <h2>6. Task — your Checklist and Delegation</h2>
+
+  <h3>Checklist (your repeating daily/weekly duties)</h3>
+  <p>Go to <span class="menu">Task → Checklist</span>. This shows the duties assigned to you that repeat — daily, weekly, or monthly.</p>
+  <ol class="steps">
+    <li>Open the Checklist page every day.</li>
+    <li>Do the task in real life, then click <span class="btn">Complete</span> next to it.</li>
+    <li>If a task is genuinely not applicable today (for example, no data came), mark it <b>NA</b> instead.</li>
+  </ol>
+  <div class="warn">Your checklist completion percentage goes into your <b>KPI score</b>. Uncompleted tasks lower your score, and you will get a <b>reminder email</b> every working day for pending items. Holidays are excluded automatically.</div>
+
+  <h3>Delegation (one-time tasks given to you or by you)</h3>
+  <p>Go to <span class="menu">Task → Delegation</span>. Here you see one-time tasks that someone assigned to you (or that you assigned to others), each with a due date. Complete them the same way. Pending delegation tasks also trigger daily reminder emails and affect KPI.</p>
+</section>
+
+<!-- ==================== 7 ==================== -->
+<section id="onboarding">
+  <h2>7. Onboarding — bringing a new client in</h2>
+  <p>Go to <span class="menu">Operations → Onboarding → Record of Onboarding</span>. Each row is one new client. The flow is:</p>
+  <div class="flow">
+    <div class="step"><b>1. Payment status</b>Record the client and their payment status</div>
+    <div class="arrow">→</div>
+    <div class="step"><b>2. Pre-onboarding</b>Complete the pre-onboarding checklist</div>
+    <div class="arrow">→</div>
+    <div class="step"><b>3. POC &amp; setup</b>POC checklist, organisation master, item cleaning</div>
+    <div class="arrow">→</div>
+    <div class="step end"><b>4. Handover</b>Client moves to Training and then Success</div>
+  </div>
+  <p>Click on a row to open its details and tick off each checklist item as you finish it. Everyone can see exactly how far each client's onboarding has reached.</p>
+</section>
+
+<!-- ==================== 8 ==================== -->
+<section id="payment">
+  <h2>8. Client Payment — invoices and follow-ups</h2>
+  <p>Go to <span class="menu">Operations → Client Payment → Payment Management</span>.</p>
+
+  <h3>The payment cycle</h3>
+  <div class="flow">
+    <div class="step"><b>Raise invoice</b>Add the invoice with amount and date</div>
+    <div class="arrow">→</div>
+    <div class="step"><b>Mark as sent</b>Record when/how the invoice was sent to the client</div>
+    <div class="arrow">→</div>
+    <div class="step"><b>Follow-ups</b>Record each reminder call/mail (up to 10 follow-ups)</div>
+    <div class="arrow">→</div>
+    <div class="step end"><b>Payment received</b>Record the payment — done!</div>
+  </div>
+  <ul>
+    <li><b>Intercept</b> — if something special happens (client dispute, on hold), tag it so the team knows.</li>
+    <li><b>Discontinuation</b> — if the client stops the service, record it here.</li>
+    <li><b>Payment Ageing report</b> — shows all unpaid invoices grouped by how old they are (e.g. 30 / 60 / 90+ days). Use this to see who to chase first.</li>
+    <li><b>Pending Payment Details</b> — a special summary page (only visible to specific people).</li>
+  </ul>
+  <div class="tip">You can also record quick payment actions directly from the Dashboard without opening the full payment page.</div>
+</section>
+
+<!-- ==================== 9 ==================== -->
+<section id="training">
+  <h2>9. Training — teaching clients to use the product</h2>
+  <p>Go to <span class="menu">Operations → Training → Client Training</span>. Each client has a training plan made of <b>stages</b>:</p>
+  <ol class="steps">
+    <li>The client is assigned to a trainer.</li>
+    <li>Complete the <b>Day-0 checklist</b> (initial setup and introduction).</li>
+    <li>Mark each training stage as done when the session is finished.</li>
+  </ol>
+  <p>This way, anyone can see at a glance which client has finished which training step, and nothing gets skipped.</p>
+</section>
+
+<!-- ==================== 10 ==================== -->
+<section id="success">
+  <h2>10. Success — keeping clients happy after training</h2>
+  <p>Go to <span class="menu">Operations → Success → Performance Monitoring</span>. This page lists all live clients and how well they are using the product.</p>
+  <ul>
+    <li><b>Performance grid</b> — one row per company, showing their usage/performance.</li>
+    <li><b>Follow-ups</b> — record every follow-up call you make to a client. The system tracks clicks and dates, so follow-ups are never forgotten.</li>
+    <li><b>POC</b> — record the client's point-of-contact details.</li>
+    <li><b>Mark NA</b> — if a company should not be counted (e.g. discontinued), mark it NA so reports stay clean.</li>
+    <li><b>Comp-Perform</b> — a comparison view of company performance.</li>
+  </ul>
+</section>
+
+<!-- ==================== 11 ==================== -->
+<section id="leads">
+  <h2>11. Client to Lead — tracking potential customers</h2>
+  <p>Go to <span class="menu">Operations → Client to Lead → Lead</span>.</p>
+  <ol class="steps">
+    <li>Click to add a new lead, or use <span class="menu">Import from sheet</span> to bring many leads in at once from a spreadsheet.</li>
+    <li>Open a lead to fill in its <b>stage details</b> — lead details, contacted, and the following stages as the conversation progresses.</li>
+    <li>When the deal is finished (won or lost), the lead moves to <b>Closed Leads</b>.</li>
+  </ol>
+  <p>Every lead keeps its full history, so anyone in the team can pick up the conversation.</p>
+</section>
+
+<!-- ==================== 12 ==================== -->
+<section id="kpi">
+  <h2>12. KPI &amp; scores — how your performance is measured</h2>
+  <p>Go to <span class="menu">Dashboard → KPI</span> (or the Success dashboard, depending on your role). KPI = Key Performance Indicator = your work score.</p>
+  <table>
+    <tr><th>What is counted</th><th>Where it comes from</th></tr>
+    <tr><td>Checklist completion %</td><td>How many of your daily checklist items you completed on time</td></tr>
+    <tr><td>Delegation completion %</td><td>How many delegated tasks you finished by the due date</td></tr>
+    <tr><td>Support / FMS %</td><td>How fast tickets assigned to you moved through their stages (SLA)</td></tr>
+    <tr><td>Daily work log</td><td>Daily scores entered for your role (some team members enter a short daily score)</td></tr>
+  </table>
+  <p>You can view your score <b>per week</b> or <b>per month</b>, and click any number to see the detail behind it. Scores update automatically as soon as you complete work — no manual reporting needed.</p>
+  <div class="info">Each person sees their own KPI board. Managers/admins can view team members' boards. Some team members (e.g. for social media or SLA tracking) have special boards designed for their role.</div>
+</section>
+
+<!-- ==================== 13 ==================== -->
+<section id="emails">
+  <h2>13. Emails the software will send you</h2>
+  <p>The software sends automatic emails so nothing is forgotten. These are normal — you don't need to reply to them, just act on them:</p>
+  <table>
+    <tr><th>Email</th><th>When you get it</th><th>What to do</th></tr>
+    <tr><td>Checklist reminder</td><td>Every working day, if you have pending checklist items</td><td>Open the Checklist page and complete/NA the items</td></tr>
+    <tr><td>Delegation reminder</td><td>Every working day, if you have pending delegated tasks</td><td>Finish the task and mark it complete</td></tr>
+    <tr><td>Pending digest</td><td>Periodic summary of everything pending for you</td><td>Review and clear your pending list</td></tr>
+    <tr><td>Feature approval request</td><td>When a feature ticket needs your approval</td><td>Click Approve / Reject / Hold directly in the email</td></tr>
+    <tr><td>Escalation email</td><td>When a ticket is delayed too long or is critical</td><td>Prioritise that ticket immediately</td></tr>
+  </table>
+  <div class="info">Reminder emails are not sent on holidays. If you keep getting a reminder for a task that does not apply, mark that task <b>NA</b> in the software instead of ignoring the email.</div>
+</section>
+
+<!-- ==================== 14 ==================== -->
+<section id="admin">
+  <h2>14. For admins only</h2>
+  <p>If you are an <b>admin</b> or <b>master admin</b>, you have two extra menus:</p>
+  <h3>Users</h3>
+  <ol class="steps">
+    <li>Go to <span class="menu">Users</span> in the sidebar.</li>
+    <li>Click a user to edit them. Set their <b>role</b> (User / Approver / Admin / Master Admin).</li>
+    <li>In the <b>permission matrix</b>, tick <b>View</b> and/or <b>Edit</b> for each section the user should access (Dashboard, Tickets, Client Payment, Training, etc.).</li>
+    <li>Save. The user sees the new menus the next time they load the app.</li>
+  </ol>
+  <div class="warn">If a user says "I can't see the XYZ menu", this permission matrix is the place to fix it. Give access here — do not ask for email-based exceptions.</div>
+  <h3>Settings</h3>
+  <ul>
+    <li><b>Email settings</b> — who receives feature-approval reminders and escalation emails, and when.</li>
+    <li><b>System lock</b> — temporarily lock the whole system to read-only during maintenance (every lock/unlock is recorded).</li>
+  </ul>
+</section>
+
+<!-- ==================== 15 ==================== -->
+<section id="help">
+  <h2>15. Common problems &amp; quick help</h2>
+  <table>
+    <tr><th>Problem</th><th>Solution</th></tr>
+    <tr><td>I can't login</td><td>Check email/password spelling. If new, confirm your email first (check Spam). Use <b>Forgot Password</b> if needed.</td></tr>
+    <tr><td>I don't see a menu my colleague has</td><td>You don't have permission for that section. Ask your admin to grant it in <b>Users → permissions</b>.</td></tr>
+    <tr><td>Confirmation / reset email not received</td><td>Wait 2–3 minutes, check Spam folder, then use "Resend".</td></tr>
+    <tr><td>The page shows old data</td><td>Press <b>F5</b> to refresh. If a "new version" banner is showing, refresh is required.</td></tr>
+    <tr><td>I can see everything but cannot edit</td><td>Either you have View-only permission for that section, or the admin has put the system in <b>lock mode</b> for maintenance. Try again later or ask your admin.</td></tr>
+    <tr><td>The site is slow to open first thing in the morning</td><td>The server may be waking up. Wait ~30 seconds and it will be fast again.</td></tr>
+    <tr><td>I can't find the Contents list on my phone</td><td>Tap <b>☰ Menu</b> at the top of this guide — see <a href="#phone">Using this guide on a phone</a>.</td></tr>
+    <tr><td>Page shows grey boxes then data pops in</td><td>That is normal <b>skeleton loading</b> — see <a href="#loading-states">Loading</a>. If it never finishes, refresh or check connection.</td></tr>
+    <tr><td>Table says "No data" but I know records exist</td><td>Clear filters or widen the date range — see <a href="#empty-states">Empty lists</a>.</td></tr>
+    <tr><td>I made a ticket by mistake / wrong type</td><td>Open the ticket and edit it, or ask an admin — chores/bugs can even be promoted to features.</td></tr>
+    <tr><td>I keep getting a reminder for a task that doesn't apply</td><td>Open the task and mark it <b>NA</b> — the reminders will stop counting it.</td></tr>
+  </table>
+  <p>For anything else, contact your admin or the internal support team.</p>
+</section>
+
+<footer>
+  Industry Prime — IP Internal Management Software · User Guide (plain-language edition) · July 10, 2026.<br>
+  For the technical documentation (architecture, API, database), see <b>SOFTWARE_DOCUMENTATION.html</b> in the same folder.
+</footer>
+
+</main>
+</div>
+<script>
+(function () {
+  var body = document.body;
+  var openBtn = document.getElementById('doc-menu-open');
+  var closeBtn = document.getElementById('doc-menu-close');
+  var backdrop = document.getElementById('doc-toc-backdrop');
+  var toc = document.getElementById('doc-toc');
+  if (!openBtn || !toc) return;
+
+  function setOpen(open) {
+    body.classList.toggle('doc-nav-open', open);
+    openBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (backdrop) {
+      if (open) backdrop.removeAttribute('hidden');
+      else backdrop.setAttribute('hidden', '');
+    }
+    if (open && closeBtn) closeBtn.focus();
+    else if (!open) openBtn.focus();
+  }
+
+  openBtn.addEventListener('click', function () {
+    setOpen(!body.classList.contains('doc-nav-open'));
+  });
+  if (closeBtn) closeBtn.addEventListener('click', function () { setOpen(false); });
+  if (backdrop) backdrop.addEventListener('click', function () { setOpen(false); });
+  toc.querySelectorAll('a[href^="#"]').forEach(function (a) {
+    a.addEventListener('click', function () { setOpen(false); });
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && body.classList.contains('doc-nav-open')) setOpen(false);
+  });
+})();
+</script>
+</body>
+</html>

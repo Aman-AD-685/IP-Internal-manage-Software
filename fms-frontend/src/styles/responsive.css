@@ -31,6 +31,58 @@
   .submit-btn .submit-btn-text {
     display: none;
   }
+  .app-header .header-desktop-label {
+    display: none !important;
+  }
+  .app-header .header-user-name {
+    display: none !important;
+  }
+  .app-content {
+    margin-bottom: 72px !important;
+  }
+}
+
+/* Phone bottom tabs — Dashboard / Tickets / Tasks / More */
+.mobile-bottom-nav {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .mobile-bottom-nav {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 900;
+    height: 56px;
+    padding: 4px 6px calc(4px + env(safe-area-inset-bottom, 0px));
+    background: #fff;
+    border-top: 1px solid #e2e8f0;
+    justify-content: space-around;
+    align-items: stretch;
+    gap: 2px;
+  }
+  .mobile-bottom-nav .ant-btn {
+    flex: 1;
+    height: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    font-size: 11px;
+    line-height: 1.2;
+    color: #64748b;
+    padding: 4px 2px;
+  }
+  .mobile-bottom-nav .ant-btn .anticon {
+    font-size: 18px;
+  }
+  .mobile-bottom-nav .ant-btn.is-active {
+    color: #2563eb;
+    font-weight: 600;
+  }
 }
 
 /* Dashboard cards: stack on mobile */
@@ -48,6 +100,27 @@
   }
   .ant-table {
     min-width: 600px;
+  }
+}
+
+/* Checklist — Task List filters under title on narrow screens */
+@media (max-width: 991px) {
+  .checklist-task-list-card .ant-card-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .checklist-task-list-card .ant-card-head-wrapper {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .checklist-task-list-card .ant-card-extra {
+    margin-inline-start: 0 !important;
+    margin-top: 8px;
+    width: 100%;
+  }
+  .checklist-task-list-filters {
+    width: 100%;
+    justify-content: flex-end;
   }
 }
 

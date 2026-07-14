@@ -24,6 +24,7 @@ import { useRole } from '../../hooks/useRole'
 import { useAuth } from '../../hooks/useAuth'
 import { ROUTES, canViewDbClientDbDash, canViewPendingPaymentDetails } from '../../utils/constants'
 import { useState, useEffect } from 'react'
+import { useIsMobileNav } from '../../hooks/useIsMobileNav'
 import { prefetchRouteData } from '../../utils/routePrefetch'
 import { canViewSection } from '../../utils/helpers'
 import type { UserRole } from '../../types/auth'
@@ -83,6 +84,7 @@ interface SidebarProps {
 export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: SidebarProps) => {
   const navigate = useNavigate()
   const location = useLocation()
+  const isMobileNav = useIsMobileNav()
   const { canAccessApproval, canAccessSettings, canAccessUsers, canViewSectionByKey, role: userRole, isMasterAdmin } =
     useRole()
   const { user } = useAuth()
@@ -466,11 +468,11 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
       <Drawer
         className="industrial-sidebar-drawer"
         title={drawerHeader}
-        closable={false}
+        closable={isMobileNav}
         placement="left"
         open={open}
         onClose={onClose}
-        width={260}
+        width={isMobileNav ? '100%' : 260}
         styles={{ body: { padding: 0, background: '#EEF1F6', color: '#0F172A' } }}
       >
         <div {...sidebarContextMenu} style={{ minHeight: '100%', color: '#475569' }}>

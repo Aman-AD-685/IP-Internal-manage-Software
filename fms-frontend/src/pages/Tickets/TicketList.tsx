@@ -22,6 +22,7 @@ import { RepeatedTicketsModal } from '../../components/tickets/RepeatedTicketsMo
 import { PrintExport } from '../../components/common/PrintExport'
 import { AddCompanyDivisionModal } from '../../components/support/AddCompanyDivisionModal'
 import { TableLoadMoreSkeleton, TableWithSkeletonLoading } from '../../components/common/skeletons'
+import { SectionEmptyState } from '../../components/common/SectionEmptyState'
 import { TextCellTooltip, tableCellEllipsisStyle } from '../../components/common/TextCellTooltip'
 import {
   formatDateTable,
@@ -1698,6 +1699,109 @@ export const TicketList = () => {
 
   const isCompletedChoresBugs = sectionFromUrl === 'completed-chores-bugs'
 
+  const hasActiveTicketFilters = useMemo(
+    () =>
+      Boolean(
+        filters.search ||
+          filters.reference_filters.length ||
+          filters.status ||
+          filters.company_ids.length ||
+          filters.priority ||
+          filters.date_from ||
+          filters.date_to ||
+          stageFilter ||
+          status2Filter ||
+          typeOfRequestFilter ||
+          (isApprovalSection && approvalFilter !== 'pending') ||
+          (isRegisterSection &&
+            (registerStatusFilter !== 'completed' ||
+              registerTypeFilters.length !== 1 ||
+              registerTypeFilters[0] !== 'chore')),
+      ),
+    [
+      filters,
+      stageFilter,
+      status2Filter,
+      typeOfRequestFilter,
+      isApprovalSection,
+      approvalFilter,
+      isRegisterSection,
+      registerStatusFilter,
+      registerTypeFilters,
+    ],
+  )
+
+  const clearTicketFilters = useCallback(() => {
+    setSearchInput('')
+    setFilters((f) => ({
+      ...f,
+      search: '',
+      reference_filters: [],
+      status: '',
+      company_ids: [],
+      priority: '',
+      date_from: '',
+      date_to: '',
+    }))
+    setStageFilter('')
+    setStatus2Filter('')
+    setTypeOfRequestFilter('')
+    setApprovalFilter('pending')
+    if (isRegisterSection) {
+      setRegisterStatusFilter('completed')
+      setRegisterTypeFilters(['chore'])
+    }
+  }, [isRegisterSection])
+
+  const ticketEmptyContent = useMemo(() => {
+    if (loading) return undefined
+    if (hasActiveTicketFilters) {
+      return (
+        <SectionEmptyState
+          variant="no-filter-results"
+          title={`No tickets match your filters in ${pageTitle}.`}
+          primaryAction={{ label: 'Clear filters', onClick: clearTicketFilters }}
+        />
+      )
+    }
+    if (sectionFromUrl === 'chores-bugs') {
+      return (
+        <SectionEmptyState
+          variant="no-data"
+          title="No pending chores or bugs"
+          description="Stages 1–4 without a submitted Solution form appear here."
+          primaryAction={{
+            label: 'Open Support Dashboard',
+            onClick: () => navigate(ROUTES.SUPPORT_DASHBOARD),
+          }}
+        />
+      )
+    }
+    return (
+      <SectionEmptyState
+        variant="no-data"
+        title={`No tickets in ${pageTitle} yet.`}
+        primaryAction={
+          isChoresBugsSection || typeFromUrl === 'feature'
+            ? {
+                label: 'Open Support Dashboard',
+                onClick: () => navigate(ROUTES.SUPPORT_DASHBOARD),
+              }
+            : undefined
+        }
+      />
+    )
+  }, [
+    loading,
+    hasActiveTicketFilters,
+    pageTitle,
+    clearTicketFilters,
+    sectionFromUrl,
+    navigate,
+    isChoresBugsSection,
+    typeFromUrl,
+  ])
+
   const exportColumns = [...TICKET_EXPORT_COLUMNS]
 
   return (
@@ -1941,10 +2045,7 @@ export const TicketList = () => {
               virtual={TICKET_LIST_USE_VIRTUAL_TABLE}
               loading={false}
               locale={{
-                emptyText:
-                  sectionFromUrl === 'chores-bugs'
-                    ? 'No pending chores or bugs (Stages 1–4) without a submitted Solution form.'
-                    : 'No tickets yet.',
+                emptyText: ticketEmptyContent,
               }}
               scroll={{ x: 2400, y: 600 }}
               pagination={false}
