@@ -16039,6 +16039,77 @@ class CreateDelegationTaskRequest(BaseModel):
     submitted_by: str | None = None
 
 
+def _parse_delegation_date(val) -> date | None:
+    if val is None:
+        return None
+    if isinstance(val, date) and not isinstance(val, datetime):
+        return val
+    s = str(val)[:10]
+    try:
+        return date.fromisoformat(s)
+    except ValueError:
+        return None
+
+
+def _apply_delegation_submission_shifts(tasks: list[dict]) -> list[dict]:
+    """
+    If Submission Date has passed on a pending/in_progress task, bump it one day
+    at a time until >= today. Increment shift_count and append shift_history.
+    Does not rewrite due_date (KPI week buckets stay on original due/submission intent).
+    """
+    today = datetime.now(timezone(timedelta(hours=5, minutes=30))).date()
+    out: list[dict] = []
+    for task in tasks:
+        status = (task.get("status") or "pending").lower()
+        if status not in ("pending", "in_progress"):
+            out.append(task)
+            continue
+        sub = _parse_delegation_date(task.get("submission_date"))
+        if not sub or sub >= today:
+            out.append(task)
+            continue
+        history = list(task.get("shift_history") or [])
+        if not isinstance(history, list):
+            history = []
+        count = int(task.get("shift_count") or 0)
+        cur = sub
+        while cur < today:
+            nxt = cur + timedelta(days=1)
+            history.append(
+                {
+                    "from": cur.isoformat(),
+                    "to": nxt.isoformat(),
+                    "shifted_on": today.isoformat(),
+                }
+            )
+            cur = nxt
+            count += 1
+        patch = {
+            "submission_date": cur.isoformat(),
+            "shift_count": count,
+            "shift_history": history,
+            "last_assigned_date": cur.isoformat(),
+        }
+        try:
+            r = (
+                supabase.table("delegation_tasks")
+                .update(patch)
+                .eq("id", task["id"])
+                .lt("submission_date", today.isoformat())
+                .execute()
+            )
+            if r.data:
+                out.append({**task, **r.data[0]})
+            else:
+                # Conditional update matched nothing (already shifted elsewhere) — return fresh-ish merge
+                out.append({**task, **patch})
+        except Exception as e:
+            _log(f"delegation shift apply {task.get('id')}: {e}")
+            # Do not paint unpersisted dates as truth when DB write failed
+            out.append(task)
+    return out
+
+
 class DashboardWorkSummaryUser(BaseModel):
     id: str
     full_name: str
@@ -16172,7 +16243,7 @@ def list_delegation_tasks(
 ):
     """List delegation tasks. Default status=pending. By default show logged-in user's tasks; Admin/Master can choose another user or All."""
     try:
-        cols = "id, title, assignee_id, due_date, status, created_at, delegation_on, submission_date, has_document, document_url, submitted_by, reference_no, completed_at"
+        cols = "id, title, assignee_id, due_date, status, created_at, delegation_on, submission_date, has_document, document_url, submitted_by, reference_no, completed_at, shift_count, shift_history, last_assigned_date"
         q = supabase.table("delegation_tasks").select(cols)
         role = current.get("role", "user")
         if role not in ("admin", "master_admin", "approver"):
@@ -16191,8 +16262,28 @@ def list_delegation_tasks(
             q = q.eq("status", status or "pending")
         if reference_no:
             q = q.eq("reference_no", reference_no)
-        r = q.order("due_date", desc=False).limit(500).execute()
-        tasks = r.data or []
+        try:
+            r = q.order("due_date", desc=False).limit(500).execute()
+            tasks = r.data or []
+        except Exception as sel_err:
+            # Pre-migration DBs may lack shift columns — fall back then no-op shifts.
+            _log(f"delegation/tasks select with shift cols failed, fallback: {sel_err}")
+            cols_fb = "id, title, assignee_id, due_date, status, created_at, delegation_on, submission_date, has_document, document_url, submitted_by, reference_no, completed_at"
+            q2 = supabase.table("delegation_tasks").select(cols_fb)
+            if role not in ("admin", "master_admin", "approver"):
+                q2 = q2.eq("assignee_id", auth["id"])
+            else:
+                if assignee_id and assignee_id != "__all__":
+                    q2 = q2.eq("assignee_id", assignee_id)
+                elif not assignee_id:
+                    q2 = q2.eq("assignee_id", auth["id"])
+            if status != "all":
+                q2 = q2.eq("status", status or "pending")
+            if reference_no:
+                q2 = q2.eq("reference_no", reference_no)
+            r = q2.order("due_date", desc=False).limit(500).execute()
+            tasks = r.data or []
+        tasks = _apply_delegation_submission_shifts(tasks)
         assignee_ids = {t["assignee_id"] for t in tasks if t.get("assignee_id")}
         submitted_by_ids = {t["submitted_by"] for t in tasks if t.get("submitted_by")}
         all_user_ids = assignee_ids | submitted_by_ids
@@ -16247,6 +16338,12 @@ def create_delegation_task(payload: CreateDelegationTaskRequest, auth: dict = De
         data["document_url"] = payload.document_url
     if payload.submitted_by:
         data["submitted_by"] = payload.submitted_by
+    data["shift_count"] = 0
+    data["shift_history"] = []
+    if payload.submission_date:
+        data["last_assigned_date"] = payload.submission_date
+    elif payload.due_date:
+        data["last_assigned_date"] = payload.due_date
     # Generate unique reference_no based on submitted_by user name (e.g. DEL-AMAN-001)
     try:
         pr = supabase.table("user_profiles").select("full_name").eq("id", payload.submitted_by or payload.assignee_id).limit(1).execute()
@@ -16274,6 +16371,16 @@ def create_delegation_task(payload: CreateDelegationTaskRequest, auth: dict = De
     except Exception as e:
         _log(f"delegation create error: {e}")
         err = str(e).lower()
+        if "shift_count" in err or "shift_history" in err or "last_assigned_date" in err:
+            data.pop("shift_count", None)
+            data.pop("shift_history", None)
+            data.pop("last_assigned_date", None)
+            try:
+                r = supabase.table("delegation_tasks").insert(data).execute()
+                return r.data[0] if r.data else {}
+            except Exception as e2:
+                e = e2
+                err = str(e2).lower()
         if "does not exist" in err or "relation" in err:
             raise HTTPException(503, "Delegation table not set up. Run database/DELEGATION_AND_PENDING_REMINDER.sql in Supabase.")
         raise HTTPException(400, str(e)[:200])

@@ -23,6 +23,10 @@ export interface DelegationTask {
   submitted_by_name?: string
   reference_no?: string
   completed_at?: string
+  /** Auto-advanced when submission_date passed */
+  shift_count?: number
+  shift_history?: { from: string; to: string; shifted_on: string }[]
+  last_assigned_date?: string
 }
 
 export interface CreateDelegationTaskPayload {

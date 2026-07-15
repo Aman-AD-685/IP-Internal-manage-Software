@@ -13,6 +13,7 @@ import {
   Space,
   Modal,
   Upload,
+  Popover,
 } from 'antd'
 import { SendOutlined, PlusOutlined, CheckOutlined, CloseOutlined, EditOutlined, InboxOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
@@ -171,6 +172,8 @@ export const DelegationPage = () => {
       task_name: t.title || '',
       delegation_on: fmt(t.delegation_on),
       submission_date: fmt(t.submission_date),
+      shifted: String(t.shift_count || 0),
+      last_assigned_date: fmt(t.last_assigned_date || t.submission_date),
       document: t.has_document ? t.has_document.charAt(0).toUpperCase() + t.has_document.slice(1) : '',
       submitted_attachment: t.document_url || '',
       submitted_by: t.assignee_name || t.submitted_by_name || (t.assignee_id ? String(t.assignee_id).slice(0, 8) : ''),
@@ -182,6 +185,8 @@ export const DelegationPage = () => {
         { key: 'task_name', label: 'Task Name' },
         { key: 'delegation_on', label: 'Delegation On' },
         { key: 'submission_date', label: 'Submission Date' },
+        { key: 'shifted', label: 'Shifted' },
+        { key: 'last_assigned_date', label: 'Last Assigned Date' },
         { key: 'document', label: 'Document' },
         { key: 'submitted_attachment', label: 'Submitted Attachment' },
         { key: 'submitted_by', label: 'Submitted By' },
@@ -357,6 +362,55 @@ export const DelegationPage = () => {
       dataIndex: 'submission_date',
       key: 'submission_date',
       render: (d: string) => (d ? dayjs(d).format('DD/MM/YYYY') : '-'),
+    },
+    {
+      title: 'Shifted',
+      dataIndex: 'shift_count',
+      key: 'shift_count',
+      width: 100,
+      render: (_: unknown, r: DelegationTask) => {
+        const count = Number(r.shift_count || 0)
+        if (count <= 0) {
+          return <Text type="secondary">0</Text>
+        }
+        const history = Array.isArray(r.shift_history) ? r.shift_history : []
+        const lastAssigned =
+          r.last_assigned_date ||
+          r.submission_date ||
+          (history.length ? history[history.length - 1]?.to : undefined)
+        const content = (
+          <div style={{ maxWidth: 280 }}>
+            <Text strong style={{ display: 'block', marginBottom: 8 }}>
+              Shift dates ({count})
+            </Text>
+            {history.length === 0 ? (
+              <Text type="secondary">No shift history stored.</Text>
+            ) : (
+              <ul style={{ margin: 0, paddingLeft: 18, maxHeight: 200, overflow: 'auto' }}>
+                {history.map((h, i) => (
+                  <li key={`${h.from}-${h.to}-${i}`}>
+                    {dayjs(h.from).format('DD/MM/YYYY')} → {dayjs(h.to).format('DD/MM/YYYY')}
+                    {h.shifted_on ? (
+                      <Text type="secondary"> ({dayjs(h.shifted_on).format('DD/MM/YYYY')})</Text>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+              Last assigned date:{' '}
+              <Text strong>{lastAssigned ? dayjs(lastAssigned).format('DD/MM/YYYY') : '—'}</Text>
+            </Text>
+          </div>
+        )
+        return (
+          <Popover content={content} title="Shift history" trigger="hover">
+            <Button type="link" size="small" style={{ padding: 0, fontWeight: 600 }}>
+              {count}
+            </Button>
+          </Popover>
+        )
+      },
     },
     {
       title: 'Document',
