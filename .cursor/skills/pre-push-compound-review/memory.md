@@ -86,7 +86,7 @@ Do not remove entries; add dated bullets.
 - 2026-05: User wants pre-push gate + day-by-day journal so reviewer learns from real work, not generic advice.
 - 2026-05-21: **Fix in same session** — when `ce-code-review` / pre-push reports P1+ issues, implement fixes (don't stop at report-only unless user asked for report-only only).
 - 2026-05-22: **Compound Engineering wired** — plugin enabled in `.cursor/settings.json`; pre-push runs `ce-status.ps1` then **`ce-code-review mode:report-only`**; report line `ran (ce-code-review, report-only)` not `not installed`.
-- 2026-07-09: **Ponytail wired** — [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) Cursor adapter: `.cursor/rules/ponytail.mdc` + `.cursor/skills/ponytail-review/`; pre-push step 2b runs `ponytail-review` report-only (advisory P2/P3, does not block push alone).
+- 2026-07-15: **Delegation Shifted** — auto-bump overdue `submission_date` only (leave `due_date` for KPI); `shift_count`/`shift_history`/`last_assigned_date`; run `database/DELEGATION_SHIFTED.sql` before prod rely.
 - 2026-07-09: **Ponytail Cursor install** — official instruction-only adapter: `.cursor/rules/ponytail.mdc`, `AGENTS.md`, skills `ponytail` / `ponytail-review` / `ponytail-audit` / `ponytail-help`; 7-rung ladder; default **full** mode; upstream `8e69b4a`.
 - 2026-05-21: Supabase seed scripts — idempotent insert (`NOT EXISTS` on natural key), `BEGIN`/`COMMIT`, fail-fast `RAISE` on missing FKs, explicit `created_by` UUID in config (no `LIMIT 1` actor).
 - 2026-05-22: User expects **all pages + Dashboard 1–3s** in production after warm cache; if slow again, check full-table scans, rate-limit on bootstrap, missing Supabase indexes, Render sleep — fix code + update this memory/journal same session.

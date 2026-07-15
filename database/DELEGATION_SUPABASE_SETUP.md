@@ -28,6 +28,18 @@ If `delegation_tasks` already exists but is missing newer columns, run:
 4. Click **Run** (or Ctrl+Enter).
 5. Confirm there are no errors.
 
+## 2b. Shifted column (auto when Submission Date passes)
+
+**File:** `DELEGATION_SHIFTED.sql`
+
+Adds:
+
+- `shift_count` — how many times the submission date was auto-advanced
+- `shift_history` — JSON array of each shift (`from` / `to` / `shifted_on`)
+- `last_assigned_date` — date after the latest shift
+
+Backend auto-applies on `GET /delegation/tasks` for pending/in_progress rows where `submission_date < today` (bumps one day at a time until today).
+
 ## 3. RLS (Row Level Security)
 
 The base script enables RLS on `delegation_tasks` with:
@@ -55,7 +67,9 @@ Document upload uses the same storage as ticket attachments. Ensure:
 ## 6. Quick checklist
 
 - [ ] Run `DELEGATION_AND_PENDING_REMINDER.sql` (new project) **or** `DELEGATION_TASKS_ADD_FIELDS.sql` (existing table).
-- [ ] No errors in SQL Editor.
+- [ ] Run `DELEGATION_SHIFTED.sql` (adds `shift_count`, `shift_history`, `last_assigned_date` for auto Submission Date roll-forward).
+- [ ] No errors in SQL Editor; `NOTIFY pgrst, 'reload schema'` completed.
 - [ ] Backend restarted after schema changes.
 - [ ] Frontend: Status filter default is “Pending”; Admin/Master can use “Filter by user” and “All Tasks”.
 - [ ] Master Admin can use “Edit” on a task; others can only “Complete” (with document upload if Document = Yes) or “Cancel”.
+- [ ] Shifted column: overdue pending tasks advance Submission Date; hover count shows history (due_date left unchanged for KPI).
