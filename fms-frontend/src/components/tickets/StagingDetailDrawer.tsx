@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Drawer,
   Descriptions,
@@ -15,6 +15,7 @@ import { ticketsApi } from '../../api/tickets'
 import { useRole } from '../../hooks/useRole'
 import { formatDateTable, formatDelay, stagingDelaySeconds } from '../../utils/helpers'
 import type { Ticket } from '../../api/tickets'
+import { useTicketRealtimeRefresh } from '../../hooks/useTicketRealtimeRefresh'
 
 const { Text } = Typography
 const SLA_2H = 2 * 3600
@@ -61,6 +62,25 @@ export const StagingDetailDrawer = ({
       setTicket(null)
     }
   }, [open, ticketId])
+
+  const refreshFromRealtime = useCallback(() => {
+    if (!ticketId) return
+    ticketsApi
+      .get(ticketId)
+      .then((res) => {
+        const raw = res && typeof res === 'object' ? (res as Record<string, unknown>) : null
+        const t =
+          raw && 'id' in raw
+            ? (raw as unknown as Ticket)
+            : raw?.data && typeof raw.data === 'object' && raw.data !== null && 'id' in (raw.data as object)
+              ? (raw.data as unknown as Ticket)
+              : null
+        if (t) setTicket(t)
+      })
+      .catch(() => {})
+  }, [ticketId])
+
+  useTicketRealtimeRefresh(open, ticketId, refreshFromRealtime)
 
   const handleUpdate = async (updates: Partial<Ticket>) => {
     if (!ticketId || readOnly) return

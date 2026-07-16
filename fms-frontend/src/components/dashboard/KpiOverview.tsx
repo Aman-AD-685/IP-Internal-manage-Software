@@ -1,5 +1,6 @@
 import { Button, Card, Col, Empty, Progress, Row, Space, Typography } from 'antd'
 import { KpiRingsSkeleton } from '../common/skeletons'
+import { KpiCardInsights } from './KpiCardInsights'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -16,6 +17,7 @@ import { getDefaultPreviousWeekFilter } from '../../pages/Dashboard/kpiWeekUtils
 import { ROUTES } from '../../utils/constants'
 import { DASHBOARD_KPI_PERSON_SECTION_KEY, canViewDashboardKpiPerson } from '../../utils/dashboardKpiPermissions'
 import type { SectionPermission, UserRole } from '../../types/auth'
+import { kpiThresholdColor, lastNWeeks } from '../../utils/kpiThresholds'
 
 const { Text, Title } = Typography
 
@@ -182,7 +184,7 @@ export function KpiOverview({ user, selectedUserName, selectedUserEmail }: KpiOv
       }
     }
     dashboardKpiApi
-      .getData({ name: selectedPerson, ...filters })
+      .getData({ name: selectedPerson, ...filters }, { includeProgress: true })
       .then((res) => {
         if (cancelled) return
         if (res?.success === false) {
@@ -208,19 +210,35 @@ export function KpiOverview({ user, selectedUserName, selectedUserEmail }: KpiOv
 
   const bars = useMemo(() => {
     if (selectedPerson === 'Souvik' && souvikOverview) {
-      return [{ label: 'Souvik EA KPI', value: souvikOverview.weekly, color: '#7C5DB0' }]
+      return [{ label: 'Souvik EA KPI', value: souvikOverview.weekly, color: kpiThresholdColor(souvikOverview.weekly) }]
     }
     if (!data) return []
     const next = [
-      { label: 'Checklist', value: clampPercent(data.checklist?.weeklyPercentage), color: '#7C5DB0' },
-      { label: 'Delegation', value: clampPercent(data.delegation?.weeklyPercentage), color: '#5E4189' },
-      { label: 'Support FMS', value: clampPercent(data.supportFMS?.weeklyPercentage), color: '#6B6E85' },
+      {
+        label: 'Checklist',
+        value: clampPercent(data.checklist?.weeklyPercentage),
+        color: kpiThresholdColor(data.checklist?.weeklyPercentage),
+        series: data.weeklyProgress?.checklist,
+      },
+      {
+        label: 'Delegation',
+        value: clampPercent(data.delegation?.weeklyPercentage),
+        color: kpiThresholdColor(data.delegation?.weeklyPercentage),
+        series: data.weeklyProgress?.delegation,
+      },
+      {
+        label: 'Support FMS',
+        value: clampPercent(data.supportFMS?.weeklyPercentage),
+        color: kpiThresholdColor(data.supportFMS?.weeklyPercentage),
+        series: data.weeklyProgress?.supportFMS,
+      },
     ]
     if (data.successKpi) {
       next.push({
         label: 'Success / Training / Social KPI',
         value: clampPercent(data.successKpi.overallPercentage),
-        color: '#9B86CF',
+        color: kpiThresholdColor(data.successKpi.overallPercentage),
+        series: data.weeklyProgress?.successKpi,
       })
     }
     return next
@@ -237,6 +255,22 @@ export function KpiOverview({ user, selectedUserName, selectedUserEmail }: KpiOv
             clampPercent(data.monthlyPercentages?.supportFMS),
           ])
         : 0
+  const overviewSpark = useMemo(() => {
+    if (!data?.weeklyProgress) return []
+    const weeks = data.weeklyProgress.weeks?.length ?? 0
+    if (!weeks) return lastNWeeks(data.weeklyProgress.checklist, 4)
+    const out: number[] = []
+    for (let i = 0; i < weeks; i++) {
+      out.push(
+        average([
+          data.weeklyProgress.checklist?.[i] ?? 0,
+          data.weeklyProgress.delegation?.[i] ?? 0,
+          data.weeklyProgress.supportFMS?.[i] ?? 0,
+        ]),
+      )
+    }
+    return lastNWeeks(out, 4)
+  }, [data])
   const hasOverview = selectedPerson === 'Souvik' ? !!souvikOverview : !!data
   const dashboardHref = selectedPerson ? `${ROUTES.DASHBOARD_KPI}?person=${encodeURIComponent(selectedPerson)}` : ROUTES.DASHBOARD_KPI
 
@@ -262,13 +296,14 @@ export function KpiOverview({ user, selectedUserName, selectedUserEmail }: KpiOv
           <Empty description={error || 'No KPI dashboard data found.'} />
         ) : (
           <>
-            <Row gutter={[16, 16]} className="universal-dashboard-kpi-rings">
+            <Row gutter={[16, 16]} className="universal-dashboard-kpi-rings" align="middle">
               <Col xs={12}>
-                <Progress type="circle" percent={weekly} strokeColor={{ '0%': '#7C5DB0', '100%': '#9B86CF' }} />
+                <Progress type="circle" percent={weekly} strokeColor={kpiThresholdColor(weekly)} />
                 <Text className="universal-dashboard-progress-label">Weekly</Text>
+                <KpiCardInsights percent={weekly} weekSeries={overviewSpark} />
               </Col>
               <Col xs={12}>
-                <Progress type="circle" percent={monthly} strokeColor={{ '0%': '#6B6E85', '100%': '#9B9EB2' }} />
+                <Progress type="circle" percent={monthly} strokeColor={kpiThresholdColor(monthly)} />
                 <Text className="universal-dashboard-progress-label">Monthly</Text>
               </Col>
             </Row>

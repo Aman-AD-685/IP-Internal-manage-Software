@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useTicketRealtimeRefresh } from '../../hooks/useTicketRealtimeRefresh'
 import {
   Drawer,
   Descriptions,
@@ -186,6 +187,28 @@ export const ChoresBugsDetailDrawer = ({
       ticketsApi.getStage2Remarks(ticketId).then((r) => setStage2Remarks((r?.data ?? []) as Stage2Remark[])).catch(() => {})
     }
   }
+
+  const refreshFromRealtime = useCallback(
+    (detail: { reason: string }) => {
+      if (!ticketId) return
+      ticketsApi
+        .get(ticketId)
+        .then((res) => {
+          const t = unwrapTicketResponse(res)
+          if (t) setTicket(t)
+        })
+        .catch(() => {})
+      if (detail.reason === 'remark') {
+        ticketsApi
+          .getStage2Remarks(ticketId)
+          .then((r) => setStage2Remarks((r?.data ?? []) as Stage2Remark[]))
+          .catch(() => {})
+      }
+    },
+    [ticketId],
+  )
+
+  useTicketRealtimeRefresh(open, ticketId, refreshFromRealtime)
 
   const handleAddRemark = async () => {
     if (!ticketId || readOnly || !newRemarkText.trim()) return

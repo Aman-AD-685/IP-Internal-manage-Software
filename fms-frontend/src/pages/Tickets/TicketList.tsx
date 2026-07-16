@@ -42,6 +42,7 @@ import { useRole } from '../../hooks/useRole'
 import type { Company } from '../../api/support'
 import { ROUTES } from '../../utils/constants'
 import { sessionApiCacheClearLogicalPrefix, sessionApiCacheGet, ticketsListLogicalKey } from '../../utils/sessionApiCache'
+import { TICKET_CHANGED_EVENT } from '../../utils/ticketRealtime'
 import type { ApiResponse, PaginatedResponse } from '../../api/types'
 import { formatPriorityLabel, getPriorityTagColor } from '../../utils/ticketPriority'
 import { PriorityColoredReference } from '../../components/tickets/PriorityColoredReference'
@@ -1020,8 +1021,15 @@ export const TicketList = () => {
       sessionApiCacheClearLogicalPrefix('tickets:list:')
       void refetchListRef.current()
     }
+    const onTicketChanged = () => {
+      void refetchListRef.current()
+    }
     window.addEventListener('support-ticket-created', onTicketCreated)
-    return () => window.removeEventListener('support-ticket-created', onTicketCreated)
+    window.addEventListener(TICKET_CHANGED_EVENT, onTicketChanged)
+    return () => {
+      window.removeEventListener('support-ticket-created', onTicketCreated)
+      window.removeEventListener(TICKET_CHANGED_EVENT, onTicketChanged)
+    }
   }, [])
 
   const handleSearch = () => {

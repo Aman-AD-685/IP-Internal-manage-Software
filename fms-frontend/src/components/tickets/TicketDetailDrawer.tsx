@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Drawer, Descriptions, Tag, Typography, Input, Button, Space, message, Modal, Divider, Select } from 'antd'
 import { CheckOutlined, CloseOutlined, PauseCircleOutlined, UndoOutlined, RetweetOutlined } from '@ant-design/icons'
 import { ticketsApi } from '../../api/tickets'
@@ -7,6 +7,7 @@ import type { Ticket } from '../../api/tickets'
 import { useAuth } from '../../hooks/useAuth'
 import { useRole } from '../../hooks/useRole'
 import { formatPriorityLabel, getPriorityTagColor } from '../../utils/ticketPriority'
+import { useTicketRealtimeRefresh } from '../../hooks/useTicketRealtimeRefresh'
 import { RepeatedTicketsModal } from './RepeatedTicketsModal'
 import { PriorityColoredReference } from './PriorityColoredReference'
 
@@ -124,6 +125,19 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
       setTicket(null)
     }
   }, [open, ticketId])
+
+  const refreshFromRealtime = useCallback(() => {
+    if (!ticketId) return
+    ticketsApi
+      .get(ticketId)
+      .then((tRes) => {
+        const t = tRes && typeof tRes === 'object' && 'id' in tRes ? (tRes as Ticket) : null
+        if (t) setTicket(t)
+      })
+      .catch(() => {})
+  }, [ticketId])
+
+  useTicketRealtimeRefresh(open, ticketId, refreshFromRealtime)
 
   const handleUpdateRemarks = async (remarks: string) => {
     if (!ticketId) return

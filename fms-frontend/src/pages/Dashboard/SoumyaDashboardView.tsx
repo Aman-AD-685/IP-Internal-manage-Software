@@ -24,7 +24,10 @@ import {
   weekOfMonth,
 } from './kpiWeekUtils'
 import { SoumyaDashboardSkeleton, TableLoadMoreSkeleton } from '../../components/common/skeletons'
+import { KpiSparkline } from '../../components/dashboard/KpiSparkline'
+import { KpiTrendArrow } from '../../components/dashboard/KpiTrendArrow'
 import { formatDelay } from '../../utils/helpers'
+import { lastNWeeks } from '../../utils/kpiThresholds'
 import './soumya-dashboard.css'
 
 function formatDelayFromHours(hours: number | null | undefined): string {
@@ -609,6 +612,27 @@ return (
           <div className={`soumya-metric-big soumya-metric-big--${c2.status === 'green' ? 'ok' : 'bad'}`}>
             {c2.avg_display}
           </div>
+          <KpiTrendArrow
+            series={lastNWeeks(
+              (c2.trend_weeks ?? []).map((w) => {
+                const h = w.avg_resolution_hours
+                if (h == null || !Number.isFinite(h)) return 0
+                // Lower hours = healthier → invert to 0–100 style for arrow direction
+                return Math.max(0, Math.min(100, Math.round(100 - h * 5)))
+              }),
+              4,
+            )}
+          />
+          <KpiSparkline
+            values={lastNWeeks(
+              (c2.trend_weeks ?? []).map((w) => {
+                const h = w.avg_resolution_hours
+                if (h == null || !Number.isFinite(h)) return 0
+                return Math.max(0, Math.min(100, Math.round(100 - h * 5)))
+              }),
+              4,
+            )}
+          />
           <TrendBars
             weeks={c2.trend_weeks ?? []}
             field="avg_resolution_hours"

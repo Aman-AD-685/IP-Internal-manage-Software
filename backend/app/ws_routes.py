@@ -1,4 +1,4 @@
-"""WebSocket live events — system lock, app release (authenticated clients)."""
+"""WebSocket live events — system lock, app release, ticket changes (authenticated clients)."""
 from __future__ import annotations
 
 import asyncio
@@ -38,7 +38,7 @@ def _invalidate_app_release_cache() -> None:
 
 @ws_router.websocket("/ws")
 async def fms_websocket(websocket: WebSocket, token: str = Query(default="")):
-    """Live push for system lock + release changes. Token via query (browser WebSocket API)."""
+    """Live push for system lock, release, and ticket_changed. Token via query (browser WebSocket API)."""
     try:
         await asyncio.to_thread(validate_access_token, token)
     except HTTPException:

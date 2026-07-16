@@ -57,6 +57,8 @@ import { ROUTES } from '../../utils/constants'
 import { canViewDashboardKpiPerson, resolveKpiPersonForUser } from '../../utils/dashboardKpiPermissions'
 import { useActiveKpiPersons } from '../../hooks/useActiveKpiPersons'
 import { ChartAreaSkeleton, DashboardBlockSkeleton, SkeletonOverlay, SupportFmsTilesSkeleton } from '../../components/common/skeletons'
+import { KpiCardInsights } from '../../components/dashboard/KpiCardInsights'
+import { kpiThresholdColor, kpiThresholdPillStyle } from '../../utils/kpiThresholds'
 import { SoumyaDashboardView } from './SoumyaDashboardView'
 import { SouvikDashboardView } from './SouvikDashboardView'
 import {
@@ -199,16 +201,8 @@ type KpiDailyLogTableRow = KpiDailyLogApiRow & { dayName: string }
 /** Entire calendar month ended before today (local) — log hidden until user picks a month in the modal. */
 const isKpiLogMonthCompleted = (m: Dayjs) => m.endOf('month').isBefore(dayjs(), 'day')
 
-const getPerformanceLevel = (value?: number) => {
-  const pct = typeof value === 'number' ? value : 0
-  if (pct >= 80) {
-    return { label: 'High', background: 'rgba(40,167,69,0.15)', color: '#28A745' }
-  }
-  if (pct >= 50) {
-    return { label: 'Medium', background: 'rgba(255,193,7,0.15)', color: '#FFC107' }
-  }
-  return { label: 'Low', background: 'rgba(220,53,69,0.15)', color: '#DC3545' }
-}
+/** Threshold scale: ≥90 On track / 70–89 Watch / &lt;70 At risk */
+const getPerformanceLevel = (value?: number) => kpiThresholdPillStyle(value)
 
 const isCancelledDelegationKpiRow = (status?: string) => {
   const v = (status || '').toLowerCase().trim()
@@ -415,7 +409,9 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
   const loadData = useCallback(() => {
     if (!selectedPerson) return
     const filters = { name: selectedPerson, month, year, week }
-    const cached = sessionApiCacheGet<DashboardKpiResponse>(dashboardKpiCacheKey(filters))
+    const progressKey = `${dashboardKpiCacheKey(filters)}:progress`
+    const cached = sessionApiCacheGet<DashboardKpiResponse>(progressKey)
+      ?? sessionApiCacheGet<DashboardKpiResponse>(dashboardKpiCacheKey(filters))
     if (cached && cached.success !== false) {
       setData(cached)
       setLoading(false)
@@ -423,7 +419,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
       setLoading(true)
     }
     dashboardKpiApi
-      .getData(filters)
+      .getData(filters, { includeProgress: true })
       .then((res) => {
         if (res && res.success !== false) setData(res)
         else {
@@ -735,6 +731,7 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
   const akashKpi = data?.akashKpi
   const isAkashLayout = selectedPerson === 'Akash' && akashKpi != null
   const adrijaSocial = data?.adrijaSocialKpi
+  const weekSeries = data?.weeklyProgress
   const canEditAdrijaSocial =
     selectedPerson === 'Adrija' &&
     ADRIJA_SOCIAL_KPI_EDITOR_EMAILS.has((user?.email || '').trim().toLowerCase())
@@ -877,7 +874,6 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
 
         {!loading && data && data.success !== false && (
           <>
-            {/* Monthly KPI summary – click to show weekly % graph */}
             {monthly && (
               <Row gutter={[16, 16]}>
                 <Col xs={24} sm={24} md={8}>
@@ -885,17 +881,17 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
                     size="small"
                     title="Checklist (Monthly %)"
                     className="kpi-summary-card kpi-summary-card--checklist kpi-summary-card--clickable"
-                    style={{ borderTop: '3px solid #60A5FA', cursor: 'pointer' }}
+                    style={{ borderTop: `3px solid ${kpiThresholdColor(monthly.checklist)}`, cursor: 'pointer' }}
                     onClick={() => setGraphModal('checklist')}
                   >
                     <Space direction="vertical" align="center">
-                      <Progress type="circle" percent={monthly.checklist ?? 0} size={80} strokeColor="#60A5FA" />
-                      <div
-                        className="kpi-performance-pill"
-                        style={getPerformanceLevel(monthly.checklist)}
-                      >
-                        {getPerformanceLevel(monthly.checklist).label} Performance
-                      </div>
+                      <Progress
+                        type="circle"
+                        percent={monthly.checklist ?? 0}
+                        size={80}
+                        strokeColor={kpiThresholdColor(monthly.checklist)}
+                      />
+                      <KpiCardInsights percent={monthly.checklist} weekSeries={weekSeries?.checklist} />
                       <Text type="secondary" style={{ fontSize: 12 }}>Click to see weekly %</Text>
                     </Space>
                   </Card>
@@ -905,17 +901,17 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
                     size="small"
                     title="Delegation (Monthly %)"
                     className="kpi-summary-card kpi-summary-card--delegation kpi-summary-card--clickable"
-                    style={{ borderTop: '3px solid #28A745', cursor: 'pointer' }}
+                    style={{ borderTop: `3px solid ${kpiThresholdColor(monthly.delegation)}`, cursor: 'pointer' }}
                     onClick={() => setGraphModal('delegation')}
                   >
                     <Space direction="vertical" align="center">
-                      <Progress type="circle" percent={monthly.delegation ?? 0} size={80} strokeColor="#28A745" />
-                      <div
-                        className="kpi-performance-pill"
-                        style={getPerformanceLevel(monthly.delegation)}
-                      >
-                        {getPerformanceLevel(monthly.delegation).label} Performance
-                      </div>
+                      <Progress
+                        type="circle"
+                        percent={monthly.delegation ?? 0}
+                        size={80}
+                        strokeColor={kpiThresholdColor(monthly.delegation)}
+                      />
+                      <KpiCardInsights percent={monthly.delegation} weekSeries={weekSeries?.delegation} />
                       <Text type="secondary" style={{ fontSize: 12 }}>Click to see weekly %</Text>
                     </Space>
                   </Card>
@@ -926,21 +922,16 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
                       size="small"
                       title="KPI (Monthly %)"
                       className="kpi-summary-card kpi-summary-card--akash-overall"
-                      style={{ borderTop: '3px solid #7c3aed' }}
+                      style={{ borderTop: `3px solid ${kpiThresholdColor(souvikMonthlyPercent ?? 0)}` }}
                     >
                       <Space direction="vertical" align="center">
                         <Progress
                           type="circle"
                           percent={souvikMonthlyPercent ?? 0}
                           size={80}
-                          strokeColor="#7c3aed"
+                          strokeColor={kpiThresholdColor(souvikMonthlyPercent ?? 0)}
                         />
-                        <div
-                          className="kpi-performance-pill"
-                          style={getPerformanceLevel(souvikMonthlyPercent ?? 0)}
-                        >
-                          {getPerformanceLevel(souvikMonthlyPercent ?? 0).label} Performance
-                        </div>
+                        <KpiCardInsights percent={souvikMonthlyPercent ?? 0} />
                         <Text type="secondary" style={{ fontSize: 12 }}>
                           EA composite average for {month} {year}
                         </Text>
@@ -954,7 +945,10 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
                       size="small"
                       title="KPI (Monthly %)"
                       className="kpi-summary-card kpi-summary-card--akash-overall kpi-summary-card--clickable"
-                      style={{ borderTop: '3px solid #7c3aed', cursor: 'pointer' }}
+                      style={{
+                        borderTop: `3px solid ${kpiThresholdColor(adrijaSocial.monthlyPercent ?? 0)}`,
+                        cursor: 'pointer',
+                      }}
                       onClick={() => setAdrijaMonthlySummaryOpen(true)}
                     >
                       <Space direction="vertical" align="center">
@@ -962,14 +956,9 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
                           type="circle"
                           percent={adrijaSocial.monthlyPercent ?? 0}
                           size={80}
-                          strokeColor="#7c3aed"
+                          strokeColor={kpiThresholdColor(adrijaSocial.monthlyPercent ?? 0)}
                         />
-                        <div
-                          className="kpi-performance-pill"
-                          style={getPerformanceLevel(adrijaSocial.monthlyPercent ?? 0)}
-                        >
-                          {getPerformanceLevel(adrijaSocial.monthlyPercent ?? 0).label} Performance
-                        </div>
+                        <KpiCardInsights percent={adrijaSocial.monthlyPercent ?? 0} />
                         <Text type="secondary" style={{ fontSize: 12 }}>
                           Post, Reel and LinkedIn marked in {month} {year}
                         </Text>
@@ -983,17 +972,17 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
                     size="small"
                     title="Support FMS (Monthly %)"
                     className="kpi-summary-card kpi-summary-card--support kpi-summary-card--clickable"
-                    style={{ borderTop: '3px solid #FFC107', cursor: 'pointer' }}
+                    style={{ borderTop: `3px solid ${kpiThresholdColor(monthly.supportFMS)}`, cursor: 'pointer' }}
                     onClick={() => setGraphModal('supportFMS')}
                   >
                     <Space direction="vertical" align="center">
-                      <Progress type="circle" percent={monthly.supportFMS ?? 0} size={80} strokeColor="#FFC107" />
-                      <div
-                        className="kpi-performance-pill"
-                        style={getPerformanceLevel(monthly.supportFMS)}
-                      >
-                        {getPerformanceLevel(monthly.supportFMS).label} Performance
-                      </div>
+                      <Progress
+                        type="circle"
+                        percent={monthly.supportFMS ?? 0}
+                        size={80}
+                        strokeColor={kpiThresholdColor(monthly.supportFMS)}
+                      />
+                      <KpiCardInsights percent={monthly.supportFMS} weekSeries={weekSeries?.supportFMS} />
                       <Text type="secondary" style={{ fontSize: 12 }}>Click to see weekly %</Text>
                     </Space>
                   </Card>
@@ -1005,7 +994,12 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
                       size="small"
                       title="KPI Monthly"
                       className="kpi-summary-card kpi-summary-card--akash-overall kpi-summary-card--clickable"
-                      style={{ borderTop: '3px solid #0d9488', cursor: 'pointer' }}
+                      style={{
+                        borderTop: `3px solid ${kpiThresholdColor(
+                          akashKpi.overall_score_monthly_percent ?? akashKpi.overall_score_percent,
+                        )}`,
+                        cursor: 'pointer',
+                      }}
                       onClick={() => setGraphModal('akashMonthly')}
                     >
                       <Space direction="vertical" align="center">
@@ -1013,21 +1007,15 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
                           type="circle"
                           percent={akashKpi.overall_score_monthly_percent ?? akashKpi.overall_score_percent ?? 0}
                           size={80}
-                          strokeColor="#0d9488"
-                        />
-                        <div
-                          className="kpi-performance-pill"
-                          style={getPerformanceLevel(
+                          strokeColor={kpiThresholdColor(
                             akashKpi.overall_score_monthly_percent ?? akashKpi.overall_score_percent,
                           )}
-                        >
-                          {
-                            getPerformanceLevel(
-                              akashKpi.overall_score_monthly_percent ?? akashKpi.overall_score_percent,
-                            ).label
-                          }{' '}
-                          Performance
-                        </div>
+                        />
+                        <KpiCardInsights
+                          percent={
+                            akashKpi.overall_score_monthly_percent ?? akashKpi.overall_score_percent
+                          }
+                        />
                       </Space>
                     </Card>
                   </Col>
@@ -1038,17 +1026,23 @@ export const DashboardKPIPage = ({ forceOpen = false, defaultPerson }: Dashboard
                     size="small"
                     title="Success KPI (Monthly %)"
                     className="kpi-summary-card kpi-summary-card--support kpi-summary-card--clickable"
-                    style={{ borderTop: '3px solid #FAAD14', cursor: 'pointer' }}
+                    style={{
+                      borderTop: `3px solid ${kpiThresholdColor(data.successKpi.overallPercentage)}`,
+                      cursor: 'pointer',
+                    }}
                     onClick={() => setGraphModal('successKpi')}
                   >
                     <Space direction="vertical" align="center">
-                      <Progress type="circle" percent={data.successKpi.overallPercentage ?? 0} size={80} strokeColor="#FAAD14" />
-                      <div
-                        className="kpi-performance-pill"
-                        style={getPerformanceLevel(data.successKpi.overallPercentage)}
-                      >
-                        {getPerformanceLevel(data.successKpi.overallPercentage).label} Performance
-                      </div>
+                      <Progress
+                        type="circle"
+                        percent={data.successKpi.overallPercentage ?? 0}
+                        size={80}
+                        strokeColor={kpiThresholdColor(data.successKpi.overallPercentage)}
+                      />
+                      <KpiCardInsights
+                        percent={data.successKpi.overallPercentage}
+                        weekSeries={weekSeries?.successKpi}
+                      />
                       <Text type="secondary" style={{ fontSize: 12 }}>Click to see weekly %</Text>
                     </Space>
                   </Card>

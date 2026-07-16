@@ -1701,7 +1701,12 @@ def create_ticket(payload: CreateTicketRequest, auth: dict = Depends(get_current
         _COMPANIES_BY_NAME_LOADED = False
         invalidate_dashboard_read_caches()
         _invalidate_ttl_cache_key_prefix("tickets:list:")
-        return r.data[0] if r.data else {}
+        row = r.data[0] if r.data else {}
+        if row.get("id"):
+            from app.ws_hub import broadcast_ticket_changed
+
+            broadcast_ticket_changed(str(row["id"]), "create")
+        return row
     except Exception as e:
         _log(f"Create ticket error: {e}")
         err_msg = str(e).strip()[:400]
@@ -2783,6 +2788,36 @@ def update_ticket(ticket_id: str, payload: UpdateTicketRequest, auth: dict = Dep
             _mark_level3_edit_used(ticket_id, auth["id"])
         if ticket_type == "feature" and (data.keys() & _FEATURE_STAGE_2_KEYS):
             _mark_level3_edit_used(ticket_id, auth["id"])
+    from app.ws_hub import broadcast_ticket_changed
+
+    _stage_keys = (
+        _STAGE_1_EDIT_KEYS
+        | _STAGE_2_EDIT_KEYS
+        | _STAGE_3_EDIT_KEYS
+        | _STAGE_4_EDIT_KEYS
+        | _FEATURE_STAGE_2_KEYS
+        | {
+            "staging_planned",
+            "staging_review_actual",
+            "staging_review_status",
+            "live_planned",
+            "live_actual",
+            "live_status",
+            "live_review_planned",
+            "live_review_actual",
+            "live_review_status",
+            "planned_2",
+            "planned_3",
+            "planned_4",
+        }
+    )
+    if "approval_status" in data:
+        ws_reason = "approval"
+    elif data.keys() & _stage_keys:
+        ws_reason = "stage"
+    else:
+        ws_reason = "update"
+    broadcast_ticket_changed(ticket_id, ws_reason)
     return r.data[0]
 
 
@@ -2806,6 +2841,9 @@ def mark_ticket_staging(ticket_id: str, auth: dict = Depends(get_current_user)):
     cascade_repeat_children_stage_updates(ticket_id, data)
     _invalidate_ttl_cache_key_prefix("tickets:list:")
     invalidate_dashboard_read_caches()
+    from app.ws_hub import broadcast_ticket_changed
+
+    broadcast_ticket_changed(ticket_id, "staging")
     return out.data[0] if out.data else {}
 
 
@@ -2886,6 +2924,9 @@ def promote_ticket_to_feature(
     _COMPANIES_BY_NAME_LOADED = False
     invalidate_dashboard_read_caches()
     _invalidate_ttl_cache_key_prefix("tickets:list:")
+    from app.ws_hub import broadcast_ticket_changed
+
+    broadcast_ticket_changed(ticket_id, "promote")
     rows = _enrich_tickets_with_lookups([out.data[0]])
     return rows[0] if rows else out.data[0]
 
@@ -2915,6 +2956,9 @@ def staging_back(ticket_id: str, auth: dict = Depends(get_current_user)):
     cascade_repeat_children_stage_updates(ticket_id, data)
     _invalidate_ttl_cache_key_prefix("tickets:list:")
     invalidate_dashboard_read_caches()
+    from app.ws_hub import broadcast_ticket_changed
+
+    broadcast_ticket_changed(ticket_id, "staging")
     return out.data[0] if out.data else {}
 
 
@@ -3116,6 +3160,9 @@ def create_stage2_remark(ticket_id: str, payload: Stage2RemarkRequest, auth: dic
         if row:
             profile = supabase.table("user_profiles").select("full_name").eq("id", auth["id"]).single().execute()
             row["added_by_name"] = profile.data.get("full_name", "") if profile.data else ""
+        from app.ws_hub import broadcast_ticket_changed
+
+        broadcast_ticket_changed(ticket_id, "remark")
         return row
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)[:100])
@@ -3155,6 +3202,9 @@ def update_stage2_remark(
             row["added_by_name"] = pr.data.get("full_name", "") if pr.data else ""
         except Exception:
             row["added_by_name"] = ""
+    from app.ws_hub import broadcast_ticket_changed
+
+    broadcast_ticket_changed(ticket_id, "remark")
     return row
 
 
@@ -3177,6 +3227,11 @@ def create_ticket_response(ticket_id: str, payload: CreateTicketResponseRequest,
 @api_router.delete("/tickets/{ticket_id}")
 def delete_ticket(ticket_id: str, auth: dict = Depends(get_current_user)):
     supabase.table("tickets").delete().eq("id", ticket_id).execute()
+    invalidate_dashboard_read_caches()
+    _invalidate_ttl_cache_key_prefix("tickets:list:")
+    from app.ws_hub import broadcast_ticket_changed
+
+    broadcast_ticket_changed(ticket_id, "delete")
     return {"message": "Deleted"}
 
 

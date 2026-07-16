@@ -21,6 +21,9 @@ import {
   type SouvikReferenceResponse,
   type SouvikWeeklyLogRow,
 } from '../../api/dashboardKpi'
+import { KpiSparkline } from '../../components/dashboard/KpiSparkline'
+import { KpiTrendArrow } from '../../components/dashboard/KpiTrendArrow'
+import { kpiThresholdColor, lastNWeeks } from '../../utils/kpiThresholds'
 
 const { Text } = Typography
 
@@ -38,6 +41,11 @@ function gradeColor(status: 'green' | 'amber' | 'red' | string): string {
   if (status === 'green') return 'green'
   if (status === 'amber') return 'gold'
   return 'red'
+}
+
+/** Map 0–10 composite to % for shared threshold UI. */
+function compositeToPercent(composite: number): number {
+  return Math.max(0, Math.min(100, Math.round(composite * 10)))
 }
 
 interface AreaMeta {
@@ -122,8 +130,8 @@ export function SouvikDashboardView() {
   }, [])
 
   useEffect(() => {
-    if (activeTab === 'weekly' && weeklyLog.length === 0) void loadWeeklyLog()
-  }, [activeTab, weeklyLog.length, loadWeeklyLog])
+    void loadWeeklyLog()
+  }, [loadWeeklyLog])
 
   const areaMeta: AreaMeta[] = useMemo(
     () =>
@@ -324,11 +332,36 @@ export function SouvikDashboardView() {
                       </Button>
                       {!canEdit && <Tag color="default">View only</Tag>}
                     </Space>
-                    <Space align="center">
+                    <Space align="center" wrap>
                       <Text type="secondary">Weekly Composite</Text>
                       <Tag color={gradeColor(derived.status)} style={{ fontSize: 16, padding: '4px 12px' }}>
                         {derived.composite.toFixed(1)} / 10 · {derived.grade}
                       </Tag>
+                      {weeklyLog.length > 0 ? (
+                        <div style={{ minWidth: 120 }}>
+                          <KpiTrendArrow
+                            series={lastNWeeks(
+                              weeklyLog.map((r) =>
+                                r.weekly_percentage != null
+                                  ? r.weekly_percentage
+                                  : compositeToPercent(Number(r.composite_score) || 0),
+                              ),
+                              4,
+                            )}
+                          />
+                          <KpiSparkline
+                            values={lastNWeeks(
+                              weeklyLog.map((r) =>
+                                r.weekly_percentage != null
+                                  ? r.weekly_percentage
+                                  : compositeToPercent(Number(r.composite_score) || 0),
+                              ),
+                              4,
+                            )}
+                            color={kpiThresholdColor(compositeToPercent(derived.composite))}
+                          />
+                        </div>
+                      ) : null}
                       {canEdit && (
                         <Button
                           type="primary"
