@@ -176,6 +176,15 @@ def execute_approval_by_token(token: str, action: str, remarks: str | None = Non
         )
     except Exception:
         pass
+    try:
+        from app.main import invalidate_dashboard_read_caches, _invalidate_ttl_cache_key_prefix
+        from app.ws_hub import broadcast_ticket_changed
+
+        invalidate_dashboard_read_caches()
+        _invalidate_ttl_cache_key_prefix("tickets:list:")
+        broadcast_ticket_changed(str(ticket_id), "approval")
+    except Exception:
+        pass
     if status == "approved":
         msg = f"Feature request {ref} has been approved. Thank you, Approver."
     elif status == "hold":

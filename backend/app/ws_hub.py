@@ -82,3 +82,20 @@ def broadcast_system_lock_changed(state: dict[str, Any]) -> None:
 
 def broadcast_app_release_changed(state: dict[str, Any]) -> None:
     broadcast_ws_event({"type": "app_release_changed", "data": state})
+
+
+def broadcast_ticket_changed(
+    ticket_id: str,
+    reason: str = "update",
+    *,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    """
+    Notify connected clients that a ticket changed (stage, remark, approval, etc.).
+    Clients invalidate list/detail caches and refetch — payload stays small.
+    reason: stage | remark | approval | staging | promote | create | update
+    """
+    data: dict[str, Any] = {"ticket_id": str(ticket_id), "reason": reason}
+    if extra:
+        data.update(extra)
+    broadcast_ws_event({"type": "ticket_changed", "data": data})

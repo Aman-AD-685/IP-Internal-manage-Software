@@ -21,6 +21,7 @@ import { TextCellTooltip, tableCellEllipsisStyle } from '../../components/common
 import { SupportSectionTabs } from '../../components/tickets/SupportSectionTabs'
 import { useRole } from '../../hooks/useRole'
 import { dateRangeToIsoBounds, fetchAllTicketsPages } from '../../utils/ticketExportByDateRange'
+import { TICKET_CHANGED_EVENT } from '../../utils/ticketRealtime'
 
 const { Option } = Select
 
@@ -418,6 +419,18 @@ export const StagingList = () => {
     setAllStagingTicketsForStageFilter([])
     void fetchStagingTickets()
   }, [stageFilter, referenceFilter, priorityFilter, fetchAllStagingTicketsForStageFilter, fetchStagingTickets])
+
+  useEffect(() => {
+    const onTicketChanged = () => {
+      if (stageFilter) {
+        void fetchAllStagingTicketsForStageFilter()
+      } else {
+        void fetchStagingTickets()
+      }
+    }
+    window.addEventListener(TICKET_CHANGED_EVENT, onTicketChanged)
+    return () => window.removeEventListener(TICKET_CHANGED_EVENT, onTicketChanged)
+  }, [stageFilter, fetchAllStagingTicketsForStageFilter, fetchStagingTickets])
 
   const tryLoadMoreTickets = useCallback(() => {
     if (loading) return

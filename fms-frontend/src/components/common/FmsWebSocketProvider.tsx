@@ -8,6 +8,7 @@ import {
   dispatchAppReleaseCheck,
 } from '../../utils/releaseKey'
 import type { AppReleaseBroadcast } from '../../api/appRelease'
+import { applyTicketChangedFromWs } from '../../utils/ticketRealtime'
 
 const RECONNECT_MS = 3_000
 const AUTH_RECONNECT_MS = 60_000
@@ -18,6 +19,7 @@ type WsEnvelope =
   | { type: 'hello'; system_lock?: SystemLockStatus; app_release?: AppReleaseBroadcast }
   | { type: 'system_lock_changed'; data?: SystemLockStatus }
   | { type: 'app_release_changed'; data?: AppReleaseBroadcast }
+  | { type: 'ticket_changed'; data?: { ticket_id?: string; reason?: string } }
   | { type: 'pong' }
 
 function applySystemLock(detail: SystemLockStatus | undefined) {
@@ -53,6 +55,10 @@ function handleMessage(raw: string) {
   }
   if (msg.type === 'app_release_changed') {
     applyAppRelease(msg.data)
+    return
+  }
+  if (msg.type === 'ticket_changed') {
+    applyTicketChangedFromWs(msg.data)
   }
 }
 
@@ -63,8 +69,8 @@ declare global {
 }
 
 /**
- * Live WebSocket — instant system lock + release updates for logged-in users.
- * On connect / push: triggers HTTP release check (/release.json + backend).
+ * Live WebSocket — system lock, release, and ticket_changed for logged-in users.
+ * ticket_changed invalidates session caches and notifies mounted lists/drawers.
  * HTTP polling remains fallback when disconnected.
  */
 export function FmsWebSocketProvider({ children }: { children: React.ReactNode }) {

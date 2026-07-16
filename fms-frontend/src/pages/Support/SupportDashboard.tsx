@@ -8,9 +8,10 @@ import {
   RocketOutlined,
   FileTextOutlined,
 } from '@ant-design/icons'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { TICKET_CHANGED_EVENT } from '../../utils/ticketRealtime'
 import { supportDashboardApi, type SupportDashboardStats, type WeekData } from '../../api/supportDashboard'
 import { sessionApiCacheGet } from '../../utils/sessionApiCache'
 import { ModalContentSkeleton, SkeletonOverlay } from '../../components/common/skeletons'
@@ -77,6 +78,14 @@ export const SupportDashboard = () => {
     initialData: cachedStats?.weeksData ? cachedStats : undefined,
     staleTime: 120_000,
   })
+
+  useEffect(() => {
+    const onTicketChanged = () => {
+      void refetch()
+    }
+    window.addEventListener(TICKET_CHANGED_EVENT, onTicketChanged)
+    return () => window.removeEventListener(TICKET_CHANGED_EVENT, onTicketChanged)
+  }, [refetch])
 
   const errorMessage = (() => {
     if (!error) return null

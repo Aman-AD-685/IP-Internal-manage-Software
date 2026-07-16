@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { Card, Typography, Tag, Descriptions, Button, Space, message } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
@@ -8,6 +8,7 @@ import { PrintExport } from '../../components/common/PrintExport'
 import { formatDate } from '../../utils/helpers'
 import { ROUTES } from '../../utils/constants'
 import type { Ticket } from '../../api/tickets'
+import { useTicketRealtimeRefresh } from '../../hooks/useTicketRealtimeRefresh'
 
 const { Title } = Typography
 
@@ -27,15 +28,9 @@ export const TicketDetail = () => {
   const returnTo = searchParams.get('returnTo') || ''
   const safeReturnTo = returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : ''
 
-  useEffect(() => {
-    if (id) {
-      fetchTicket()
-    }
-  }, [id])
-
-  const fetchTicket = async () => {
+  const fetchTicket = useCallback(async (opts?: { silent?: boolean }) => {
     if (!id) return
-    setLoading(true)
+    if (!opts?.silent) setLoading(true)
     try {
       const response = await ticketsApi.get(id)
       if (response) {
@@ -47,11 +42,21 @@ export const TicketDetail = () => {
         }
       }
     } catch (error) {
-      message.error('Failed to load ticket')
+      if (!opts?.silent) message.error('Failed to load ticket')
     } finally {
-      setLoading(false)
+      if (!opts?.silent) setLoading(false)
     }
-  }
+  }, [id, navigate])
+
+  useEffect(() => {
+    if (id) {
+      void fetchTicket()
+    }
+  }, [id, fetchTicket])
+
+  useTicketRealtimeRefresh(!!id, id, () => {
+    void fetchTicket({ silent: true })
+  })
 
   if (loading) return <DetailPageSkeleton />
   if (!ticket) return <div>Ticket not found</div>
