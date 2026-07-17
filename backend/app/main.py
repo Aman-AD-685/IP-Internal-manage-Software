@@ -2182,6 +2182,35 @@ def _exclude_repeat_children_from_list(q):
     return q.is_("repeat_of_ticket_id", "null")
 
 
+def _fetch_repeat_feature_parents_for_rows(rows: list, ticket_cols: str) -> list:
+    """Load linked Feature parents for filtered repeat children (context only)."""
+    if not rows:
+        return []
+    seen = {str(r.get("id") or "") for r in rows if r.get("id")}
+    parent_ids = []
+    for r in rows:
+        pid = r.get("repeat_of_ticket_id")
+        if not pid:
+            continue
+        pid = str(pid).strip()
+        if pid and pid not in seen:
+            parent_ids.append(pid)
+            seen.add(pid)
+    if not parent_ids:
+        return []
+    try:
+        pr = (
+            supabase.table("tickets")
+            .select(ticket_cols)
+            .in_("id", parent_ids[:200])
+            .eq("type", "feature")
+            .execute()
+        )
+        return list(pr.data or [])
+    except Exception:
+        return []
+
+
 def _apply_chores_bugs_pending_filters(q, type_filter: str | None = None, status_2_filter: str | None = None):
     """Chores & Bugs open queue: chore/bug, solution form not submitted, not in active Staging."""
     types_list = ["chore", "bug"] if type_filter not in ("chore", "bug") else [type_filter]
@@ -2387,6 +2416,7 @@ def list_tickets(
             if _ticket_promote_columns_available():
                 search_fields += f",source_reference_no.ilike.%{safe}%"
             q = q.or_(search_fields)
+    reference_filter_applied = False
     if reference_filter and reference_filter.strip():
         safe_ref = _sanitize_ilike_input(reference_filter, max_len=80)
         if safe_ref:
@@ -2394,11 +2424,13 @@ def list_tickets(
             if _ticket_promote_columns_available():
                 ref_filter = f"reference_no.ilike.%{safe_ref}%,source_reference_no.ilike.%{safe_ref}%"
             q = q.or_(ref_filter)
+            reference_filter_applied = True
     selected_reference_filters = list(reference_filters or []) + list(reference_filters_bracketed or [])
     if selected_reference_filters:
         refs = [str(x).strip() for x in selected_reference_filters if x and str(x).strip()]
         if refs:
             q = q.in_("reference_no", refs[:200])
+            reference_filter_applied = True
     order_col = sort_by if sort_by in (
         "created_at",
         "updated_at",
@@ -2412,15 +2444,35 @@ def list_tickets(
     q = q.order(order_col, desc=(sort_order.lower() == "desc"))
     if (status_2_filter or "").strip().lower() != "na":
         q = apply_exclude_ticket_na(q)
-    q = _exclude_repeat_children_from_list(q)
+    # Reference filter (Filter/All/Register): show repeat children so CH-xxxx is findable.
+    # Default lists still hide children (Repeated modal only).
+    if not reference_filter_applied:
+        q = _exclude_repeat_children_from_list(q)
     q = q.range((page - 1) * page_size, page * page_size - 1)
     r = q.execute()
-    raw_rows = r.data or []
+    raw_rows = list(r.data or [])
+    # Linked Feature parents are returned out-of-band so page_size/total stay honest.
+    linked_parent_rows: list = []
+    if reference_filter_applied and raw_rows:
+        linked_parent_rows = _fetch_repeat_feature_parents_for_rows(raw_rows, ticket_cols)
     if include_repeat_counts:
         rows = _enrich_tickets_with_lookups(raw_rows, include_repeat_counts=True)
+        linked_parents = _enrich_tickets_with_lookups(linked_parent_rows, include_repeat_counts=True)
     else:
         rows = _enrich_tickets_with_lookups_fast(raw_rows)
-    return {"data": rows, "total": _supabase_list_total(r, page, page_size), "page": page, "page_size": page_size}
+        linked_parents = _enrich_tickets_with_lookups_fast(linked_parent_rows)
+    # Keep parents visible in data for Filter/All/Register (plan), but only when the
+    # page still fits page_size — otherwise clients use linked_parents.
+    if linked_parents and len(rows) + len(linked_parents) <= page_size:
+        rows = linked_parents + rows
+        linked_parents = []
+    return {
+        "data": rows,
+        "linked_parents": linked_parents,
+        "total": _supabase_list_total(r, page, page_size),
+        "page": page,
+        "page_size": page_size,
+    }
 
 
 @api_router.get("/tickets/repeat-counts")
@@ -2433,6 +2485,35 @@ def get_ticket_repeat_counts(
 
     ids = [str(i).strip() for i in (ticket_ids or []) if i][:100]
     return {"counts": fetch_repeat_child_counts(ids)}
+
+
+class RepairStuckRepeatChildrenRequest(BaseModel):
+    parent_ids: list[str] | None = None
+    confirm_full_scan: bool = False
+
+
+@api_router.post("/tickets/repair-stuck-repeat-children")
+def repair_stuck_repeat_children(
+    payload: RepairStuckRepeatChildrenRequest = RepairStuckRepeatChildrenRequest(),
+    auth: dict = Depends(require_roles(["admin", "master_admin"])),
+):
+    """
+    One-shot repair: Features already Live-completed whose repeat Chore/Bug children
+    still lack Form Done (stops pending reminder emails).
+    Pass JSON {"parent_ids":["<feature-uuid>"]} to target one Feature, or
+    {"confirm_full_scan": true} to scan completed Features (capped).
+    """
+    from app.ticket_similarity import repair_stuck_repeat_children_under_completed_features
+
+    parent_ids = [str(i).strip() for i in (payload.parent_ids or []) if str(i).strip()]
+    if not parent_ids and not payload.confirm_full_scan:
+        raise HTTPException(
+            status_code=400,
+            detail="Pass parent_ids for a targeted repair, or confirm_full_scan=true for a capped full scan.",
+        )
+    return repair_stuck_repeat_children_under_completed_features(
+        parent_ids=parent_ids or None,
+    )
 
 
 def _level3_used_for_ticket(ticket_id: str, user_id: str) -> bool:

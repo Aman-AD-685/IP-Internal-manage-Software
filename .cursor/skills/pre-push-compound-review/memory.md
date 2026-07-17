@@ -33,6 +33,7 @@ Do not remove entries; add dated bullets.
 - 2026-05-29: **Admin sees all KPI dashboards** — admin/master_admin bypass the per-person KPI matrix in both `dashboardKpiPermissions.ts` and `section_permissions_util.can_view_dashboard_kpi_person`, so newly added dashboards need no per-person grant or re-login.
 - 2026-06-06: **Password reset email** — gotrue Python uses `redirect_to` (snake_case), not `redirectTo`; without it Supabase falls back to Site URL and users land on login with no recovery token. Public `/reset-password` must stay outside ProtectedRoute; recovery token in sessionStorage + early index.html bootstrap.
 - 2026-05-30: **Similar tickets production** — Vercel→Render→Supabase path needs `getSimilar` timeout ≥20s (1.2s silently failed); fix loading-state gen race on abort; backend title-only ILIKE first then description fallback; enrich company names only for top N matches.
+- 2026-07-17: **Repeat Feature cascade** — Feature `live_status`/`live_review_status=completed` closes linked Chore/Bug Stage 2–4, sets Form `quality_solution=Done`, resolves the ticket, invalidates caches, and broadcasts updates. Cross-type children must not receive the legacy same-field mirror; reference-filter context may add only the linked Feature parent.
 
 ## Pre-push scorecard (target 100/100 — block push if failed)
 
