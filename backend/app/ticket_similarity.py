@@ -5,10 +5,13 @@ Run database/TICKETS_SIMILAR_SEARCH.sql in Supabase for pg_trgm indexes.
 """
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
 from app.supabase_client import supabase
+
+_log = logging.getLogger("ticket_similarity")
 
 SIMILAR_THRESHOLD = 90
 NEAR_SIMILAR_MIN = 70
@@ -542,33 +545,282 @@ _REPEAT_CHILD_CASCADE_KEYS = frozenset({
     "resolved_at",
 })
 
+_CHORE_BUG_TYPES = frozenset({"chore", "bug"})
+_AUTO_CLOSE_QUALITY = "Done"
 
-def cascade_repeat_children_stage_updates(parent_ticket_id: str, data: dict[str, Any]) -> int:
-    """When a parent ticket's stage/status changes, mirror those fields on repeat children."""
-    cascade = {k: v for k, v in data.items() if k in _REPEAT_CHILD_CASCADE_KEYS}
-    if not cascade:
-        return 0
+
+def _iso_now() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _feature_done_in_values(live_status: Any, live_review_status: Any) -> bool:
+    live = str(live_status or "").strip().lower()
+    review = str(live_review_status or "").strip().lower()
+    return live == "completed" or review == "completed"
+
+
+def build_chore_bug_auto_close_patch(child: dict[str, Any], *, now: str | None = None) -> dict[str, Any]:
+    """
+    Mark remaining Chore/Bug stages complete and set Form (quality_solution) to Done.
+    Idempotent: only fills missing / incomplete fields.
+    """
+    if str(child.get("type") or "").strip().lower() not in _CHORE_BUG_TYPES:
+        return {}
+    if str(child.get("status_2") or "").strip().lower() == "na":
+        return {}
+    now = now or _iso_now()
+    patch: dict[str, Any] = {}
+    if str(child.get("status_2") or "").strip().lower() != "completed":
+        patch["status_2"] = "completed"
+    if not child.get("actual_2"):
+        patch["actual_2"] = now
+    if str(child.get("status_3") or "").strip().lower() != "completed":
+        patch["status_3"] = "completed"
+    if not child.get("actual_3"):
+        patch["actual_3"] = now
+    if str(child.get("status_4") or "").strip().lower() != "completed":
+        patch["status_4"] = "completed"
+    if not child.get("actual_4"):
+        patch["actual_4"] = now
+    if not (child.get("quality_solution") or "").strip():
+        patch["quality_solution"] = _AUTO_CLOSE_QUALITY
+        if not child.get("quality_solution_submitted_at"):
+            patch["quality_solution_submitted_at"] = now
+    status = str(child.get("status") or "").strip().lower()
+    if status not in ("resolved", "closed"):
+        patch["status"] = "resolved"
+    if not child.get("resolved_at"):
+        patch["resolved_at"] = now
+    return patch
+
+
+def _invalidate_after_repeat_cascade() -> None:
+    try:
+        from app.main import invalidate_dashboard_read_caches, _invalidate_ttl_cache_key_prefix
+
+        invalidate_dashboard_read_caches()
+        _invalidate_ttl_cache_key_prefix("tickets:list:")
+    except Exception:
+        pass
+
+
+def _broadcast_ticket_ids(ticket_ids: list[str], reason: str = "stage") -> None:
+    try:
+        from app.ws_hub import broadcast_ticket_changed
+
+        for tid in ticket_ids:
+            broadcast_ticket_changed(str(tid), reason)
+    except Exception:
+        pass
+
+
+def close_repeat_chore_children_for_feature(parent_ticket_id: str) -> dict[str, Any]:
+    """
+    When a Feature parent is Done (Stage 2 Live / Live Review), close all repeat
+    Chore/Bug children through Stage 3–4 Form Done so pending reminders stop.
+    Returns closed_children count plus per-child errors (never silent on UPDATE fail).
+    """
     parent_ticket_id = (parent_ticket_id or "").strip()
     if not parent_ticket_id:
+        return {"closed_children": 0, "errors": [], "failed_ids": []}
+    try:
+        cr = (
+            supabase.table("tickets")
+            .select(
+                "id,type,status,status_2,status_3,status_4,actual_2,actual_3,actual_4,"
+                "quality_solution,quality_solution_submitted_at,resolved_at,live_review_status"
+            )
+            .eq("repeat_of_ticket_id", parent_ticket_id)
+            .execute()
+        )
+        children = list(cr.data or [])
+    except Exception as e:
+        msg = f"{parent_ticket_id}: list children failed: {str(e)[:120]}"
+        _log.warning("repeat cascade: %s", msg)
+        return {"closed_children": 0, "errors": [msg], "failed_ids": []}
+    now = _iso_now()
+    updated_ids: list[str] = []
+    errors: list[str] = []
+    failed_ids: list[str] = []
+    # ponytail: per-child UPDATE loop (O(n) round-trips). Ceiling = few repeats per Feature;
+    # upgrade path = batch identical patches via .in_("id", ids) or a single RPC.
+    for child in children:
+        patch = build_chore_bug_auto_close_patch(child, now=now)
+        if not patch:
+            continue
+        cid = str(child.get("id") or "")
+        if not cid:
+            continue
+        try:
+            supabase.table("tickets").update(patch).eq("id", cid).execute()
+            updated_ids.append(cid)
+        except Exception as e:
+            failed_ids.append(cid)
+            err = f"{cid}: {str(e)[:120]}"
+            errors.append(err)
+            _log.warning("repeat cascade child update failed: %s", err)
+    if updated_ids:
+        _invalidate_after_repeat_cascade()
+        _broadcast_ticket_ids(updated_ids, "stage")
+    return {
+        "closed_children": len(updated_ids),
+        "errors": errors,
+        "failed_ids": failed_ids,
+    }
+
+
+def cascade_repeat_children_stage_updates(parent_ticket_id: str, data: dict[str, Any]) -> int:
+    """
+    When a parent ticket's stage/status changes, update repeat children.
+    Feature Done → close Chore/Bug children fully (Form Done).
+    Same-type parents → mirror shared stage fields.
+    """
+    parent_ticket_id = (parent_ticket_id or "").strip()
+    if not parent_ticket_id:
+        return 0
+    data = data or {}
+
+    parent: dict[str, Any] = {}
+    try:
+        pr = (
+            supabase.table("tickets")
+            .select("id,type,live_status,live_review_status")
+            .eq("id", parent_ticket_id)
+            .limit(1)
+            .execute()
+        )
+        parent = (pr.data or [{}])[0] if pr.data else {}
+    except Exception:
+        parent = {}
+
+    parent_type = str(parent.get("type") or "").strip().lower()
+    feature_done = parent_type == "feature" and (
+        _feature_done_in_values(data.get("live_status"), data.get("live_review_status"))
+        or _feature_done_in_values(parent.get("live_status"), parent.get("live_review_status"))
+    )
+    if feature_done:
+        result = close_repeat_chore_children_for_feature(parent_ticket_id)
+        return int(result.get("closed_children") or 0)
+
+    cascade = {k: v for k, v in data.items() if k in _REPEAT_CHILD_CASCADE_KEYS}
+    if not cascade:
         return 0
     try:
         cr = (
             supabase.table("tickets")
-            .select("id")
+            .select("id,type")
             .eq("repeat_of_ticket_id", parent_ticket_id)
             .execute()
         )
-        child_ids = [str(row["id"]) for row in (cr.data or []) if row.get("id")]
+        child_ids = [
+            str(row["id"])
+            for row in (cr.data or [])
+            if row.get("id") and str(row.get("type") or "").strip().lower() == parent_type
+        ]
     except Exception:
         return 0
-    updated = 0
+    updated_ids: list[str] = []
+    # ponytail: same O(n) per-child UPDATE ceiling as Feature close; batch when repeats grow.
     for child_id in child_ids:
         try:
             supabase.table("tickets").update(cascade).eq("id", child_id).execute()
-            updated += 1
-        except Exception:
-            pass
-    return updated
+            updated_ids.append(child_id)
+        except Exception as e:
+            _log.warning("repeat mirror update failed for %s: %s", child_id, str(e)[:120])
+    if updated_ids:
+        _invalidate_after_repeat_cascade()
+        _broadcast_ticket_ids(updated_ids, "stage")
+    return len(updated_ids)
+
+
+def repair_stuck_repeat_children_under_completed_features(
+    *,
+    parent_ids: list[str] | None = None,
+    limit_parents: int = 1000,
+) -> dict[str, Any]:
+    """
+    One-shot / admin repair: Features already Live-completed whose repeat
+    Chore/Bug children still lack Form Done.
+    """
+    closed = 0
+    scanned = 0
+    errors: list[str] = []
+    failed_ids: list[str] = []
+    ids = [str(i).strip() for i in (parent_ids or []) if str(i).strip()]
+    truncated = False
+    try:
+        if ids:
+            q = (
+                supabase.table("tickets")
+                .select("id,reference_no,type,live_status,live_review_status")
+                .in_("id", ids[:limit_parents])
+                .eq("type", "feature")
+            )
+            parents = list((q.execute().data) or [])
+            truncated = len(ids) > limit_parents
+        else:
+            # ponytail: scan capped at limit_parents (no cursor). Ceiling for one-shot repair;
+            # upgrade path = paginate/cursor or require parent_ids.
+            r = (
+                supabase.table("tickets")
+                .select("id,reference_no,type,live_status,live_review_status")
+                .eq("type", "feature")
+                .eq("live_status", "completed")
+                .limit(limit_parents)
+                .execute()
+            )
+            parents = list(r.data or [])
+            truncated = len(parents) >= limit_parents
+            r2 = (
+                supabase.table("tickets")
+                .select("id,reference_no,type,live_status,live_review_status")
+                .eq("type", "feature")
+                .eq("live_review_status", "completed")
+                .limit(limit_parents)
+                .execute()
+            )
+            seen = {str(p.get("id")) for p in parents}
+            for p in r2.data or []:
+                pid = str(p.get("id") or "")
+                if pid and pid not in seen:
+                    parents.append(p)
+                    seen.add(pid)
+            if len(r2.data or []) >= limit_parents:
+                truncated = True
+    except Exception as e:
+        return {
+            "scanned": 0,
+            "closed_children": 0,
+            "errors": [str(e)[:200]],
+            "failed_ids": [],
+            "truncated": False,
+        }
+
+    for parent in parents:
+        pid = str(parent.get("id") or "")
+        if not pid:
+            continue
+        if not _feature_done_in_values(parent.get("live_status"), parent.get("live_review_status")):
+            continue
+        scanned += 1
+        try:
+            result = close_repeat_chore_children_for_feature(pid)
+            closed += int(result.get("closed_children") or 0)
+            for err in result.get("errors") or []:
+                errors.append(err)
+            for fid in result.get("failed_ids") or []:
+                failed_ids.append(fid)
+        except Exception as e:
+            errors.append(f"{pid}: {str(e)[:120]}")
+    return {
+        "scanned": scanned,
+        "closed_children": closed,
+        "errors": errors,
+        "failed_ids": failed_ids,
+        "truncated": truncated,
+    }
 
 
 def fetch_repeat_child_counts(parent_ids: list[str]) -> dict[str, int]:
