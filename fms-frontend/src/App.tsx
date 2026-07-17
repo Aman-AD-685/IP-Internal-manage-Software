@@ -26,6 +26,8 @@ import { GlobalContextMenuProvider } from "./contextMenu"
 import { NewFeatureRefreshPrompt } from "./components/common/NewFeatureRefreshPrompt"
 import { FmsWebSocketProvider } from "./components/common/FmsWebSocketProvider"
 import { SystemLockProvider } from "./components/common/SystemLockProvider"
+import { OfflineBanner } from "./components/common/OfflineBanner"
+import { PwaInstallPrompt } from "./components/common/PwaInstallPrompt"
 
 const UniversalDashboard = lazy(() => import("./components/dashboard/Dashboard").then((m) => ({ default: m.Dashboard })))
 const DashboardKPIPage = lazy(() => import("./pages/Dashboard/DashboardKPIPage").then((m) => ({ default: m.DashboardKPIPage })))
@@ -160,7 +162,9 @@ function App() {
       <AuthProvider>
         <FmsWebSocketProvider>
         <BrowserRouter>
+          <OfflineBanner />
           <NewFeatureRefreshPrompt />
+          <PwaInstallPrompt />
           <SystemLockProvider>
           <RecoveryRedirectGuard />
           <GlobalContextMenuProvider>

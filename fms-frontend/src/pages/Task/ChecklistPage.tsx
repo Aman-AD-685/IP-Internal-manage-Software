@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, type Key } from 'react'
 import {
   Card,
   Typography,
@@ -35,6 +35,7 @@ import { useLocation } from 'react-router-dom'
 import { ROUTES } from '../../utils/constants'
 import { genericLogicalKey, sessionApiCacheGet } from '../../utils/sessionApiCache'
 import { ChecklistNaModal } from '../../components/tasks/ChecklistNaModal'
+import { BulkActionBar } from '../../components/common/BulkActionBar'
 
 const { Title, Text } = Typography
 
@@ -86,6 +87,8 @@ export const ChecklistPage = () => {
   const [holidayModalOpen, setHolidayModalOpen] = useState(false)
   const [naModalOpen, setNaModalOpen] = useState(false)
   const [holidayUploadLoading, setHolidayUploadLoading] = useState(false)
+  const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([])
+  const [bulkLoading, setBulkLoading] = useState(false)
   const today = new Date()
   const canUploadHolidays = today.getMonth() === 11 && today.getDate() >= 15
 
@@ -209,6 +212,50 @@ export const ChecklistPage = () => {
       .catch((e: any) => message.error(e.response?.data?.detail || 'Failed to complete'))
       .finally(() => setSubmitLoading(null))
   }
+
+  const occurrenceRowKey = (r: ChecklistOccurrence) => `${r.task_id}-${r.occurrence_date}`
+
+  const canBulkCompleteRow = (r: ChecklistOccurrence) =>
+    !r.completed_at && r.doer_id === user?.id && isToday(r.occurrence_date)
+
+  const selectedOccurrences = useMemo(() => {
+    const keySet = new Set(selectedRowKeys.map(String))
+    return occurrencesForUser.filter((o) => keySet.has(occurrenceRowKey(o)))
+  }, [occurrencesForUser, selectedRowKeys])
+
+  const eligibleBulkComplete = useMemo(
+    () => selectedOccurrences.filter(canBulkCompleteRow),
+    [selectedOccurrences, user?.id],
+  )
+
+  const handleBulkComplete = () => {
+    if (eligibleBulkComplete.length === 0) {
+      message.warning('No selected rows can be completed (must be your tasks for today)')
+      return
+    }
+    setBulkLoading(true)
+    checklistApi
+      .bulkComplete(
+        eligibleBulkComplete.map((o) => ({
+          task_id: o.task_id,
+          occurrence_date: o.occurrence_date,
+        })),
+      )
+      .then((res) => {
+        const nOk = res.ok?.length ?? 0
+        const nFail = res.failed?.length ?? 0
+        if (nOk) message.success(`Completed ${nOk} task${nOk === 1 ? '' : 's'}`)
+        if (nFail) message.warning(`${nFail} failed`)
+        setSelectedRowKeys([])
+        loadChecklistData()
+      })
+      .catch((e: any) => message.error(e.response?.data?.detail || 'Bulk complete failed'))
+      .finally(() => setBulkLoading(false))
+  }
+
+  useEffect(() => {
+    setSelectedRowKeys([])
+  }, [filter, selectedUserId, referenceNoFilter])
 
   const columns = [
     {
@@ -420,14 +467,40 @@ export const ChecklistPage = () => {
         }
       >
         <TableWithSkeletonLoading loading={loading} columns={7} rows={12}>
+          <BulkActionBar
+            count={selectedRowKeys.length}
+            onClear={() => setSelectedRowKeys([])}
+            eligibilityHint={
+              selectedRowKeys.length
+                ? `${eligibleBulkComplete.length} of ${selectedRowKeys.length} can be completed`
+                : undefined
+            }
+          >
+            <Button
+              type="primary"
+              size="small"
+              loading={bulkLoading}
+              disabled={eligibleBulkComplete.length === 0}
+              onClick={handleBulkComplete}
+            >
+              Mark Complete
+            </Button>
+          </BulkActionBar>
           <div ref={checklistTableContainerRef}>
             <Table
               dataSource={visibleOccurrences}
               columns={columns}
-              rowKey={(r) => `${r.task_id}-${r.occurrence_date}`}
+              rowKey={occurrenceRowKey}
               loading={false}
               pagination={false}
               locale={{ emptyText: checklistEmptyContent }}
+              rowSelection={{
+                selectedRowKeys,
+                onChange: (keys) => setSelectedRowKeys(keys),
+                getCheckboxProps: (r: ChecklistOccurrence) => ({
+                  disabled: !canBulkCompleteRow(r) && !!r.completed_at,
+                }),
+              }}
               onRow={(record) => ({
                 onContextMenu: (e) => {
                   e.preventDefault()
@@ -450,7 +523,7 @@ export const ChecklistPage = () => {
               summary={() => (
                 <Table.Summary>
                   <Table.Summary.Row>
-                    <Table.Summary.Cell index={0} colSpan={columns.length}>
+                    <Table.Summary.Cell index={0} colSpan={columns.length + 1}>
                       <div ref={checklistTableSentinelRef} style={{ height: 8, minHeight: 8 }} aria-hidden />
                       <Text type="secondary">
                         Showing {visibleOccurrenceCount} of {totalOccurrences} rows{occurrencesHasMore ? ' · scroll to load more' : ''}

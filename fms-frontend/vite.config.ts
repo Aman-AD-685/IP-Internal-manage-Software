@@ -5,6 +5,7 @@ import path from 'path'
 import { execSync } from 'child_process'
 import { visualizer } from 'rollup-plugin-visualizer'
 import vitePluginImp from 'vite-plugin-imp'
+import { VitePWA } from 'vite-plugin-pwa'
 
 // Keep in sync with fms-frontend/src/utils/localBackend.ts (DEFAULT_LOCAL_BACKEND_ORIGIN)
 const DEFAULT_BACKEND_TARGET = 'http://127.0.0.1:8020'
@@ -72,6 +73,82 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       releaseManifestPlugin(appReleaseKey),
+      VitePWA({
+        registerType: 'autoUpdate',
+        includeAssets: ['logo.png', 'pwa-192.png', 'pwa-512.png', 'robots.txt'],
+        manifest: {
+          name: 'Industry Prime — IP Internal Management',
+          short_name: 'Industry Prime',
+          description:
+            'IP Internal Management Software — tickets, checklist, delegation, KPIs, and onboarding.',
+          theme_color: '#1677ff',
+          background_color: '#ffffff',
+          display: 'standalone',
+          orientation: 'any',
+          start_url: '/',
+          scope: '/',
+          lang: 'en',
+          categories: ['business', 'productivity'],
+          icons: [
+            {
+              src: 'pwa-192.png',
+              sizes: '192x192',
+              type: 'image/png',
+            },
+            {
+              src: 'pwa-512.png',
+              sizes: '512x512',
+              type: 'image/png',
+            },
+            {
+              src: 'pwa-512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'maskable',
+            },
+          ],
+        },
+        workbox: {
+          navigateFallback: '/index.html',
+          // Keep release.json always fresh so deploy refresh prompts still work.
+          navigateFallbackDenylist: [/^\/api/, /^\/release\.json$/],
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,webmanifest}'],
+          globIgnores: ['**/stats.html', '**/stats-*.html'],
+          // antd chunk can exceed default 2 MiB; still fine for app-shell offline.
+          maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+          runtimeCaching: [
+            {
+              // Live API / auth / Supabase — never serve stale business data from SW.
+              urlPattern: ({ url }) =>
+                url.pathname.startsWith('/api') ||
+                url.hostname.includes('supabase.co') ||
+                url.hostname.includes('onrender.com'),
+              handler: 'NetworkOnly',
+            },
+            {
+              urlPattern: ({ url }) => url.pathname === '/release.json',
+              handler: 'NetworkFirst',
+              options: {
+                cacheName: 'fms-release-json',
+                networkTimeoutSeconds: 3,
+                expiration: { maxEntries: 1, maxAgeSeconds: 60 },
+              },
+            },
+            {
+              urlPattern: ({ request }) => request.destination === 'image',
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'fms-images',
+                expiration: { maxEntries: 80, maxAgeSeconds: 30 * 24 * 60 * 60 },
+              },
+            },
+          ],
+        },
+        devOptions: {
+          // Keep SW off in vite dev — use `npm run build && npm run preview` to test install/offline.
+          enabled: false,
+        },
+      }),
       vitePluginImp({
         libList: [
           {

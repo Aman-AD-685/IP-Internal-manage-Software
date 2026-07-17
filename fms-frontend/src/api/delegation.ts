@@ -70,4 +70,17 @@ export const delegationApi = {
     sessionApiCacheClearLogicalPrefix('delegation:tasks:')
     return r.data
   },
+
+  bulkUpdate: async (ids: string[], status: 'completed' | 'cancelled', document_url?: string) => {
+    const r = await apiClient.post<{
+      ok: string[]
+      failed: { id: string; detail: string }[]
+    }>('/delegation/tasks/bulk-update', {
+      ids,
+      status,
+      ...(document_url ? { document_url } : {}),
+    })
+    sessionApiCacheClearLogicalPrefix('delegation:tasks:')
+    return r.data
+  },
 }

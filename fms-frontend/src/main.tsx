@@ -5,12 +5,23 @@ import {
   bootstrapAuthBrowserSession,
   installAuthBrowserSessionHandlers,
 } from './utils/authBrowserSession'
+import { registerSW } from 'virtual:pwa-register'
 import App from './App'
 import { redirectRecoveryToResetPage, bootstrapRecoveryFromUrl } from './utils/recoveryAuth'
 
 installAuthBrowserSessionHandlers()
 bootstrapAuthBrowserSession()
 bootstrapRecoveryFromUrl()
+
+registerSW({
+  immediate: true,
+  onRegisteredSW(_url, registration) {
+    if (!registration) return
+    window.setInterval(() => {
+      void registration.update()
+    }, 60 * 60 * 1000)
+  },
+})
 import 'antd/dist/reset.css'
 import './styles/print.css'
 import './styles/responsive.css'
