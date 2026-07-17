@@ -116,6 +116,15 @@ export const checklistApi = {
     return r.data
   },
 
+  bulkComplete: async (items: { task_id: string; occurrence_date: string }[]) => {
+    const r = await apiClient.post<{
+      ok: { task_id: string; occurrence_date: string }[]
+      failed: { task_id?: string; occurrence_date?: string; detail: string }[]
+    }>('/checklist/tasks/bulk-complete', { items })
+    sessionApiCacheClearLogicalPrefix('checklist:occurrences:')
+    return r.data
+  },
+
   getUsers: async () => {
     const key = 'checklist:users'
     const cached = sessionApiCacheGet<{ users: { id: string; full_name: string }[] }>(key)

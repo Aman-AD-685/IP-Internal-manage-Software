@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, type Key } from 'react'
 import {
   Card,
   Typography,
@@ -32,6 +32,7 @@ import { genericLogicalKey, sessionApiCacheGet } from '../../utils/sessionApiCac
 import { useDeepLinkAction } from '../../hooks/useDeepLinkAction'
 import { useLocation } from 'react-router-dom'
 import { ROUTES } from '../../utils/constants'
+import { BulkActionBar } from '../../components/common/BulkActionBar'
 
 const { Title, Text } = Typography
 const { Dragger } = Upload
@@ -48,7 +49,7 @@ export const DelegationPage = () => {
   const location = useLocation()
   const { openMenu } = useContextMenu()
   const { user } = useAuth()
-  const { isAdmin, isApprover, isMasterAdmin, isUser } = useRole()
+  const { isAdmin, isApprover, isMasterAdmin } = useRole()
   const canManage = isAdmin || isApprover || isMasterAdmin
   const [form] = Form.useForm()
   const [editForm] = Form.useForm()
@@ -65,6 +66,8 @@ export const DelegationPage = () => {
   const [completeDocumentUrl, setCompleteDocumentUrl] = useState<string | null>(null)
   const [uploadingDoc, setUploadingDoc] = useState(false)
   const [editModalTask, setEditModalTask] = useState<DelegationTask | null>(null)
+  const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([])
+  const [bulkLoading, setBulkLoading] = useState(false)
 
   // Default task filter to logged-in user (so first load shows "my tasks"); admins can change to another user or All
   useEffect(() => {
@@ -265,7 +268,55 @@ export const DelegationPage = () => {
   useDeepLinkAction(OPEN_ACTION.DELEGATION_CREATE, openCreateModal)
 
   const canActOnTask = (task: DelegationTask) =>
-    user?.id && (task.assignee_id === user.id || isAdmin)
+    !!user?.id && (task.assignee_id === user.id || isAdmin)
+
+  /** Bulk complete without per-row doc upload — only tasks that don't require a new upload. */
+  const canBulkCompleteTask = (task: DelegationTask) =>
+    canActOnTask(task) &&
+    task.status !== 'completed' &&
+    task.status !== 'cancelled' &&
+    (task.has_document !== 'yes' || !!task.document_url)
+
+  const canBulkCancelTask = (task: DelegationTask) =>
+    canActOnTask(task) && task.status !== 'completed' && task.status !== 'cancelled'
+
+  const selectedTasks = useMemo(() => {
+    const keySet = new Set(selectedRowKeys.map(String))
+    return displayTasks.filter((t) => keySet.has(t.id))
+  }, [displayTasks, selectedRowKeys])
+
+  const eligibleBulkComplete = useMemo(
+    () => selectedTasks.filter(canBulkCompleteTask),
+    [selectedTasks, user?.id, isAdmin],
+  )
+  const eligibleBulkCancel = useMemo(
+    () => selectedTasks.filter(canBulkCancelTask),
+    [selectedTasks, user?.id, isAdmin],
+  )
+
+  useEffect(() => {
+    setSelectedRowKeys([])
+  }, [statusFilter, userFilter, referenceNoFilter])
+
+  const runBulkStatus = (status: 'completed' | 'cancelled', ids: string[]) => {
+    if (ids.length === 0) {
+      message.warning(status === 'completed' ? 'No selected tasks can be completed in bulk (doc may be required)' : 'No selected tasks can be cancelled')
+      return
+    }
+    setBulkLoading(true)
+    delegationApi
+      .bulkUpdate(ids, status)
+      .then((res) => {
+        const nOk = res.ok?.length ?? 0
+        const nFail = res.failed?.length ?? 0
+        if (nOk) message.success(`${status === 'completed' ? 'Completed' : 'Cancelled'} ${nOk}`)
+        if (nFail) message.warning(`${nFail} failed`)
+        setSelectedRowKeys([])
+        loadTasks()
+      })
+      .catch((e) => message.error(e?.response?.data?.detail || 'Bulk update failed'))
+      .finally(() => setBulkLoading(false))
+  }
 
   const openCompleteModal = (task: DelegationTask) => {
     if (task.has_document === 'yes') {
@@ -595,6 +646,36 @@ export const DelegationPage = () => {
           exportFilename={delegationExportFilename}
         />
         <TableWithSkeletonLoading loading={loading} columns={7} rows={12}>
+          <BulkActionBar
+            count={selectedRowKeys.length}
+            onClear={() => setSelectedRowKeys([])}
+            eligibilityHint={
+              selectedRowKeys.length
+                ? `${eligibleBulkComplete.length} completable · ${eligibleBulkCancel.length} cancellable`
+                : undefined
+            }
+          >
+            <Button
+              type="primary"
+              size="small"
+              icon={<CheckOutlined />}
+              loading={bulkLoading}
+              disabled={eligibleBulkComplete.length === 0}
+              onClick={() => runBulkStatus('completed', eligibleBulkComplete.map((t) => t.id))}
+            >
+              Mark Complete
+            </Button>
+            <Button
+              danger
+              size="small"
+              icon={<CloseOutlined />}
+              loading={bulkLoading}
+              disabled={eligibleBulkCancel.length === 0}
+              onClick={() => runBulkStatus('cancelled', eligibleBulkCancel.map((t) => t.id))}
+            >
+              Cancel Selected
+            </Button>
+          </BulkActionBar>
           <div ref={delegationTableContainerRef}>
             <Table
               dataSource={visibleDisplayTasks}
@@ -603,13 +684,20 @@ export const DelegationPage = () => {
               loading={false}
               pagination={false}
               locale={{ emptyText: delegationEmptyContent }}
+              rowSelection={{
+                selectedRowKeys,
+                onChange: (keys) => setSelectedRowKeys(keys),
+                getCheckboxProps: (r: DelegationTask) => ({
+                  disabled: !canBulkCancelTask(r),
+                }),
+              }}
               onRow={(record) => ({
                 onContextMenu: (e) => handleRowContextMenu(record, e),
               })}
               summary={() => (
                 <Table.Summary>
                   <Table.Summary.Row>
-                    <Table.Summary.Cell index={0} colSpan={columns.length}>
+                    <Table.Summary.Cell index={0} colSpan={columns.length + 1}>
                       <div ref={delegationTableSentinelRef} style={{ height: 8, minHeight: 8 }} aria-hidden />
                       <Text type="secondary">
                         Showing {visibleDisplayTaskCount} of {totalDisplayTasks} rows{displayTasksHasMore ? ' · scroll to load more' : ''}

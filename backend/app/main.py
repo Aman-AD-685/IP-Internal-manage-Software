@@ -16035,30 +16035,74 @@ class CompleteChecklistRequest(BaseModel):
     occurrence_date: str  # YYYY-MM-DD
 
 
-@api_router.post("/checklist/tasks/{task_id}/complete")
-def complete_checklist_task(task_id: str, payload: CompleteChecklistRequest, auth: dict = Depends(get_current_user)):
-    """Mark a task as completed for the given occurrence date (Submit)."""
+def _complete_checklist_occurrence(task_id: str, occurrence_date: str, user_id: str) -> None:
+    """Mark one checklist occurrence complete. Raises HTTPException on failure."""
     try:
         task = supabase.table("checklist_tasks").select("doer_id").eq("id", task_id).single().execute()
         if not task.data:
             raise HTTPException(404, "Task not found")
-        if str(task.data["doer_id"]) != str(auth["id"]):
+        if str(task.data["doer_id"]) != str(user_id):
             raise HTTPException(403, "Only the assigned doer can complete this task")
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         raise HTTPException(404, "Task not found")
     data = {
         "task_id": task_id,
-        "occurrence_date": payload.occurrence_date,
-        "completed_by": auth["id"],
+        "occurrence_date": occurrence_date,
+        "completed_by": user_id,
     }
     try:
         supabase.table("checklist_completions").upsert(data, on_conflict="task_id,occurrence_date").execute()
-        invalidate_dashboard_read_caches()
-        return {"success": True, "message": "Task marked as completed"}
     except Exception as e:
         raise HTTPException(400, str(e)[:200])
+
+
+@api_router.post("/checklist/tasks/{task_id}/complete")
+def complete_checklist_task(task_id: str, payload: CompleteChecklistRequest, auth: dict = Depends(get_current_user)):
+    """Mark a task as completed for the given occurrence date (Submit)."""
+    _complete_checklist_occurrence(task_id, payload.occurrence_date, auth["id"])
+    invalidate_dashboard_read_caches()
+    return {"success": True, "message": "Task marked as completed"}
+
+
+class BulkCompleteChecklistItem(BaseModel):
+    task_id: str
+    occurrence_date: str
+
+
+class BulkCompleteChecklistRequest(BaseModel):
+    items: list[BulkCompleteChecklistItem]
+
+
+@api_router.post("/checklist/tasks/bulk-complete")
+def bulk_complete_checklist_tasks(
+    payload: BulkCompleteChecklistRequest,
+    auth: dict = Depends(get_current_user),
+):
+    """Complete multiple checklist occurrences. Same doer-only rules as single complete."""
+    items = (payload.items or [])[:50]
+    if not items:
+        raise HTTPException(400, "No items to complete")
+    ok: list[dict] = []
+    failed: list[dict] = []
+    for item in items:
+        tid = (item.task_id or "").strip()
+        od = (item.occurrence_date or "").strip()
+        if not tid or not od:
+            failed.append({"task_id": tid or None, "occurrence_date": od or None, "detail": "Missing task_id or occurrence_date"})
+            continue
+        try:
+            _complete_checklist_occurrence(tid, od, auth["id"])
+            ok.append({"task_id": tid, "occurrence_date": od})
+        except HTTPException as e:
+            detail = e.detail if isinstance(e.detail, str) else str(e.detail)
+            failed.append({"task_id": tid, "occurrence_date": od, "detail": detail})
+        except Exception as e:
+            failed.append({"task_id": tid, "occurrence_date": od, "detail": str(e)[:200]})
+    if ok:
+        invalidate_dashboard_read_caches()
+    return {"ok": ok, "failed": failed}
 
 
 @api_router.get("/checklist/users")
@@ -16478,6 +16522,42 @@ def update_delegation_task(task_id: str, payload: dict, auth: dict = Depends(get
         return r.data[0] if r.data else {}
     except Exception as e:
         raise HTTPException(400, str(e)[:200])
+
+
+class BulkDelegationUpdateRequest(BaseModel):
+    ids: list[str]
+    status: str  # completed | cancelled
+    document_url: str | None = None
+
+
+@api_router.post("/delegation/tasks/bulk-update")
+def bulk_update_delegation_tasks(
+    payload: BulkDelegationUpdateRequest,
+    auth: dict = Depends(get_current_user),
+    current: dict = Depends(get_current_user_with_role),
+):
+    """Bulk complete or cancel. Reuses the same rules as PUT /delegation/tasks/{id}."""
+    status = (payload.status or "").strip().lower()
+    if status not in ("completed", "cancelled"):
+        raise HTTPException(400, "status must be completed or cancelled")
+    ids = [str(i).strip() for i in (payload.ids or []) if str(i).strip()][:50]
+    if not ids:
+        raise HTTPException(400, "No task ids")
+    ok: list[str] = []
+    failed: list[dict] = []
+    for task_id in ids:
+        body: dict = {"status": status}
+        if status == "completed" and payload.document_url:
+            body["document_url"] = payload.document_url
+        try:
+            update_delegation_task(task_id, body, auth, current)
+            ok.append(task_id)
+        except HTTPException as e:
+            detail = e.detail if isinstance(e.detail, str) else str(e.detail)
+            failed.append({"id": task_id, "detail": detail})
+        except Exception as e:
+            failed.append({"id": task_id, "detail": str(e)[:200]})
+    return {"ok": ok, "failed": failed}
 
 
 # ---------------------------------------------------------------------------
