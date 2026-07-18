@@ -45,6 +45,7 @@ import { sessionApiCacheClearLogicalPrefix, sessionApiCacheGet, ticketsListLogic
 import { TICKET_CHANGED_EVENT } from '../../utils/ticketRealtime'
 import type { ApiResponse, PaginatedResponse } from '../../api/types'
 import { formatPriorityLabel, getPriorityTagColor } from '../../utils/ticketPriority'
+import { getStatusTagColor } from '../../utils/statusColors'
 import { PriorityColoredReference } from '../../components/tickets/PriorityColoredReference'
 import { TicketPriorityFilter } from '../../components/tickets/TicketPriorityFilter'
 import { SupportSectionTabs } from '../../components/tickets/SupportSectionTabs'
@@ -1464,7 +1465,7 @@ export const TicketList = () => {
             key: 'approval_status',
             width: 120,
             render: (_: unknown, r: Ticket) => {
-              const s = r.approval_status ?? 'Pending'
+              const s = r.approval_status ?? 'pending'
               const label =
                 s === 'approved'
                   ? 'Approved'
@@ -1475,17 +1476,7 @@ export const TicketList = () => {
                       : s === 'unapproved'
                         ? 'Unapprove'
                         : 'Pending'
-              const color =
-                s === 'approved'
-                  ? 'green'
-                  : s === 'rejected'
-                    ? 'red'
-                    : s === 'hold'
-                      ? 'gold'
-                      : s === 'unapproved'
-                        ? 'orange'
-                        : 'default'
-              return <Tag color={color}>{label}</Tag>
+              return <Tag color={getStatusTagColor(s)}>{label}</Tag>
             },
           },
           {
@@ -1554,18 +1545,8 @@ export const TicketList = () => {
           render: (_: unknown, r: Ticket) => {
             const stage = getChoresBugsCurrentStage(r)
             const displayStatus = isRegisterSection ? getRegisterStatusLabel(r) : stage.status || '-'
-            const status = String(displayStatus).toLowerCase()
-            const statusColors: Record<string, string> = {
-              pending: 'orange',
-              completed: 'green',
-              staging: 'blue',
-              hold: 'default',
-              na: 'default',
-              rejected: 'red',
-            }
-            const color = statusColors[status] ?? 'default'
             return (
-              <Tag color={color} style={{ margin: 0 }}>
+              <Tag color={getStatusTagColor(displayStatus)} style={{ margin: 0 }}>
                 {displayStatus}
               </Tag>
             )
@@ -1648,7 +1629,7 @@ export const TicketList = () => {
             width: 110,
             render: (_: unknown, r: Ticket) =>
               r.type === 'feature' ? (
-                <Tag color={r.approval_status === 'approved' ? 'green' : 'default'}>
+                <Tag color={getStatusTagColor(r.approval_status === 'approved' ? 'approved' : 'unapproved')}>
                   {r.approval_status === 'approved' ? 'Approved' : 'Unapproved'}
                 </Tag>
               ) : (

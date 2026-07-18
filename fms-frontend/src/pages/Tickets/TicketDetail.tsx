@@ -6,6 +6,7 @@ import { ticketsApi } from '../../api/tickets'
 import { DetailPageSkeleton } from '../../components/common/skeletons'
 import { PrintExport } from '../../components/common/PrintExport'
 import { formatDate } from '../../utils/helpers'
+import { getStatusTagColor } from '../../utils/statusColors'
 import { ROUTES } from '../../utils/constants'
 import type { Ticket } from '../../api/tickets'
 import { useTicketRealtimeRefresh } from '../../hooks/useTicketRealtimeRefresh'
@@ -61,18 +62,6 @@ export const TicketDetail = () => {
   if (loading) return <DetailPageSkeleton />
   if (!ticket) return <div>Ticket not found</div>
 
-  const getStatusColor = (status: string) => {
-    const colors: Record<string, string> = {
-      open: 'blue',
-      in_progress: 'orange',
-      resolved: 'green',
-      closed: 'default',
-      cancelled: 'red',
-      on_hold: 'purple',
-    }
-    return colors[status] || 'default'
-  }
-
   return (
     <div>
       <Space style={{ marginBottom: 16 }} wrap>
@@ -89,7 +78,7 @@ export const TicketDetail = () => {
         <Descriptions column={2} bordered>
           <Descriptions.Item label="Title">{ticket.title}</Descriptions.Item>
           <Descriptions.Item label="Status">
-            <Tag color={getStatusColor(ticket.status)}>
+            <Tag color={getStatusTagColor(ticket.status)}>
               {ticket.status.replace('_', ' ').toUpperCase()}
             </Tag>
           </Descriptions.Item>

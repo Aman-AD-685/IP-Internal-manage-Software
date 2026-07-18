@@ -23,6 +23,7 @@ import type {
 } from '../../types/dashboard'
 import { usePermissions } from '../../hooks/usePermissions'
 import { ROUTES } from '../../utils/constants'
+import { getStatusTagColor } from '../../utils/statusColors'
 import { OperationTile, type OperationMetric } from './OperationTile'
 
 const { Text, Title } = Typography
@@ -265,17 +266,7 @@ export function OperationsOverview({ operations, user }: OperationsOverviewProps
       width: 140,
       render: (value: string) => {
         const displayStatus = (value || 'Pending').trim() || 'Pending'
-        const status = displayStatus.toLowerCase()
-        const statusColors: Record<string, string> = {
-          pending: 'orange',
-          completed: 'green',
-          staging: 'blue',
-          hold: 'default',
-          na: 'default',
-          rejected: 'red',
-          unapproved: 'default',
-        }
-        return <Tag color={statusColors[status] ?? 'default'}>{displayStatus}</Tag>
+        return <Tag color={getStatusTagColor(displayStatus)}>{displayStatus}</Tag>
       },
     },
   ]

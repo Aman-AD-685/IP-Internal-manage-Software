@@ -7,6 +7,7 @@ import type { Ticket } from '../../api/tickets'
 import { useAuth } from '../../hooks/useAuth'
 import { useRole } from '../../hooks/useRole'
 import { formatPriorityLabel, getPriorityTagColor } from '../../utils/ticketPriority'
+import { getStatusTagColor } from '../../utils/statusColors'
 import { useTicketRealtimeRefresh } from '../../hooks/useTicketRealtimeRefresh'
 import { RepeatedTicketsModal } from './RepeatedTicketsModal'
 import { PriorityColoredReference } from './PriorityColoredReference'
@@ -333,19 +334,7 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
               <>
                 <Descriptions.Item label="Actual Time">{formatDuration(ticket.actual_time_seconds)}</Descriptions.Item>
                 <Descriptions.Item label="Approval Status">
-                  <Tag
-                    color={
-                      ticket.approval_status === 'approved'
-                        ? 'green'
-                        : ticket.approval_status === 'rejected'
-                          ? 'red'
-                          : ticket.approval_status === 'hold'
-                            ? 'gold'
-                            : ticket.approval_status === 'unapproved'
-                              ? 'orange'
-                              : 'default'
-                    }
-                  >
+                  <Tag color={getStatusTagColor(ticket.approval_status ?? 'pending')}>
                     {ticket.approval_status === 'rejected'
                       ? 'Rejected'
                       : ticket.approval_status === 'hold'
