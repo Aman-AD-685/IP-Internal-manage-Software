@@ -33,17 +33,11 @@ import { useDeepLinkAction } from '../../hooks/useDeepLinkAction'
 import { useLocation } from 'react-router-dom'
 import { ROUTES } from '../../utils/constants'
 import { BulkActionBar } from '../../components/common/BulkActionBar'
+import { getStatusTagColor } from '../../utils/statusColors'
 
 const { Title, Text } = Typography
 const { Dragger } = Upload
 const { RangePicker } = DatePicker
-
-const STATUS_COLORS: Record<string, string> = {
-  pending: 'orange',
-  in_progress: 'blue',
-  completed: 'green',
-  cancelled: 'default',
-}
 
 export const DelegationPage = () => {
   const location = useLocation()
@@ -492,7 +486,7 @@ export const DelegationPage = () => {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      render: (s: string) => <Tag color={STATUS_COLORS[s] || 'default'}>{s || 'pending'}</Tag>,
+      render: (s: string) => <Tag color={getStatusTagColor(s)}>{s || 'pending'}</Tag>,
     },
     {
       title: 'Actual',
