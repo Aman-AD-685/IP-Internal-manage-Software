@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom'
 import { authApi } from '../../api/auth'
 import { validateEmail } from '../../utils/validation'
 import { AuthLayout } from '../../components/auth/AuthLayout'
+import { TurnstileWidget, isTurnstileEnabled } from '../../components/auth/TurnstileWidget'
 import { ROUTES } from '../../utils/constants'
 import { clearStoredRecoveryAccessToken } from '../../utils/recoveryAuth'
 
@@ -15,12 +16,17 @@ export const ForgotPassword = () => {
   const [loading, setLoading] = useState(false)
   const [sent, setSent] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
 
   const onFinish = async (values: { email: string }) => {
+    if (isTurnstileEnabled() && !turnstileToken) {
+      message.warning('Please complete the bot check before continuing.')
+      return
+    }
     clearStoredRecoveryAccessToken()
     setLoading(true)
     setError(null)
-    const res = await authApi.forgotPasswordLookup(values.email.trim())
+    const res = await authApi.forgotPasswordLookup(values.email.trim(), turnstileToken)
     setLoading(false)
     if (res.error) {
       setError(res.error.message)
@@ -75,6 +81,7 @@ export const ForgotPassword = () => {
                 autoComplete="email"
               />
             </Form.Item>
+            <TurnstileWidget onToken={setTurnstileToken} />
             <Form.Item style={{ marginBottom: 0 }}>
               <Button
                 type="primary"

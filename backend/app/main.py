@@ -32,7 +32,7 @@ from fastapi import FastAPI, HTTPException, Depends, APIRouter, Request, UploadF
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from pydantic import BaseModel, EmailStr, field_validator, model_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 import uuid
 import re
 import html as html_module
@@ -53,7 +53,12 @@ from app.performance_na import (
     reset_performance_marked_na_cache,
 )
 from app.ticket_na import apply_exclude_ticket_na, filter_out_ticket_na, ticket_marked_na
-from app.rate_limit import rate_limit_response
+from app.rate_limit import (
+    clear_account_attempts,
+    enforce_account_backoff,
+    rate_limit_response,
+    record_account_attempt,
+)
 from app.kpi_calendar_week import (
     build_week_merge_meta,
     get_kpi_calendar_week_range,
@@ -209,7 +214,26 @@ logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 request_logger = logging.getLogger("support_fms.request")
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "*").strip() or "*"
 
-app = FastAPI(title="IP Internal manage Software Backend")
+from app.bot_protect import (
+    bot_protect_response,
+    openapi_disabled,
+    require_public_register,
+    verify_turnstile_token,
+    _client_ip as _bot_client_ip,
+)
+
+
+def _truthy_env(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+_docs_off = openapi_disabled()
+app = FastAPI(
+    title="IP Internal manage Software Backend",
+    docs_url=None if _docs_off else "/docs",
+    redoc_url=None if _docs_off else "/redoc",
+    openapi_url=None if _docs_off else "/openapi.json",
+)
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
 # Feature approval reminder routes (cron + settings)
@@ -352,6 +376,9 @@ async def log_requests(request: Request, call_next):
     limited = rate_limit_response(request)
     if limited is not None:
         return limited
+    blocked = bot_protect_response(request)
+    if blocked is not None:
+        return blocked
     from app.system_lock import check_request_system_lock
 
     locked = await check_request_system_lock(request)
@@ -376,21 +403,15 @@ async def log_requests(request: Request, call_next):
         return response
     except Exception as ex:
         try:
-            _log(f"UNHANDLED ERROR: {ex}")
+            _log(f"UNHANDLED ERROR: {type(ex).__name__}: {ex}")
+            import traceback
+            _log(traceback.format_exc())
         except Exception:
             pass
-        # Return 500 - keep server failures visible to monitoring/alerts
-        err_str = str(ex)
-        if "charmap" in err_str or "encode" in err_str.lower() or "unicode" in err_str.lower():
-            detail = "Registration failed. Restart backend with: set PYTHONIOENCODING=utf-8"
-        else:
-            try:
-                detail = err_str[:300].encode("ascii", errors="replace").decode("ascii")
-            except Exception:
-                detail = "Internal server error"
+        # Never return raw exception text (paths, DB errors, stack fragments) to clients
         duration_ms = round((time.perf_counter() - start) * 1000, 2)
         request_logger.info("%s %s %s %sms", request.method, request.url.path, 500, duration_ms)
-        return JSONResponse(status_code=500, content={"detail": detail})
+        return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 # Global exception handler - keep 5xx as 5xx for security observability
 @app.exception_handler(Exception)
@@ -445,24 +466,55 @@ app.add_middleware(
     allow_origins=_cors_allow_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Cron-Secret", "Cache-Control", "Pragma"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Cron-Secret",
+        "Cache-Control",
+        "Pragma",
+        "X-FMS-Client",
+    ],
 )
 
 # API router - routes work at BOTH / and /api (e.g. /users/me AND /api/users/me)
 api_router = APIRouter()
 
 # ---------- Schemas ----------
+def _validate_password_strength(v: str) -> str:
+    """Reject weak / oversized passwords (aligned with fms-frontend validation.ts)."""
+    if len(v) < 8:
+        raise ValueError("Password must be at least 8 characters long")
+    if len(v) > 128:
+        raise ValueError("Password must be at most 128 characters")
+    if not re.search(r"[a-z]", v):
+        raise ValueError("Password must contain at least one lowercase letter")
+    if not re.search(r"[A-Z]", v):
+        raise ValueError("Password must contain at least one uppercase letter")
+    if not re.search(r"\d", v):
+        raise ValueError("Password must contain at least one number")
+    if not re.search(r"[@$!%*?&]", v):
+        raise ValueError("Password must contain at least one special character (@$!%*?&)")
+    return v
+
+
 class RegisterRequest(BaseModel):
-    full_name: str
+    full_name: str = Field(..., min_length=1, max_length=120)
     email: EmailStr
-    password: str
+    password: str = Field(..., min_length=8, max_length=128)
+    turnstile_token: str | None = Field(None, max_length=2048)
+
+    @field_validator("full_name")
+    @classmethod
+    def validate_full_name(cls, v: str) -> str:
+        name = (v or "").strip()
+        if not name:
+            raise ValueError("Full name is required")
+        return name
 
     @field_validator("password")
     @classmethod
     def validate_password(cls, v: str) -> str:
-        if len(v) < 8:
-            raise ValueError("Password must be at least 8 characters long")
-        return v
+        return _validate_password_strength(v)
 
 
 class RegisterResponse(BaseModel):
@@ -474,7 +526,8 @@ class RegisterResponse(BaseModel):
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(..., min_length=1, max_length=128)
+    turnstile_token: str | None = Field(None, max_length=2048)
 
 
 class LoginResponse(BaseModel):
@@ -486,57 +539,52 @@ class LoginResponse(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    refresh_token: str = Field(..., min_length=10, max_length=4096)
 
 
 class ForgotPasswordLookupRequest(BaseModel):
     email: EmailStr
+    turnstile_token: str | None = Field(None, max_length=2048)
 
 
 class ForgotPasswordCompleteRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(..., min_length=8, max_length=128)
 
     @field_validator("password")
     @classmethod
     def validate_password(cls, v: str) -> str:
-        if len(v) < 8:
-            raise ValueError("Password must be at least 8 characters long")
-        return v
+        return _validate_password_strength(v)
 
 
 class RecoveryPasswordRequest(BaseModel):
-    password: str
+    password: str = Field(..., min_length=8, max_length=128)
 
     @field_validator("password")
     @classmethod
     def validate_password(cls, v: str) -> str:
-        if len(v) < 8:
-            raise ValueError("Password must be at least 8 characters long")
-        return v
+        return _validate_password_strength(v)
 
 
 class RecoverySessionRequest(BaseModel):
-    code: Optional[str] = None
-    token: Optional[str] = None
+    code: Optional[str] = Field(None, max_length=2048)
+    token: Optional[str] = Field(None, max_length=2048)
 
 
 class RecoveryResetRequest(BaseModel):
-    access_token: str
-    password: str
-    refresh_token: Optional[str] = None
+    access_token: str = Field(..., min_length=10, max_length=8192)
+    password: str = Field(..., min_length=8, max_length=128)
+    refresh_token: Optional[str] = Field(None, max_length=4096)
 
     @field_validator("password")
     @classmethod
     def validate_password(cls, v: str) -> str:
-        if len(v) < 8:
-            raise ValueError("Password must be at least 8 characters long")
-        return v
+        return _validate_password_strength(v)
 
 
 class RecoveryValidateRequest(BaseModel):
-    access_token: str
-    refresh_token: Optional[str] = None
+    access_token: str = Field(..., min_length=10, max_length=8192)
+    refresh_token: Optional[str] = Field(None, max_length=4096)
 
 
 # ---------- Routes ----------
@@ -592,6 +640,8 @@ def app_release_broadcast():
 @app.post("/auth/register-simple")
 def register_simple(payload: RegisterRequest):
     """Minimal register - just echoes back. Use to test routing + validation."""
+    if openapi_disabled() or not _truthy_env("ENABLE_DIAGNOSTIC_ENDPOINTS"):
+        raise HTTPException(status_code=404, detail="Not found")
     return {"ok": True, "email": payload.email}
 
 
@@ -600,15 +650,18 @@ def register_simple(payload: RegisterRequest):
 def health_db():
     """Check if database tables exist - run FRESH_SETUP.sql if this fails"""
     try:
-        r = supabase.table("roles").select("id").limit(1).execute()
+        supabase.table("roles").select("id").limit(1).execute()
         return {"status": "ok", "database": "ready", "roles": "exists"}
     except Exception as e:
-        return {"status": "error", "database": "not ready", "error": str(e)[:200]}
+        _log(f"health/db: {type(e).__name__}: {e}")
+        return {"status": "error", "database": "not ready", "error": "Database not ready"}
 
 
 @app.post("/auth/register-test")
 def register_test():
     """Minimal test - returns 200. Use to verify proxy/routing works."""
+    if openapi_disabled() or not _truthy_env("ENABLE_DIAGNOSTIC_ENDPOINTS"):
+        raise HTTPException(status_code=404, detail="Not found")
     return {"ok": True, "message": "Backend and proxy work. Real register at POST /auth/register"}
 
 
@@ -644,7 +697,8 @@ def health_supabase():
         elif "name or service not known" in err_str or "nodename" in err_str:
             out["hint"] = "DNS failed. Check SUPABASE_URL (e.g. https://xxxx.supabase.co)."
         else:
-            out["hint"] = str(e)[:200]
+            _log(f"health/supabase reachable: {type(e).__name__}: {e}")
+            out["hint"] = "Could not reach Supabase. Check SUPABASE_URL and network."
         out["unpause_link"] = _supabase_unpause_link().strip() or None
         return out
     try:
@@ -652,19 +706,23 @@ def health_supabase():
         out["auth"] = "ok"
     except Exception as e:
         out["auth"] = "error"
-        out["hint"] = out["hint"] or str(e)[:200]
+        _log(f"health/supabase auth: {type(e).__name__}: {e}")
+        out["hint"] = out["hint"] or "Auth check failed. Verify SUPABASE_SERVICE_ROLE_KEY."
     try:
         supabase.table("roles").select("id").limit(1).execute()
         out["db"] = "ok"
     except Exception as e:
         out["db"] = "error"
-        out["hint"] = out["hint"] or str(e)[:200]
+        _log(f"health/supabase db: {type(e).__name__}: {e}")
+        out["hint"] = out["hint"] or "Database check failed. Run FRESH_SETUP.sql if tables are missing."
     return out
 
 
 @app.get("/check-user")
 def check_user(email: str = ""):
-    """DIAGNOSTIC: Check if user exists. Use: /check-user?email=test@ip.com"""
+    """DIAGNOSTIC only — disabled unless ENABLE_DIAGNOSTIC_ENDPOINTS=1 (avoids user enumeration)."""
+    if os.getenv("ENABLE_DIAGNOSTIC_ENDPOINTS", "").strip().lower() not in ("1", "true", "yes"):
+        raise HTTPException(status_code=404, detail="Not found")
     if not email:
         return {"error": "Add ?email=test@ip.com to the URL"}
     try:
@@ -682,7 +740,8 @@ def check_user(email: str = ""):
             "hint": "Run FIX_USER_PROFILE.sql" if not profile.data else "OK",
         }
     except Exception as e:
-        return {"error": str(e)}
+        _log(f"check-user: {type(e).__name__}: {e}")
+        return {"error": "Diagnostic check failed"}
 
 
 def _find_auth_user_by_email(email: str):
@@ -739,10 +798,15 @@ def root():
 
 
 @api_router.post("/auth/register")
-async def register_user(payload: RegisterRequest):
+async def register_user(payload: RegisterRequest, request: Request):
     """Register a new user via Supabase Auth. Never returns 500 - always 200/400/503.
     Uses run_in_executor so sync Supabase calls don't block; exceptions propagate to us."""
     import asyncio
+    require_public_register()
+    verify_turnstile_token(payload.turnstile_token, _bot_client_ip(request))
+    _reg_key = f"register:{payload.email.strip().lower()}"
+    enforce_account_backoff(_reg_key)
+    record_account_attempt(_reg_key)
     try:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, _do_register, payload)
@@ -752,12 +816,10 @@ async def register_user(payload: RegisterRequest):
         try:
             _log(f"REGISTER OUTER CATCH: {type(e).__name__}: {e}")
             import traceback
-            tb = traceback.format_exc().encode("ascii", errors="replace").decode("ascii")
-            _log(tb)
-            detail = str(e)[:300].encode("ascii", errors="replace").decode("ascii")
+            _log(traceback.format_exc())
         except Exception:
-            detail = "Registration failed (encoding error on Windows - try different email)"
-        return JSONResponse(status_code=400, content={"detail": detail})
+            pass
+        return JSONResponse(status_code=400, content={"detail": "Registration failed. Please try again."})
 
 
 def _do_register(payload: RegisterRequest):
@@ -939,13 +1001,17 @@ def _retry_supabase_call(fn, max_attempts: int = 5, delay_secs: list[float] | No
 
 
 @api_router.post("/auth/login", response_model=LoginResponse)
-def login(payload: LoginRequest):
+def login(payload: LoginRequest, request: Request):
     """
     Sign in with email/password. Returns JWT tokens and user profile.
     """
     email = payload.email.strip().lower()
     password = payload.password
     result = None
+
+    verify_turnstile_token(payload.turnstile_token, _bot_client_ip(request))
+    # Per-account exponential backoff on failed logins (in addition to per-IP auth tier)
+    enforce_account_backoff(f"login:{email}")
 
     # No slow pre-check or list_users() here — those added tens of seconds on every login (including
     # wrong password). Reachability is handled by sign_in + _retry_supabase_call on real outages.
@@ -969,6 +1035,7 @@ def login(payload: LoginRequest):
                 raise HTTPException(status_code=503, detail=_connection_error_detail(e2))
             err = str(e2).lower()
             if "invalid" in err or "login" in err or "credentials" in err:
+                record_account_attempt(f"login:{email}")
                 raise HTTPException(status_code=401, detail="Invalid email or password")
             if "email" in err and "confirm" in err:
                 raise HTTPException(
@@ -979,6 +1046,7 @@ def login(payload: LoginRequest):
 
     try:
         if not result.user or not result.session:
+            record_account_attempt(f"login:{email}")
             raise HTTPException(status_code=401, detail="Invalid email or password")
 
         user_id = str(result.user.id)
@@ -1042,6 +1110,7 @@ def login(payload: LoginRequest):
             if lock_state.get("is_locked"):
                 system_lock_payload = lock_state
 
+        clear_account_attempts(f"login:{email}")
         return LoginResponse(
             access_token=result.session.access_token,
             refresh_token=result.session.refresh_token,
@@ -1126,6 +1195,10 @@ def forgot_password_lookup(payload: ForgotPasswordLookupRequest, request: Reques
     without a time-limited recovery token.
     """
     email = payload.email.strip().lower()
+    verify_turnstile_token(payload.turnstile_token, _bot_client_ip(request))
+    # Per-account throttle: each request sends an email, so every attempt counts.
+    enforce_account_backoff(f"pwreset:{email}")
+    record_account_attempt(f"pwreset:{email}")
     from app.public_urls import get_frontend_base
 
     redirect_to = f"{get_frontend_base()}/reset-password"
@@ -1390,15 +1463,19 @@ def confirm_email(token: str, type: str = "signup"):
 
 
 class ResendConfirmRequest(BaseModel):
-    email: str
+    email: EmailStr
+    turnstile_token: str | None = Field(None, max_length=2048)
 
 
 @api_router.post("/auth/resend-confirmation")
-def resend_confirmation(payload: ResendConfirmRequest):
+def resend_confirmation(payload: ResendConfirmRequest, request: Request):
     """Resend confirmation email to user who didn't receive it. Uses Supabase auth.resend."""
     email = payload.email.strip().lower()
     if not email:
         raise HTTPException(400, "Email is required")
+    verify_turnstile_token(payload.turnstile_token, _bot_client_ip(request))
+    enforce_account_backoff(f"resend:{email}")
+    record_account_attempt(f"resend:{email}")
     try:
         supabase_auth.auth.resend({"type": "signup", "email": email})
         return {"success": True, "message": "Confirmation email resent. Check your inbox (and spam folder)."}
@@ -1435,26 +1512,54 @@ def _normalize_ticket_priority(priority: str | None) -> str:
     return "medium"
 
 
+_TICKET_TYPES = frozenset({"bug", "feature", "chore"})
+_TICKET_PRIORITIES = frozenset({"low", "medium", "high", "critical", "urgent"})
+
+
 class CreateTicketRequest(BaseModel):
-    title: str
-    description: str | None = None
-    type: str  # bug, feature, chore
-    priority: str = "medium"
-    assignee_id: str | None = None
-    company_id: str | None = None
-    page_id: str | None = None
-    division_id: str | None = None
-    division_other: str | None = None
-    user_name: str | None = None
-    communicated_through: str | None = None
-    submitted_by: str | None = None
-    query_arrival_at: str | None = None
-    quality_of_response: str | None = None
-    customer_questions: str | None = None
-    query_response_at: str | None = None
-    why_feature: str | None = None
-    attachment_url: str | None = None
-    repeat_of_ticket_id: str | None = None
+    title: str = Field(..., min_length=1, max_length=500)
+    description: str | None = Field(None, max_length=20000)
+    type: str = Field(..., min_length=1, max_length=32)
+    priority: str = Field("medium", max_length=32)
+    assignee_id: str | None = Field(None, max_length=64)
+    company_id: str | None = Field(None, max_length=64)
+    page_id: str | None = Field(None, max_length=64)
+    division_id: str | None = Field(None, max_length=64)
+    division_other: str | None = Field(None, max_length=200)
+    user_name: str | None = Field(None, max_length=200)
+    communicated_through: str | None = Field(None, max_length=200)
+    submitted_by: str | None = Field(None, max_length=200)
+    query_arrival_at: str | None = Field(None, max_length=64)
+    quality_of_response: str | None = Field(None, max_length=200)
+    customer_questions: str | None = Field(None, max_length=10000)
+    query_response_at: str | None = Field(None, max_length=64)
+    why_feature: str | None = Field(None, max_length=10000)
+    attachment_url: str | None = Field(None, max_length=2048)
+    repeat_of_ticket_id: str | None = Field(None, max_length=64)
+
+    @field_validator("type")
+    @classmethod
+    def validate_type(cls, v: str) -> str:
+        t = (v or "").strip().lower()
+        if t not in _TICKET_TYPES:
+            raise ValueError("type must be one of: bug, feature, chore")
+        return t
+
+    @field_validator("priority")
+    @classmethod
+    def validate_priority(cls, v: str) -> str:
+        p = (v or "medium").strip().lower()
+        if p not in _TICKET_PRIORITIES:
+            raise ValueError("priority must be one of: low, medium, high")
+        return p
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, v: str) -> str:
+        title = (v or "").strip()
+        if not title:
+            raise ValueError("title is required")
+        return title
 
     @model_validator(mode="before")
     @classmethod
@@ -1708,11 +1813,10 @@ def create_ticket(payload: CreateTicketRequest, auth: dict = Depends(get_current
             broadcast_ticket_changed(str(row["id"]), "create")
         return row
     except Exception as e:
-        _log(f"Create ticket error: {e}")
-        err_msg = str(e).strip()[:400]
+        _log(f"Create ticket error: {type(e).__name__}: {e}")
         raise HTTPException(
             status_code=400,
-            detail=f"Could not create ticket: {err_msg}",
+            detail="Could not create ticket. Check required fields and try again.",
         )
 
 
@@ -4780,8 +4884,8 @@ def put_dashboard_souvik_kpi_daily(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        _log(f"put_dashboard_souvik_kpi_daily: {e}")
-        raise HTTPException(status_code=502, detail=str(e)[:400])
+        _log(f"put_dashboard_souvik_kpi_daily: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=502, detail="Could not save KPI data. Please try again.")
     return {"ok": True, "saved": saved}
 
 
@@ -5051,7 +5155,7 @@ def dashboard_kpi_support_fms_details(
         raise
     except Exception as e:
         _log(f"dashboard/kpi support-fms-details: {e}")
-        return {"success": False, "pillar": pillar_key, "items": [], "error": str(e)[:200]}
+        return {"success": False, "pillar": pillar_key, "items": [], "error": "Failed to load details"}
 
 
 @cached(ttl=300, key_prefix="dash:kpi:v3:")
@@ -5692,8 +5796,8 @@ def _dashboard_kpi_data(
             },
         }
     except Exception as e:
-        _log(f"dashboard/kpi: {e}")
-        return {"success": False, "error": str(e)}
+        _log(f"dashboard/kpi: {type(e).__name__}: {e}")
+        return {"success": False, "error": "Failed to load dashboard KPI"}
 
 
 _KPI_WARM_NAMES = ("Shreyasi", "Rimpa", "Akash", "Adrija", "Souvik")
@@ -5795,8 +5899,8 @@ def dashboard_success_kpi_till_date(
             "successKpi": success_kpi,
         }
     except Exception as e:
-        _log(f"dashboard/success-kpi-till-date: {e}")
-        return {"success": False, "error": str(e), "successKpi": None}
+        _log(f"dashboard/success-kpi-till-date: {type(e).__name__}: {e}")
+        return {"success": False, "error": "Failed to load success KPI", "successKpi": None}
 
 
 # ---------- Support Dashboard Stats (FMS-style: weekly, pending grouped, top companies, features) ----------
@@ -6201,8 +6305,8 @@ def get_kpi_daily_log(
             .execute()
         )
     except Exception as e:
-        _log(f"get_kpi_daily_log: {e}")
-        raise HTTPException(status_code=502, detail=f"kpi_daily_work_log read failed: {str(e)[:400]}")
+        _log(f"get_kpi_daily_log: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=502, detail="Could not load KPI log. Please try again.")
     return {"rows": r.data or []}
 
 
@@ -10513,8 +10617,8 @@ def get_payment_ageing_report(auth: dict = Depends(get_current_user)):
     try:
         return _payment_ageing_report_payload()
     except Exception as e:
-        _log(f"payment ageing report: {e}")
-        raise HTTPException(500, str(e)[:200])
+        _log(f"payment ageing report: {type(e).__name__}: {e}")
+        raise HTTPException(500, "Internal server error")
 
 
 @api_router.put("/onboarding/client-payment/payment-ageing-report/{company_key}")
@@ -10802,8 +10906,8 @@ def client_payment_payment_summary(auth: dict = Depends(get_current_user)):
     try:
         payload = _build_payment_summary_payload()
     except Exception as e:
-        _log(f"payment-summary: {e}")
-        raise HTTPException(status_code=500, detail=f"payment-summary failed: {str(e)[:200]}")
+        _log(f"payment-summary: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
     return JSONResponse(
         content=payload,
         headers={"Cache-Control": "no-store, no-cache, max-age=0, must-revalidate"},
@@ -15311,10 +15415,20 @@ def update_section_permissions(
 
 # ---------- Solutions ----------
 class CreateSolutionRequest(BaseModel):
-    ticket_id: str
-    solution_number: int  # 1 or 2
-    title: str
-    description: str
+    ticket_id: str = Field(..., min_length=1, max_length=64)
+    solution_number: int = Field(..., ge=1, le=2)
+    title: str = Field(..., min_length=1, max_length=500)
+    description: str = Field(..., max_length=20000)
+
+
+class UpdateSolutionRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    title: str | None = Field(None, min_length=1, max_length=500)
+    description: str | None = Field(None, max_length=20000)
+    is_selected: bool | None = None
+    quality_score: float | None = Field(None, ge=0, le=100)
+    quality_notes: str | None = Field(None, max_length=5000)
 
 
 @api_router.get("/solutions/ticket/{ticket_id}")
@@ -15337,19 +15451,39 @@ def create_solution(payload: CreateSolutionRequest, auth: dict = Depends(get_cur
 
 
 @api_router.put("/solutions/{solution_id}")
-def update_solution(solution_id: str, payload: dict = None, auth: dict = Depends(get_current_user)):
-    if not payload:
+def update_solution(solution_id: str, payload: UpdateSolutionRequest, auth: dict = Depends(get_current_user)):
+    data = payload.model_dump(exclude_unset=True)
+    if not data:
         raise HTTPException(status_code=400, detail="Request body required")
-    r = supabase.table("solutions").update(payload).eq("id", solution_id).execute()
+    r = supabase.table("solutions").update(data).eq("id", solution_id).execute()
     return r.data[0] if r.data else {}
 
 
 # ---------- Staging ----------
 class CreateStagingRequest(BaseModel):
-    ticket_id: str
-    staging_environment: str = "staging-1"
-    version: str = ""
-    deployment_notes: str | None = None
+    ticket_id: str = Field(..., min_length=1, max_length=64)
+    staging_environment: str = Field("staging-1", max_length=64)
+    version: str = Field("", max_length=64)
+    deployment_notes: str | None = Field(None, max_length=10000)
+
+
+class UpdateStagingRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    status: str | None = Field(None, max_length=32)
+    deployment_notes: str | None = Field(None, max_length=10000)
+    rollback_reason: str | None = Field(None, max_length=5000)
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        allowed = {"pending", "in_progress", "completed", "failed", "rolled_back"}
+        s = v.strip().lower()
+        if s not in allowed:
+            raise ValueError("status must be one of: pending, in_progress, completed, failed, rolled_back")
+        return s
 
 
 @api_router.get("/staging/deployments")
@@ -15381,10 +15515,11 @@ def create_staging(payload: CreateStagingRequest, auth: dict = Depends(get_curre
 
 
 @api_router.put("/staging/deployments/{deployment_id}")
-def update_staging(deployment_id: str, payload: dict = None, auth: dict = Depends(get_current_user)):
-    if not payload:
+def update_staging(deployment_id: str, payload: UpdateStagingRequest, auth: dict = Depends(get_current_user)):
+    data = payload.model_dump(exclude_unset=True)
+    if not data:
         raise HTTPException(status_code=400, detail="Request body required")
-    r = supabase.table("staging_deployments").update(payload).eq("id", deployment_id).execute()
+    r = supabase.table("staging_deployments").update(data).eq("id", deployment_id).execute()
     return r.data[0] if r.data else {}
 
 # ---------------------------------------------------------------------------
@@ -16797,7 +16932,7 @@ def list_leads(
         _log(f"leads list: {e}")
         if "does not exist" in str(e).lower():
             return {"leads": []}
-        raise HTTPException(500, str(e)[:200])
+        raise HTTPException(500, "Internal server error")
 
 
 @api_router.get("/leads/by-reference/{reference_no}")
@@ -16826,7 +16961,7 @@ def get_lead_by_reference(reference_no: str, auth: dict = Depends(get_current_us
         raise
     except Exception as e:
         _log(f"leads get by reference: {e}")
-        raise HTTPException(500, str(e)[:200])
+        raise HTTPException(500, "Internal server error")
 
 
 @api_router.get("/leads/active")
@@ -16882,7 +17017,7 @@ def list_active_leads_for_dashboard(auth: dict = Depends(get_current_user)):
         _log(f"leads/active: {e}")
         if "does not exist" in str(e).lower():
             return {"leads": []}
-        raise HTTPException(500, str(e)[:200])
+        raise HTTPException(500, "Internal server error")
 
 
 @api_router.get("/leads/{lead_id}")
@@ -16909,7 +17044,7 @@ def get_lead(lead_id: str, auth: dict = Depends(get_current_user)):
         raise
     except Exception as e:
         _log(f"leads get: {e}")
-        raise HTTPException(500, str(e)[:200])
+        raise HTTPException(500, "Internal server error")
 
 
 def _lead_next_stage_slug(lead_id: str) -> str | None:
@@ -16967,7 +17102,7 @@ def upsert_lead_stage(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(500, str(e)[:200])
+        raise HTTPException(500, "Internal server error")
     idx = LEAD_STAGE_ORDER.index(stage_slug)
     for i in range(idx):
         prev_slug = LEAD_STAGE_ORDER[i]
@@ -17343,7 +17478,9 @@ async def smtp_send_test_email(request: Request, body: SmtpTestBody = SmtpTestBo
         plain_fallback="FMS SMTP test: plain text OK means send_email ran.",
     )
     if not ok:
-        raise HTTPException(500, err or get_last_email_error() or "send_email failed")
+        # Admin-only SMTP probe: log provider detail server-side; keep client message generic.
+        _log(f"SMTP test failed: {err or get_last_email_error()}")
+        raise HTTPException(500, "Test email failed. Check server email configuration and logs.")
     return {"ok": True, "to": to, "message": "Test email sent — check inbox and spam."}
 
 
@@ -17785,8 +17922,8 @@ async def _run_pending_digest_impl(*, force_resend: bool = False) -> dict:
     except HTTPException:
         raise
     except Exception as e:
-        _log(f"Pending digest error: {e}")
-        raise HTTPException(status_code=500, detail=str(e)[:500]) from e
+        _log(f"Pending digest error: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 async def _run_pending_digest_background():
@@ -17832,16 +17969,123 @@ async def send_pending_digest(
 
 
 # ---------------------------------------------------------------------------
-# Attachment upload (ticket attachments in Supabase Storage)
+# Attachment upload (ticket attachments in Supabase Storage — outside web root)
 # Bucket MUST be PUBLIC in Supabase (Storage -> Buckets -> ticket-attachments -> Public: ON)
 # so that "View" opens the document. See SUPABASE_ATTACHMENT_VIEW_FIX.md
 ATTACHMENT_BUCKET = os.getenv("SUPABASE_ATTACHMENT_BUCKET", "ticket-attachments")
 ATTACHMENT_MAX_BYTES = int(os.getenv("ATTACHMENT_MAX_MB", "10")) * 1024 * 1024  # default 10 MB
 ALLOWED_ATTACHMENT_TYPES = {
-    "application/pdf", "image/jpeg", "image/png", "image/gif", "image/webp",
-    "text/plain", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    "text/plain",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 }
+ALLOWED_ATTACHMENT_EXTENSIONS = frozenset({
+    ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".txt",
+    ".doc", ".docx", ".xls", ".xlsx",
+})
+# Executable / script extensions — always reject even if Content-Type is spoofed
+_BLOCKED_UPLOAD_EXTENSIONS = frozenset({
+    ".exe", ".bat", ".cmd", ".com", ".msi", ".scr", ".ps1", ".sh", ".bash",
+    ".php", ".phtml", ".asp", ".aspx", ".jsp", ".cgi", ".py", ".rb", ".pl",
+    ".js", ".mjs", ".cjs", ".html", ".htm", ".svg", ".wasm", ".dll", ".so",
+})
+
+
+def _sniff_attachment_type(contents: bytes) -> str | None:
+    """Detect type from magic bytes. Returns MIME or None if unrecognized."""
+    if not contents:
+        return None
+    if contents.startswith(b"%PDF"):
+        return "application/pdf"
+    if contents.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if contents.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if contents.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if len(contents) >= 12 and contents[:4] == b"RIFF" and contents[8:12] == b"WEBP":
+        return "image/webp"
+    # OLE Compound File (legacy .doc / .xls)
+    if contents.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"):
+        return "application/msword"
+    # ZIP container (docx/xlsx) — accept as office; reject bare executables via extension check
+    if contents.startswith(b"PK\x03\x04") or contents.startswith(b"PK\x05\x06"):
+        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    # Plain text: no NUL, mostly printable UTF-8/ASCII
+    if b"\x00" not in contents[:8192]:
+        try:
+            sample = contents[:8192].decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+        if all(ch.isprintable() or ch in "\r\n\t" for ch in sample):
+            return "text/plain"
+    return None
+
+
+def _validate_upload_contents(filename: str, declared_type: str, contents: bytes) -> str:
+    """
+    Reject uploads that fail extension / size / magic-byte checks.
+    Returns the MIME type to store (sniffed, never trusts client alone).
+    """
+    if len(contents) == 0:
+        raise HTTPException(status_code=400, detail="Empty file not allowed")
+    if len(contents) > ATTACHMENT_MAX_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large. Max size: {ATTACHMENT_MAX_BYTES // (1024 * 1024)} MB",
+        )
+    ext = os.path.splitext(filename)[1].lower()
+    if ext in _BLOCKED_UPLOAD_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="File type not allowed")
+    if ext not in ALLOWED_ATTACHMENT_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="File type not allowed. Allowed: PDF, images, text, Word, Excel.",
+        )
+    sniffed = _sniff_attachment_type(contents)
+    if sniffed is None:
+        raise HTTPException(status_code=400, detail="File content could not be verified")
+    # Extension must match content family
+    if sniffed == "application/pdf" and ext != ".pdf":
+        raise HTTPException(status_code=400, detail="File content does not match extension")
+    if sniffed.startswith("image/") and ext not in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
+        raise HTTPException(status_code=400, detail="File content does not match extension")
+    if sniffed == "image/jpeg" and ext not in {".jpg", ".jpeg"}:
+        raise HTTPException(status_code=400, detail="File content does not match extension")
+    if sniffed == "image/png" and ext != ".png":
+        raise HTTPException(status_code=400, detail="File content does not match extension")
+    if sniffed == "image/gif" and ext != ".gif":
+        raise HTTPException(status_code=400, detail="File content does not match extension")
+    if sniffed == "image/webp" and ext != ".webp":
+        raise HTTPException(status_code=400, detail="File content does not match extension")
+    if sniffed == "text/plain" and ext != ".txt":
+        raise HTTPException(status_code=400, detail="File content does not match extension")
+    if sniffed.startswith("application/vnd.openxmlformats") and ext not in {".docx", ".xlsx"}:
+        raise HTTPException(status_code=400, detail="File content does not match extension")
+    if sniffed == "application/msword" and ext not in {".doc", ".xls"}:
+        raise HTTPException(status_code=400, detail="File content does not match extension")
+    # Declared Content-Type, if present, must be in allowlist (ignore wild image/* spoof)
+    if declared_type and declared_type not in ALLOWED_ATTACHMENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="File type not allowed. Allowed: PDF, images, text, Word, Excel.",
+        )
+    # Prefer sniffed MIME; refine office zip by extension
+    if sniffed.startswith("application/vnd.openxmlformats"):
+        if ext == ".xlsx":
+            return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    if sniffed == "application/msword" and ext == ".xls":
+        return "application/vnd.ms-excel"
+    return sniffed
+
 
 # Only register /upload route if python-multipart is installed (so app starts even without it)
 try:
@@ -17871,67 +18115,44 @@ if _MULTIPART_AVAILABLE:
     def upload_attachment(file: UploadFile = File(...), auth: dict = Depends(get_current_user)):
         """
         Upload a file to Supabase Storage (ticket-attachments bucket).
+        Validates extension + magic bytes + size; stores outside the app web root.
         Returns { "url": "https://...public/..." } for use as attachment_url on tickets.
-        Storage API requires a JWT key (starts with eyJ). Set SUPABASE_STORAGE_JWT or use JWT-format service_role in .env.
         """
         storage_jwt = _get_storage_jwt()
         if not storage_jwt:
             _log("Upload rejected: no JWT key for Storage (Storage API needs eyJ... key, not sb_secret_ or Key ID)")
             raise HTTPException(
                 status_code=503,
-                detail="Storage upload needs a JWT (long string starting with eyJ). Do NOT use the Key ID from Settings → JWT Keys (e.g. 493059e5-...). Use Settings → API and copy the 'service_role' or 'anon' key (eyJ...). Set SUPABASE_STORAGE_JWT=<that key> in backend/.env.",
+                detail="File storage is not configured. Contact an administrator.",
             )
         if not file.filename or file.filename.strip() == "":
             raise HTTPException(status_code=400, detail="Filename required")
-        content_type = (file.content_type or "").strip().lower()
-        if content_type and content_type not in ALLOWED_ATTACHMENT_TYPES and not content_type.startswith("image/"):
-            if not content_type.startswith("image/"):
-                raise HTTPException(
-                    status_code=400,
-                    detail="File type not allowed. Allowed: PDF, images, text, Word, Excel.",
-                )
-        contents = file.file.read()
-        if len(contents) > ATTACHMENT_MAX_BYTES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"File too large. Max size: {ATTACHMENT_MAX_BYTES // (1024*1024)} MB",
-            )
+        contents = file.file.read(ATTACHMENT_MAX_BYTES + 1)
+        declared = (file.content_type or "").strip().lower()
+        content_type_val = _validate_upload_contents(file.filename, declared, contents)
         safe_name = "".join(c for c in file.filename if c.isalnum() or c in "._- ")
         if not safe_name:
             safe_name = "file"
+        # Force extension from sanitized name only; UUID prefix prevents collisions / path tricks
         object_path = f"{auth['id']}/{uuid.uuid4().hex}_{safe_name}"
+        if ".." in object_path or object_path.startswith("/"):
+            raise HTTPException(status_code=400, detail="Invalid filename")
         base = (os.getenv("SUPABASE_URL") or "").rstrip("/")
 
-        # Upload via Supabase Storage REST API (requires JWT in Authorization, not sb_secret_)
         upload_url = f"{base}/storage/v1/object/{ATTACHMENT_BUCKET}/{object_path}"
         headers = {"Authorization": f"Bearer {storage_jwt}"}
-        content_type_val = content_type or "application/octet-stream"
         files = {"file": (safe_name, contents, content_type_val)}
         try:
             with httpx.Client(timeout=60.0) as client:
                 resp = client.post(upload_url, headers=headers, files=files)
                 resp.raise_for_status()
         except httpx.HTTPStatusError as e:
-            _log(f"Storage upload HTTP error: {e.response.status_code} {e.response.text[:200]}")
-            err_text = (e.response.text or str(e)).lower()
-            if e.response.status_code == 403 and ("compact jws" in err_text or "unauthorized" in err_text):
-                raise HTTPException(
-                    status_code=503,
-                    detail="Storage rejected the API key (Invalid JWT). Use a key that starts with 'eyJ'. In backend/.env set SUPABASE_STORAGE_JWT to your service_role JWT from Supabase Dashboard → Settings → API (copy the long key starting with eyJ).",
-                )
-            err_msg = (e.response.text or str(e))[:300]
-            raise HTTPException(
-                status_code=500,
-                detail=f"Upload failed: {err_msg}. Ensure bucket 'ticket-attachments' exists and is public; run database/STORAGE_TICKET_ATTACHMENTS_POLICIES.sql.",
-            )
+            _log(f"Storage upload HTTP error: {e.response.status_code} {(e.response.text or '')[:200]}")
+            raise HTTPException(status_code=500, detail="Upload failed. Please try again later.")
         except Exception as e:
             _log(f"Storage upload error: {type(e).__name__}: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Upload failed: {str(e)[:200]}",
-            )
+            raise HTTPException(status_code=500, detail="Upload failed. Please try again later.")
 
-        # Always return a string public URL (never a mock object)
         url = f"{base}/storage/v1/object/public/{ATTACHMENT_BUCKET}/{object_path}"
         _log(f"Upload OK: {object_path} -> {url[:80]}...")
         return {"url": url}
@@ -17940,7 +18161,7 @@ else:
     def upload_attachment_disabled():
         raise HTTPException(
             status_code=503,
-            detail="File upload requires python-multipart. In backend folder run: pip install python-multipart then restart the server.",
+            detail="File upload is temporarily unavailable. Contact an administrator.",
         )
 
 # Mount API router at BOTH root and /api - fixes "Not Found" if frontend uses /api prefix

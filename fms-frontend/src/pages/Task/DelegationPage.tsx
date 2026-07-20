@@ -759,7 +759,13 @@ export const DelegationPage = () => {
           maxCount={1}
           showUploadList={{ showRemoveIcon: true }}
           disabled={uploadingDoc}
+          accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.txt,.doc,.docx,.xls,.xlsx"
           beforeUpload={(file) => {
+            const maxMb = 10
+            if (file.size > maxMb * 1024 * 1024) {
+              message.error(`File too large. Max size: ${maxMb} MB`)
+              return false
+            }
             setUploadingDoc(true)
             uploadAttachment(file)
               .then((res) => {

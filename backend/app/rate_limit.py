@@ -1,10 +1,16 @@
 """In-memory per-IP rate limiting for FastAPI (single Render instance).
 
-Tiers:
+Tiers (per-IP sliding window):
   - auth: login/register/forgot-password (strict)
   - expensive: heavy aggregates (dashboard KPI, payment-summary, large lists)
-  - global: all other /api routes
+  - global: all other /api routes — split at check time into
+      * public (no Bearer token): moderate limits
+      * authenticated (Bearer token present): looser limits
 
+Auth endpoints additionally get per-account exponential backoff (no hard lockout):
+see enforce_account_backoff / record_account_attempt / clear_account_attempts.
+
+All thresholds configurable via RATE_LIMIT_* env vars.
 Set RATE_LIMIT_ENABLED=0 to disable. For multi-instance deploys, move counters to Redis.
 """
 
@@ -16,7 +22,7 @@ from collections import defaultdict, deque
 from threading import Lock
 from typing import Literal
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
 RateTier = Literal["auth", "expensive", "global"]
@@ -35,6 +41,10 @@ _RATE_LIMIT_EXPENSIVE_MAX = int(os.getenv("RATE_LIMIT_EXPENSIVE_MAX_REQUESTS", "
 
 _RATE_LIMIT_GLOBAL_WINDOW = int(os.getenv("RATE_LIMIT_GLOBAL_WINDOW_SEC", "60"))
 _RATE_LIMIT_GLOBAL_MAX = int(os.getenv("RATE_LIMIT_GLOBAL_MAX_REQUESTS", "150"))
+
+# Public (no Bearer token) requests on the global tier get a moderate, tighter limit.
+_RATE_LIMIT_PUBLIC_WINDOW = int(os.getenv("RATE_LIMIT_PUBLIC_WINDOW_SEC", "60"))
+_RATE_LIMIT_PUBLIC_MAX = int(os.getenv("RATE_LIMIT_PUBLIC_MAX_REQUESTS", "60"))
 
 # Legacy env names (pre-push / docs) map to auth tier
 if os.getenv("RATE_LIMIT_WINDOW_SEC"):
@@ -129,6 +139,10 @@ def _tier_limits(tier: RateTier) -> tuple[int, int]:
 
 
 def _client_ip(request: Request) -> str:
+    # Cloudflare edge → real visitor IP (set when orange-cloud proxied)
+    cf = (request.headers.get("cf-connecting-ip") or "").strip()
+    if cf:
+        return cf
     forwarded = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
     if forwarded:
         return forwarded
@@ -158,6 +172,10 @@ def rate_limit_response(request: Request) -> JSONResponse | None:
         return None
 
     window_sec, max_requests = _tier_limits(tier)
+    bucket_tier: str = tier
+    if tier == "global" and not (request.headers.get("authorization") or "").strip():
+        bucket_tier = "public"
+        window_sec, max_requests = _RATE_LIMIT_PUBLIC_WINDOW, _RATE_LIMIT_PUBLIC_MAX
     now = time.time()
     ip = _client_ip(request)
     bucket_path = path
@@ -166,7 +184,7 @@ def rate_limit_response(request: Request) -> JSONResponse | None:
             if path.startswith(prefix):
                 bucket_path = prefix
                 break
-    key = (tier, ip, bucket_path)
+    key = (bucket_tier, ip, bucket_path)
 
     with _lock:
         bucket = _hits[key]
@@ -187,3 +205,76 @@ def rate_limit_response(request: Request) -> JSONResponse | None:
             )
         bucket.append(now)
     return None
+
+
+# ---------------------------------------------------------------------------
+# Per-account exponential backoff for auth endpoints (login, forgot-password,
+# resend-confirmation, register). No hard lockout: after the free attempts the
+# next attempt is only allowed after an exponentially growing delay, capped at
+# RATE_LIMIT_AUTH_BACKOFF_MAX_SEC. Combined with the per-IP "auth" tier above.
+# ---------------------------------------------------------------------------
+
+_BACKOFF_FREE_ATTEMPTS = int(os.getenv("RATE_LIMIT_AUTH_BACKOFF_FREE_ATTEMPTS", "3"))
+_BACKOFF_BASE_SEC = float(os.getenv("RATE_LIMIT_AUTH_BACKOFF_BASE_SEC", "2"))
+_BACKOFF_MAX_SEC = float(os.getenv("RATE_LIMIT_AUTH_BACKOFF_MAX_SEC", "300"))
+# Attempts older than this are forgotten (counter resets).
+_BACKOFF_FORGET_SEC = float(os.getenv("RATE_LIMIT_AUTH_BACKOFF_FORGET_SEC", "900"))
+
+_attempts: dict[str, tuple[int, float]] = {}  # key -> (attempt_count, last_attempt_ts)
+
+
+def _backoff_delay(count: int) -> float:
+    if count <= _BACKOFF_FREE_ATTEMPTS:
+        return 0.0
+    return min(_BACKOFF_BASE_SEC * (2 ** (count - _BACKOFF_FREE_ATTEMPTS - 1)), _BACKOFF_MAX_SEC)
+
+
+def account_backoff_retry_after(key: str) -> int:
+    """Seconds until the next attempt is allowed for this account key (0 = allowed now)."""
+    if not _RATE_LIMIT_ENABLED:
+        return 0
+    now = time.time()
+    with _lock:
+        item = _attempts.get(key)
+        if not item:
+            return 0
+        count, last = item
+        if now - last > _BACKOFF_FORGET_SEC:
+            del _attempts[key]
+            return 0
+        remaining = _backoff_delay(count) - (now - last)
+        return int(remaining + 0.999) if remaining > 0 else 0
+
+
+def record_account_attempt(key: str) -> None:
+    """Count an attempt (failed login / email send) against this account key."""
+    if not _RATE_LIMIT_ENABLED:
+        return
+    now = time.time()
+    with _lock:
+        count, last = _attempts.get(key, (0, 0.0))
+        if now - last > _BACKOFF_FORGET_SEC:
+            count = 0
+        _attempts[key] = (count + 1, now)
+        # ponytail: crude memory cap — prune stale keys when the map grows large.
+        if len(_attempts) > 10_000:
+            cutoff = now - _BACKOFF_FORGET_SEC
+            for stale in [k for k, (_, ts) in _attempts.items() if ts < cutoff]:
+                del _attempts[stale]
+
+
+def clear_account_attempts(key: str) -> None:
+    """Reset the counter (call on successful login)."""
+    with _lock:
+        _attempts.pop(key, None)
+
+
+def enforce_account_backoff(key: str) -> None:
+    """Raise 429 with Retry-After if this account key is still in its backoff delay."""
+    retry_after = account_backoff_retry_after(key)
+    if retry_after > 0:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many attempts. Please wait {retry_after}s and try again.",
+            headers={"Retry-After": str(retry_after), "Cache-Control": "no-store"},
+        )

@@ -6,10 +6,12 @@ import { authApi } from "../../api/auth"
 import { validateEmail } from "../../utils/validation"
 import { getPasswordStrength } from "../../utils/passwordStrength"
 import { AuthLayout } from "../../components/auth/AuthLayout"
+import { TurnstileWidget, isTurnstileEnabled } from "../../components/auth/TurnstileWidget"
 import { ROUTES } from "../../utils/constants"
 import type { RegisterRequest } from "../../types/auth"
 
 const { Text } = Typography
+const allowPublicRegister = import.meta.env.VITE_ALLOW_PUBLIC_REGISTER !== '0'
 
 export const Register = () => {
   const [form] = Form.useForm()
@@ -17,7 +19,15 @@ export const Register = () => {
   const [success, setSuccess] = useState(false)
   const [registeredEmail, setRegisteredEmail] = useState("")
   const [resendLoading, setResendLoading] = useState(false)
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
   const navigate = useNavigate()
+
+  useEffect(() => {
+    if (!allowPublicRegister) {
+      message.info('Public registration is disabled. Contact your administrator.')
+      navigate(ROUTES.LOGIN, { replace: true })
+    }
+  }, [navigate])
 
   useEffect(() => {
     if (success) {
@@ -31,9 +41,16 @@ export const Register = () => {
       message.error("Please fill in all fields")
       return
     }
+    if (isTurnstileEnabled() && !turnstileToken) {
+      message.warning('Please complete the bot check before registering.')
+      return
+    }
     setLoading(true)
     try {
-      const response = await authApi.register(values)
+      const response = await authApi.register({
+        ...values,
+        turnstile_token: turnstileToken || undefined,
+      })
       if (response?.error) {
         const displayMsg = response.error.code === '500'
           ? `${response.error.message} (Backend error)`
@@ -182,6 +199,8 @@ export const Register = () => {
               ) : null
             }}
           </Form.Item>
+
+          <TurnstileWidget onToken={setTurnstileToken} />
 
           <Form.Item style={{ marginBottom: 12 }}>
             <Button

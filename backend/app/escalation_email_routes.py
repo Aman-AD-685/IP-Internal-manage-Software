@@ -144,11 +144,11 @@ def get_configs(_auth: dict = Depends(_require_admin)):
             "email_delivery": get_email_delivery_status(),
         }
     except Exception as e:
+        _log.exception("escalation config list failed: %s", e)
         raise HTTPException(
             status_code=503,
-            detail=f"Run database/ESCALATION_EMAIL_SYSTEM.sql — {str(e)[:160]}",
+            detail="Escalation email is not set up. Run database/ESCALATION_EMAIL_SYSTEM.sql.",
         ) from e
-
 
 @escalation_email_router.patch("/escalation/config/{configuration_type}")
 def patch_config_route(

@@ -41,10 +41,15 @@
     "prettier": "^3.9.5",
     "rollup-plugin-visualizer": "^7.0.1",
     "typescript": "^5.2.2",
-    "vite": "^5.0.8",
+    "vite": "^6.4.3",
     "vite-plugin-imp": "^2.4.0",
     "vite-plugin-pwa": "^1.3.0",
     "vitest": "^4.1.10"
+  },
+  "overrides": {
+    "d3-color": "^3.1.0",
+    "minimatch@9": "^9.0.7",
+    "esbuild": "^0.25.0"
   },
   "lint-staged": {
     "*.{ts,tsx}": [

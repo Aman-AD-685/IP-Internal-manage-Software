@@ -2,8 +2,8 @@
 
 ## Your .env is Updated
 
-- **SUPABASE_DB_URL** = `postgresql://postgres:%40m%40n2001Aman@db.geqcgxassdkrymzsjpoj.supabase.co:5432/postgres`
-- Password `@m@n2001Aman` is URL-encoded (`@` → `%40`)
+- Set **SUPABASE_DB_URL** in `backend/.env` from Supabase → Settings → Database → Connection string (URI).
+- URL-encode special characters in the password (e.g. `@` → `%40`). Never commit real passwords.
 
 ---
 
