@@ -6,6 +6,7 @@ import { authApi } from '../../api/auth'
 import { validateEmail } from '../../utils/validation'
 import { AuthLayout } from '../../components/auth/AuthLayout'
 import { TurnstileWidget, isTurnstileEnabled } from '../../components/auth/TurnstileWidget'
+import { AuthHoneypotField, useAuthFormOpenedMs, withAuthBotFields } from '../../components/auth/AuthBotFields'
 import { ROUTES } from '../../utils/constants'
 import { clearStoredRecoveryAccessToken } from '../../utils/recoveryAuth'
 
@@ -17,8 +18,9 @@ export const ForgotPassword = () => {
   const [sent, setSent] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+  const formOpenedMs = useAuthFormOpenedMs()
 
-  const onFinish = async (values: { email: string }) => {
+  const onFinish = async (values: { email: string; website?: string }) => {
     if (isTurnstileEnabled() && !turnstileToken) {
       message.warning('Please complete the bot check before continuing.')
       return
@@ -26,7 +28,11 @@ export const ForgotPassword = () => {
     clearStoredRecoveryAccessToken()
     setLoading(true)
     setError(null)
-    const res = await authApi.forgotPasswordLookup(values.email.trim(), turnstileToken)
+    const bot = withAuthBotFields({ ...values, turnstile_token: turnstileToken || undefined }, formOpenedMs)
+    const res = await authApi.forgotPasswordLookup(values.email.trim(), turnstileToken, {
+      website: bot.website,
+      form_opened_ms: bot.form_opened_ms,
+    })
     setLoading(false)
     if (res.error) {
       setError(res.error.message)
@@ -81,6 +87,7 @@ export const ForgotPassword = () => {
                 autoComplete="email"
               />
             </Form.Item>
+            <AuthHoneypotField />
             <TurnstileWidget onToken={setTurnstileToken} />
             <Form.Item style={{ marginBottom: 0 }}>
               <Button
