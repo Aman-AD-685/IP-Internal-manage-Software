@@ -149,12 +149,15 @@ export const authApi = {
    */
   forgotPasswordLookup: async (
     email: string,
-    turnstile_token?: string | null
+    turnstile_token?: string | null,
+    bot?: { website?: string | null; form_opened_ms?: number | null }
   ): Promise<ApiResponse<{ message: string }>> => {
     try {
       const response = await apiClient.post<{ message: string }>('/auth/forgot-password/lookup', {
         email,
         ...(turnstile_token ? { turnstile_token } : {}),
+        website: bot?.website ?? '',
+        form_opened_ms: bot?.form_opened_ms ?? undefined,
       })
       return { data: response.data, error: undefined }
     } catch (err: any) {
@@ -293,11 +296,17 @@ export const authApi = {
    */
   resendConfirmation: async (
     email: string,
-    turnstile_token?: string | null
+    turnstile_token?: string | null,
+    bot?: { website?: string | null; form_opened_ms?: number | null }
   ): Promise<{ success?: boolean; message?: string }> => {
     const res = await apiClient.post<{ success: boolean; message: string }>(
       '/auth/resend-confirmation',
-      { email, ...(turnstile_token ? { turnstile_token } : {}) }
+      {
+        email,
+        ...(turnstile_token ? { turnstile_token } : {}),
+        website: bot?.website ?? '',
+        form_opened_ms: bot?.form_opened_ms ?? undefined,
+      }
     )
     return res.data
   },
@@ -334,9 +343,11 @@ export const authApi = {
     try {
       const refreshToken = storage.getRefreshToken()
       if (!refreshToken) return null
-      const response = await apiClient.post<{ access_token: string; refresh_token: string }>('/auth/refresh', {
-        refresh_token: refreshToken,
-      })
+      const response = await apiClient.post<{ access_token: string; refresh_token: string }>(
+        '/auth/refresh',
+        { refresh_token: refreshToken },
+        { timeout: 20000 }
+      )
       return response.data
     } catch {
       return null

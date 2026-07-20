@@ -34,6 +34,8 @@ export interface RegisterRequest {
   password: string
   full_name: string
   turnstile_token?: string | null
+  website?: string | null
+  form_opened_ms?: number | null
 }
 
 export interface RegisterResponse {
@@ -47,6 +49,8 @@ export interface LoginRequest {
   email: string
   password: string
   turnstile_token?: string | null
+  website?: string | null
+  form_opened_ms?: number | null
 }
 
 export interface LoginResponse {

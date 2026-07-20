@@ -7,6 +7,7 @@ import { validateEmail } from "../../utils/validation"
 import { getPasswordStrength } from "../../utils/passwordStrength"
 import { AuthLayout } from "../../components/auth/AuthLayout"
 import { TurnstileWidget, isTurnstileEnabled } from "../../components/auth/TurnstileWidget"
+import { AuthHoneypotField, useAuthFormOpenedMs, withAuthBotFields } from "../../components/auth/AuthBotFields"
 import { ROUTES } from "../../utils/constants"
 import type { RegisterRequest } from "../../types/auth"
 
@@ -20,6 +21,7 @@ export const Register = () => {
   const [registeredEmail, setRegisteredEmail] = useState("")
   const [resendLoading, setResendLoading] = useState(false)
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+  const formOpenedMs = useAuthFormOpenedMs()
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -47,10 +49,15 @@ export const Register = () => {
     }
     setLoading(true)
     try {
-      const response = await authApi.register({
-        ...values,
-        turnstile_token: turnstileToken || undefined,
-      })
+      const response = await authApi.register(
+        withAuthBotFields(
+          {
+            ...values,
+            turnstile_token: turnstileToken || undefined,
+          },
+          formOpenedMs,
+        ) as RegisterRequest,
+      )
       if (response?.error) {
         const displayMsg = response.error.code === '500'
           ? `${response.error.message} (Backend error)`
@@ -98,7 +105,10 @@ export const Register = () => {
               onClick={async () => {
                 setResendLoading(true)
                 try {
-                  const res = await authApi.resendConfirmation(registeredEmail)
+                  const res = await authApi.resendConfirmation(registeredEmail, turnstileToken, {
+                    website: '',
+                    form_opened_ms: formOpenedMs,
+                  })
                   message.success(res?.message || "Email resent. Check inbox and spam.")
                 } catch (e: any) {
                   message.error(e.response?.data?.detail || "Failed to resend.")
@@ -201,6 +211,8 @@ export const Register = () => {
           </Form.Item>
 
           <TurnstileWidget onToken={setTurnstileToken} />
+
+          <AuthHoneypotField />
 
           <Form.Item style={{ marginBottom: 12 }}>
             <Button

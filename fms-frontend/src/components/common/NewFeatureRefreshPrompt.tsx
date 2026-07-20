@@ -67,21 +67,21 @@ function ReleaseRefreshBar({
 }) {
   return (
     <div className="fms-release-bar" role="status" aria-live="polite">
+      <Button
+        type="primary"
+        size="small"
+        icon={<ReloadOutlined />}
+        onClick={onRefresh}
+        className="fms-release-bar__btn"
+      >
+        Refresh
+      </Button>
       <div className="fms-release-bar__text">
         <Typography.Text strong className="fms-release-bar__title">
           {title}
         </Typography.Text>
         <Typography.Text className="fms-release-bar__message">{message}</Typography.Text>
       </div>
-      <Button
-        type="primary"
-        size="middle"
-        icon={<ReloadOutlined />}
-        onClick={onRefresh}
-        className="fms-release-bar__btn"
-      >
-        Refresh for new feature
-      </Button>
     </div>
   )
 }

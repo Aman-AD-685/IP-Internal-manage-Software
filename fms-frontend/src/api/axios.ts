@@ -373,11 +373,22 @@ apiClient.interceptors.response.use(
           const res = await axios.post<{ access_token: string; refresh_token?: string }>(
             `${API_BASE_URL}/auth/refresh`,
             { refresh_token: refreshToken },
-            { headers: { "Content-Type": "application/json" }, timeout: 10000 }
+            { headers: { "Content-Type": "application/json", "X-FMS-Client": "web" }, timeout: 20000 }
           )
           result = res.data
         } catch {
-          result = null
+          // One more try after brief wait (sleep/network blip)
+          try {
+            await new Promise((r) => setTimeout(r, 1000))
+            const res2 = await axios.post<{ access_token: string; refresh_token?: string }>(
+              `${API_BASE_URL}/auth/refresh`,
+              { refresh_token: refreshToken },
+              { headers: { "Content-Type": "application/json", "X-FMS-Client": "web" }, timeout: 20000 }
+            )
+            result = res2.data
+          } catch {
+            result = null
+          }
         }
         isRefreshing = false
         if (result?.access_token && refreshGeneration === readAuthSessionGeneration() && storage.getRefreshToken()) {

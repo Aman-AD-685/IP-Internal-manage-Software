@@ -14,8 +14,8 @@ const TAB_COUNT_KEY = 'fms_tab_count'
 const HEARTBEAT_KEY = 'fms_session_heartbeat'
 
 const HEARTBEAT_INTERVAL_MS = 4_000
-/** No tab ping within this window after a cold open → browser was closed or killed. */
-const HEARTBEAT_STALE_MS = 30_000
+/** No tab ping within this window after a cold open → treat as browser closed (tolerate sleep). */
+const HEARTBEAT_STALE_MS = 5 * 60_000
 
 const AUTH_KEYS = [STORAGE_KEYS.AUTH_TOKEN, STORAGE_KEYS.REFRESH_TOKEN, STORAGE_KEYS.USER] as const
 

@@ -18,8 +18,8 @@ import { markAuthBrowserSessionActive, syncAuthMirrorToSession } from '../utils/
 import { scheduleWhenIdle, warmupRestoredSession } from '../utils/warmupAfterLogin'
 import { writeCachedSystemLockStatus } from '../api/systemLock'
 
-/** Refresh access token every 50 min so session does not expire until user logs out (JWT often expires in 1 hr). */
-const PROACTIVE_REFRESH_INTERVAL_MS = 50 * 60 * 1000
+/** Refresh access token every 15 min so JWT expiry does not force logout while browser stays open. */
+const PROACTIVE_REFRESH_INTERVAL_MS = 15 * 60 * 1000
 
 interface AuthProviderProps {
   children: ReactNode
@@ -51,7 +51,15 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const doProactiveRefresh = useCallback(async () => {
     const runId = authRunRef.current
     const generation = readAuthSessionGeneration()
-    const result = await authApi.refresh()
+    if (!storage.getRefreshToken()) return
+    // Retry a few times — laptop sleep / brief network blips must not end the browser session.
+    let result: { access_token?: string; refresh_token?: string } | null = null
+    for (let attempt = 0; attempt < 3; attempt++) {
+      result = await authApi.refresh()
+      if (result?.access_token) break
+      await new Promise((r) => setTimeout(r, 800 * (attempt + 1)))
+      if (runId !== authRunRef.current) return
+    }
     if (runId !== authRunRef.current) return
     if (generation !== readAuthSessionGeneration()) return
     if (result?.access_token) {
@@ -59,9 +67,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       setToken(result.access_token)
       if (result.refresh_token) storage.setRefreshToken(result.refresh_token)
     }
+    // Do not clear session here — logout only on browser close or explicit Sign out / hard 401 after refresh.
   }, [])
 
-  // Proactive token refresh: keep session alive while user has not logged out
+  // Proactive token refresh: keep session alive while the browser stays open
   useEffect(() => {
     if (!token || !user) {
       if (refreshIntervalRef.current) {
@@ -70,6 +79,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       }
       return
     }
+    void doProactiveRefresh()
     const id = setInterval(doProactiveRefresh, PROACTIVE_REFRESH_INTERVAL_MS)
     refreshIntervalRef.current = id
     return () => {
@@ -78,14 +88,19 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
   }, [token, user, doProactiveRefresh])
 
-  // When user returns to tab, refresh once so idle tab stays logged in
+  // When user returns to tab (or wakes from sleep), refresh so idle tabs stay logged in
   useEffect(() => {
     if (!token || !user) return
     const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') doProactiveRefresh()
+      if (document.visibilityState === 'visible') void doProactiveRefresh()
     }
+    const onFocus = () => void doProactiveRefresh()
     document.addEventListener('visibilitychange', onVisibilityChange)
-    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+    window.addEventListener('focus', onFocus)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.removeEventListener('focus', onFocus)
+    }
   }, [token, user, doProactiveRefresh])
 
   // Validate stored session after first paint — do not block dashboards on /users/me (memory: stale-while-revalidate).

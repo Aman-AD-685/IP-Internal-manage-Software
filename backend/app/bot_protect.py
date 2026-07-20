@@ -181,6 +181,64 @@ def require_public_register() -> None:
 
 
 # ---------------------------------------------------------------------------
+# In-app honeypot + form timing (no Google / Cloudflare required)
+# ---------------------------------------------------------------------------
+
+def _auth_form_min_ms() -> int:
+    try:
+        return max(0, int(os.getenv("AUTH_FORM_MIN_MS", "800")))
+    except ValueError:
+        return 800
+
+
+def _auth_form_max_ms() -> int:
+    try:
+        return max(60_000, int(os.getenv("AUTH_FORM_MAX_MS", str(2 * 60 * 60 * 1000))))
+    except ValueError:
+        return 2 * 60 * 60 * 1000
+
+
+def enforce_auth_form_bot_checks(
+    *,
+    website: str | None = None,
+    form_opened_ms: int | None = None,
+) -> None:
+    """
+    Reject obvious bots without 3rd-party captcha:
+      - honeypot `website` must be empty (humans never see/fill it)
+      - form must stay open AUTH_FORM_MIN_MS..AUTH_FORM_MAX_MS before submit
+    Generic 403 — do not tell bots which check failed.
+    """
+    if not _truthy("AUTH_FORM_BOT_CHECKS", "1"):
+        return
+
+    # Honeypot: any non-empty value → bot
+    if (website or "").strip():
+        raise HTTPException(status_code=403, detail="Request rejected.")
+
+    min_ms = _auth_form_min_ms()
+    max_ms = _auth_form_max_ms()
+    require_timing = _truthy("AUTH_FORM_TIMING_REQUIRED", "1" if is_production() else "0")
+
+    if form_opened_ms is None:
+        if require_timing:
+            raise HTTPException(status_code=403, detail="Request rejected.")
+        return
+
+    try:
+        opened = int(form_opened_ms)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=403, detail="Request rejected.")
+
+    import time as _time
+
+    now_ms = int(_time.time() * 1000)
+    elapsed = now_ms - opened
+    if elapsed < min_ms or elapsed > max_ms:
+        raise HTTPException(status_code=403, detail="Request rejected.")
+
+
+# ---------------------------------------------------------------------------
 # Middleware checks (return JSONResponse or None)
 # ---------------------------------------------------------------------------
 

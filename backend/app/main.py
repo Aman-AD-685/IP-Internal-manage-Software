@@ -216,6 +216,7 @@ FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "*").strip() or "*"
 
 from app.bot_protect import (
     bot_protect_response,
+    enforce_auth_form_bot_checks,
     openapi_disabled,
     require_public_register,
     verify_turnstile_token,
@@ -502,6 +503,9 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=8, max_length=128)
     turnstile_token: str | None = Field(None, max_length=2048)
+    # Honeypot — must stay empty (bots often fill "website")
+    website: str | None = Field(None, max_length=200)
+    form_opened_ms: int | None = Field(None, ge=0)
 
     @field_validator("full_name")
     @classmethod
@@ -528,6 +532,8 @@ class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=1, max_length=128)
     turnstile_token: str | None = Field(None, max_length=2048)
+    website: str | None = Field(None, max_length=200)
+    form_opened_ms: int | None = Field(None, ge=0)
 
 
 class LoginResponse(BaseModel):
@@ -545,6 +551,8 @@ class RefreshRequest(BaseModel):
 class ForgotPasswordLookupRequest(BaseModel):
     email: EmailStr
     turnstile_token: str | None = Field(None, max_length=2048)
+    website: str | None = Field(None, max_length=200)
+    form_opened_ms: int | None = Field(None, ge=0)
 
 
 class ForgotPasswordCompleteRequest(BaseModel):
@@ -804,6 +812,7 @@ async def register_user(payload: RegisterRequest, request: Request):
     import asyncio
     require_public_register()
     verify_turnstile_token(payload.turnstile_token, _bot_client_ip(request))
+    enforce_auth_form_bot_checks(website=payload.website, form_opened_ms=payload.form_opened_ms)
     _reg_key = f"register:{payload.email.strip().lower()}"
     enforce_account_backoff(_reg_key)
     record_account_attempt(_reg_key)
@@ -1010,6 +1019,7 @@ def login(payload: LoginRequest, request: Request):
     result = None
 
     verify_turnstile_token(payload.turnstile_token, _bot_client_ip(request))
+    enforce_auth_form_bot_checks(website=payload.website, form_opened_ms=payload.form_opened_ms)
     # Per-account exponential backoff on failed logins (in addition to per-IP auth tier)
     enforce_account_backoff(f"login:{email}")
 
@@ -1196,6 +1206,7 @@ def forgot_password_lookup(payload: ForgotPasswordLookupRequest, request: Reques
     """
     email = payload.email.strip().lower()
     verify_turnstile_token(payload.turnstile_token, _bot_client_ip(request))
+    enforce_auth_form_bot_checks(website=payload.website, form_opened_ms=payload.form_opened_ms)
     # Per-account throttle: each request sends an email, so every attempt counts.
     enforce_account_backoff(f"pwreset:{email}")
     record_account_attempt(f"pwreset:{email}")
@@ -1465,6 +1476,8 @@ def confirm_email(token: str, type: str = "signup"):
 class ResendConfirmRequest(BaseModel):
     email: EmailStr
     turnstile_token: str | None = Field(None, max_length=2048)
+    website: str | None = Field(None, max_length=200)
+    form_opened_ms: int | None = Field(None, ge=0)
 
 
 @api_router.post("/auth/resend-confirmation")
@@ -1474,6 +1487,7 @@ def resend_confirmation(payload: ResendConfirmRequest, request: Request):
     if not email:
         raise HTTPException(400, "Email is required")
     verify_turnstile_token(payload.turnstile_token, _bot_client_ip(request))
+    enforce_auth_form_bot_checks(website=payload.website, form_opened_ms=payload.form_opened_ms)
     enforce_account_backoff(f"resend:{email}")
     record_account_attempt(f"resend:{email}")
     try:
