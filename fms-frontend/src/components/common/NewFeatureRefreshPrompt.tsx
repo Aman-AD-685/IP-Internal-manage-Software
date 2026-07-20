@@ -67,6 +67,12 @@ function ReleaseRefreshBar({
 }) {
   return (
     <div className="fms-release-bar" role="status" aria-live="polite">
+      <div className="fms-release-bar__text">
+        <Typography.Text strong className="fms-release-bar__title">
+          {title}
+        </Typography.Text>
+        <Typography.Text className="fms-release-bar__message">{message}</Typography.Text>
+      </div>
       <Button
         type="primary"
         size="small"
@@ -76,12 +82,6 @@ function ReleaseRefreshBar({
       >
         Refresh
       </Button>
-      <div className="fms-release-bar__text">
-        <Typography.Text strong className="fms-release-bar__title">
-          {title}
-        </Typography.Text>
-        <Typography.Text className="fms-release-bar__message">{message}</Typography.Text>
-      </div>
     </div>
   )
 }
@@ -120,11 +120,6 @@ export function NewFeatureRefreshPrompt() {
     }
     void checkRelease()
   }, [sessionActive, checkRelease])
-
-  useEffect(() => {
-    document.body.classList.toggle('fms-release-bar-visible', showBar)
-    return () => document.body.classList.remove('fms-release-bar-visible')
-  }, [showBar])
 
   useEffect(() => {
     if (!sessionActive) {
