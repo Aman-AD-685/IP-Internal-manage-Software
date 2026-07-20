@@ -238,6 +238,10 @@ apiClient.interceptors.request.use(
     if (token && config.headers && !requestHasAuthorizationHeader(config)) {
       config.headers.Authorization = `Bearer ${token}`
     }
+    // Browser client binding — backend may require X-FMS-Client in production
+    if (config.headers) {
+      config.headers["X-FMS-Client"] = "web"
+    }
     if (config.data instanceof FormData && config.headers) {
       delete config.headers["Content-Type"]
     }

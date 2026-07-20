@@ -1,10 +1,13 @@
 """Feature approval reminder API: recipients, schedule, cron runner, logs, test email."""
 from __future__ import annotations
 
+import logging
 import os
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr, Field
+
+_log = logging.getLogger("support_fms")
 
 from app.auth_middleware import get_current_user, get_current_user_optional
 from app.feature_approval_reminder_service import (
@@ -141,9 +144,10 @@ def get_recipients(_auth: dict = Depends(_require_admin)):
     try:
         return {"items": list_recipients()}
     except Exception as e:
+        _log.exception("feature-approval recipients list failed: %s", e)
         raise HTTPException(
             status_code=503,
-            detail=f"Run database/FEATURE_APPROVAL_REMINDER_SYSTEM.sql — {str(e)[:160]}",
+            detail="Feature approval reminders are not set up. Run database/FEATURE_APPROVAL_REMINDER_SYSTEM.sql.",
         ) from e
 
 
@@ -157,7 +161,10 @@ def post_recipient(body: RecipientCreate, _auth: dict = Depends(_require_admin))
         err = str(e).lower()
         if "duplicate" in err or "unique" in err or "23505" in err:
             raise HTTPException(status_code=400, detail="This email is already in the list") from e
-        raise HTTPException(status_code=503, detail=str(e)[:200]) from e
+        raise HTTPException(
+            status_code=503,
+            detail="Could not save recipient. Check database setup and try again.",
+        ) from e
 
 
 @feature_approval_reminder_router.patch("/feature-approval-reminders/recipients/{recipient_id}")

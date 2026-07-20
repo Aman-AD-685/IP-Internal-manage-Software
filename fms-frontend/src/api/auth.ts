@@ -147,9 +147,15 @@ export const authApi = {
   /**
    * Request password reset email (time-limited recovery link).
    */
-  forgotPasswordLookup: async (email: string): Promise<ApiResponse<{ message: string }>> => {
+  forgotPasswordLookup: async (
+    email: string,
+    turnstile_token?: string | null
+  ): Promise<ApiResponse<{ message: string }>> => {
     try {
-      const response = await apiClient.post<{ message: string }>('/auth/forgot-password/lookup', { email })
+      const response = await apiClient.post<{ message: string }>('/auth/forgot-password/lookup', {
+        email,
+        ...(turnstile_token ? { turnstile_token } : {}),
+      })
       return { data: response.data, error: undefined }
     } catch (err: any) {
       const rawDetail = err.response?.data?.detail
@@ -285,10 +291,13 @@ export const authApi = {
   /**
    * Verify OTP (after login when requires_otp is true)
    */
-  resendConfirmation: async (email: string): Promise<{ success?: boolean; message?: string }> => {
+  resendConfirmation: async (
+    email: string,
+    turnstile_token?: string | null
+  ): Promise<{ success?: boolean; message?: string }> => {
     const res = await apiClient.post<{ success: boolean; message: string }>(
       '/auth/resend-confirmation',
-      { email }
+      { email, ...(turnstile_token ? { turnstile_token } : {}) }
     )
     return res.data
   },

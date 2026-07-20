@@ -6,6 +6,7 @@ import { authApi } from '../../api/auth'
 import { validateEmail } from '../../utils/validation'
 import { storage, checkSingleBrowserSession } from '../../utils/storage'
 import { AuthLayout } from '../../components/auth/AuthLayout'
+import { TurnstileWidget, isTurnstileEnabled } from '../../components/auth/TurnstileWidget'
 import { ROUTES } from '../../utils/constants'
 import { getPostLoginPath, getRedirectFromSearch } from '../../utils/authRedirect'
 import { warmupAfterLogin } from '../../utils/warmupAfterLogin'
@@ -14,6 +15,8 @@ import { API_BASE_URL } from '../../api/axios'
 import { dispatchSystemLockChanged, writeCachedSystemLockStatus } from '../../api/systemLock'
 import { getLocalUvicornStartCommand } from '../../utils/localBackend'
 import type { LoginRequest } from '../../types/auth'
+
+const allowPublicRegister = import.meta.env.VITE_ALLOW_PUBLIC_REGISTER !== '0'
 
 /** User-facing copy for API / validation errors */
 const INVALID_CREDENTIALS_MSG = 'Please enter valid email / password.'
@@ -52,6 +55,7 @@ export const Login = () => {
   const [loading, setLoading] = useState(false)
   const [connectionError, setConnectionError] = useState<string | null>(null)
   const [loginError, setLoginError] = useState<string | null>(null)
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
   const navigate = useNavigate()
   const location = useLocation()
   const { login, isAuthenticated, isLoading, user } = useAuth()
@@ -162,7 +166,16 @@ export const Login = () => {
     }
   }
 
-  const onFinish = (values: LoginRequest) => attemptLogin(values, 0)
+  const onFinish = (values: LoginRequest) => {
+    if (isTurnstileEnabled() && !turnstileToken) {
+      message.warning('Please complete the bot check before signing in.')
+      return
+    }
+    attemptLogin(
+      { ...values, turnstile_token: turnstileToken || undefined },
+      0
+    )
+  }
 
   return (
     <AuthLayout variant="login">
@@ -259,10 +272,14 @@ export const Login = () => {
             />
           </Form.Item>
 
+          <TurnstileWidget onToken={setTurnstileToken} />
+
           <div className="auth-form-actions">
-            <Button size="small" className="auth-btn-signup" onClick={() => navigate(ROUTES.REGISTER)}>
-              Sign Up
-            </Button>
+            {allowPublicRegister && (
+              <Button size="small" className="auth-btn-signup" onClick={() => navigate(ROUTES.REGISTER)}>
+                Sign Up
+              </Button>
+            )}
             <Link to={ROUTES.FORGOT_PASSWORD} className="auth-link-forgot">
               Forgot password?
             </Link>

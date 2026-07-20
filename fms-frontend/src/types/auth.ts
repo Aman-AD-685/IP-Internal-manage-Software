@@ -33,6 +33,7 @@ export interface RegisterRequest {
   email: string
   password: string
   full_name: string
+  turnstile_token?: string | null
 }
 
 export interface RegisterResponse {
@@ -45,6 +46,7 @@ export interface RegisterResponse {
 export interface LoginRequest {
   email: string
   password: string
+  turnstile_token?: string | null
 }
 
 export interface LoginResponse {

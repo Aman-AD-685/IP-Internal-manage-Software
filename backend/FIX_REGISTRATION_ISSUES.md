@@ -27,7 +27,7 @@ Create/update `backend/.env`:
 ```env
 SUPABASE_URL=https://odsydofrnpijlgsyndtx.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
-SUPABASE_ANON_KEY=sb_publishable_htHDccJHjjMgEafRzJU5Lw_4W8r7j4a
+SUPABASE_ANON_KEY=your_anon_public_jwt_here
 ```
 
 **Important**: Use `SERVICE_ROLE_KEY` for backend operations (it has admin permissions)

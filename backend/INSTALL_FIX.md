@@ -21,8 +21,8 @@ Then update `supabase_client.py` to use only auth:
 from supabase import create_client, Client
 import os
 
-SUPABASE_URL = os.getenv("SUPABASE_URL", "https://odsydofrnpijlgsyndtx.supabase.co")
-SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "sb_publishable_htHDccJHjjMgEafRzJU5Lw_4W8r7j4a")
+SUPABASE_URL = os.getenv("SUPABASE_URL")  # required — no hardcoded fallback
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")  # required — set in backend/.env
 
 # Create client (will work with minimal packages)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)

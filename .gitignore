@@ -1,6 +1,7 @@
 # Environment and secrets
 .env
 backend/.env
+fms-frontend/.env
 *.env.local
 
 # Python
