@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
 import { Form, Button, Card, Typography, message, Space } from 'antd'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { authApi } from '../../api/auth'
 import { OTPInput } from '../../components/forms/OTPInput'
 import { storage, checkSingleBrowserSession } from '../../utils/storage'
 import { ROUTES } from '../../utils/constants'
-import { getPostLoginPath } from '../../utils/authRedirect'
+import { getDefaultLandingRoute } from '../../utils/helpers'
 import { warmupAfterLogin } from '../../utils/warmupAfterLogin'
 import { useAuth } from '../../hooks/useAuth'
 
@@ -16,7 +16,6 @@ export const OTPVerification = () => {
   const [loading, setLoading] = useState(false)
   const [resendLoading, setResendLoading] = useState(false)
   const navigate = useNavigate()
-  const location = useLocation()
   const { verifyOTP } = useAuth()
 
   const email = storage.getOTPEmail()
@@ -59,7 +58,7 @@ export const OTPVerification = () => {
         verifyOTP(access_token, user, refresh_token ?? undefined)
         message.success('OTP verified successfully!')
 
-        const target = getPostLoginPath(location.search, user)
+        const target = getDefaultLandingRoute(user)
         warmupAfterLogin(target)
         navigate(target, { replace: true })
       }

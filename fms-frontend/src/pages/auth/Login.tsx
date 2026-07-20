@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Form, Input, Button, message, Alert } from 'antd'
 import { MailOutlined, LockOutlined } from '@ant-design/icons'
-import { useNavigate, useLocation, Link } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { authApi } from '../../api/auth'
 import { validateEmail } from '../../utils/validation'
 import { storage, checkSingleBrowserSession } from '../../utils/storage'
@@ -9,7 +9,7 @@ import { AuthLayout } from '../../components/auth/AuthLayout'
 import { TurnstileWidget, isTurnstileEnabled } from '../../components/auth/TurnstileWidget'
 import { AuthHoneypotField, useAuthFormOpenedMs, withAuthBotFields } from '../../components/auth/AuthBotFields'
 import { ROUTES } from '../../utils/constants'
-import { getPostLoginPath, getRedirectFromSearch } from '../../utils/authRedirect'
+import { getDefaultLandingRoute } from '../../utils/helpers'
 import { warmupAfterLogin } from '../../utils/warmupAfterLogin'
 import { useAuth } from '../../hooks/useAuth'
 import { API_BASE_URL } from '../../api/axios'
@@ -59,14 +59,13 @@ export const Login = () => {
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
   const formOpenedMs = useAuthFormOpenedMs()
   const navigate = useNavigate()
-  const location = useLocation()
   const { login, isAuthenticated, isLoading, user } = useAuth()
 
-  // Already logged in (e.g. opened /login?redirect=... in new tab) — go to intended page.
+  // Already logged in — always land on default dashboard.
   useEffect(() => {
     if (isLoading || !isAuthenticated || !user) return
-    navigate(getPostLoginPath(location.search, user), { replace: true })
-  }, [isLoading, isAuthenticated, user, location.search, navigate])
+    navigate(getDefaultLandingRoute(user), { replace: true })
+  }, [isLoading, isAuthenticated, user, navigate])
 
   const RETRY_DELAYS_MS = [8000, 25000]
 
@@ -111,10 +110,7 @@ export const Login = () => {
 
         if (requires_otp || !user) {
           storage.setOTPEmail(values.email)
-          const ret = getRedirectFromSearch(location.search)
-          navigate(
-            ret ? `${ROUTES.OTP}?redirect=${encodeURIComponent(ret)}` : ROUTES.OTP,
-          )
+          navigate(ROUTES.OTP)
         } else {
           const gate = checkSingleBrowserSession(user)
           if (!gate.ok) {
@@ -127,7 +123,7 @@ export const Login = () => {
             writeCachedSystemLockStatus(response.data.system_lock)
             dispatchSystemLockChanged(response.data.system_lock)
           }
-          const target = getPostLoginPath(location.search, user)
+          const target = getDefaultLandingRoute(user)
           warmupAfterLogin(target)
           navigate(target, { replace: true })
         }
