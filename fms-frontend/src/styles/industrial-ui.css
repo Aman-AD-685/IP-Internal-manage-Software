@@ -258,27 +258,30 @@
   overflow: hidden;
 }
 
-/* ── New feature release toast (bottom-left) ─────────────────────────────── */
+/* ── New feature release toast (bottom-left, hugs content) ───────────────── */
 .fms-release-bar {
   position: fixed;
   left: 12px;
   bottom: 12px;
+  right: auto;
   z-index: 10050;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  width: max-content;
-  max-width: min(260px, calc(100vw - 24px));
-  padding: 10px 12px;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  max-width: calc(100vw - 24px);
+  padding: 8px 12px;
   background: #0b1220;
   color: #ffffff;
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  box-sizing: border-box;
 }
 
 .fms-release-bar__text {
-  min-width: 0;
+  flex: 0 0 auto;
+  width: max-content;
   max-width: 100%;
 }
 
@@ -287,17 +290,16 @@
   display: block;
   font-size: 13px;
   line-height: 1.3;
+  white-space: nowrap;
 }
 
 .fms-release-bar__message {
   color: rgba(255, 255, 255, 0.72) !important;
   font-size: 12px;
   line-height: 1.35;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
+  display: block;
   margin-top: 2px;
+  white-space: nowrap;
 }
 
 .fms-release-bar__btn {
@@ -309,6 +311,7 @@
   height: 28px !important;
   padding: 0 10px !important;
   border-radius: var(--fms-radius-ctrl) !important;
+  flex-shrink: 0;
 }
 
 .fms-release-bar__btn:hover {

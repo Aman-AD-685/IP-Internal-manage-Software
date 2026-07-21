@@ -3,7 +3,6 @@ import {
   API_CACHE_TTL_MS,
   genericLogicalKey,
   sessionApiCacheClearLogicalPrefix,
-  sessionApiCacheGet,
   sessionApiCacheSet,
 } from '../utils/sessionApiCache'
 
@@ -52,8 +51,8 @@ export const delegationApi = {
 
   getTasks: async (params?: { status?: string; assignee_id?: string; reference_no?: string }) => {
     const key = genericLogicalKey('delegation:tasks', params)
-    const cached = sessionApiCacheGet<{ tasks: DelegationTask[] }>(key)
-    if (cached) return cached
+    // Always hit network so assignee sees admin-created tasks immediately.
+    // DelegationPage still paints from session cache for instant first paint.
     const r = await apiClient.get<{ tasks: DelegationTask[] }>('/delegation/tasks', { params })
     sessionApiCacheSet(key, r.data, API_CACHE_TTL_MS.delegationTasks)
     return r.data

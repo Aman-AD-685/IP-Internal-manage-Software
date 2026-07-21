@@ -104,6 +104,20 @@ export const DelegationPage = () => {
     if (!canManage || userFilter !== undefined) loadTasks()
   }, [loadTasks, canManage, userFilter])
 
+  // Refetch when user returns to the tab (admin may have assigned meanwhile).
+  useEffect(() => {
+    const onFocus = () => loadTasks()
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') loadTasks()
+    }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [loadTasks])
+
   const displayTasks = useMemo(() => {
     let rows = [...tasks]
     if (referenceNoFilter && referenceNoFilter !== '__all__') {
