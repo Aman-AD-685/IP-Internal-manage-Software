@@ -29,6 +29,16 @@ _LEGAL_NAME_TOKENS = frozenset(
 )
 
 
+# Applied after legal-token strip. Keep Kodarma Chemical ≠ Kodarma Petrochemicals.
+# Keep Orissa (base) ≠ Orissa (Raipur) — separate invoice entities.
+_COMPANY_NAME_ALIASES: dict[str, str] = {
+    "odissa concrete allied industries": "orissa concrete allied industries",
+    "odissa concrete allied industries raipur": "orissa concrete allied industries raipur",
+    "kodarma petrohemicals": "kodarma petrochemicals",
+    "dadiji steels manufacture trade": "dadiji steel manufacture trade",
+}
+
+
 def normalize_company_name(s: str | None) -> str:
     """Normalize names so master companies, invoices, and ageing rows match for dedupe + whitelist."""
     t = (s or "").strip().lower()
@@ -44,14 +54,20 @@ def normalize_company_name(s: str | None) -> str:
     t = re.sub(r"\bprivate limited\b", "pvt ltd", t)
     t = re.sub(r"\bprivate ltd\b", "pvt ltd", t)
     t = re.sub(r"\blimited\b", "ltd", t)
-    # Common spelling drift between sheet vs companies master
+    # Common spelling / plural drift between invoice spellings
     t = re.sub(r"\bsteels\b", "steel", t)
+    t = re.sub(r"\bchemicals\b", "chemical", t)
+    t = re.sub(r"\bpetrohemicals\b", "petrochemicals", t)
+    t = re.sub(r"\btrading\b", "trade", t)
+    t = re.sub(r"\bmanufacturing\b", "manufacture", t)
     t = re.sub(r"\bingols\b", "ingots", t)
+    t = re.sub(r"\bodissa\b", "orissa", t)
     # Canonicalize known Hariom variant: "Ingots and Power" vs "Ingots & Power"
     t = re.sub(r"\bingots and power\b", "ingots power", t)
     # Drop legal-entity words so short vs Pvt Ltd spellings collapse to one key
     t = " ".join(tok for tok in t.split() if tok not in _LEGAL_NAME_TOKENS)
     t = re.sub(r"\s+", " ", t).strip()
+    t = _COMPANY_NAME_ALIASES.get(t, t)
     return t
 
 
@@ -64,6 +80,56 @@ def name_token_jaccard(norm_a: str, norm_b: str) -> float:
     if u == 0:
         return 0.0
     return len(sa & sb) / u
+
+
+def collapse_near_duplicate_keys(keys: list[str], *, min_score: float = 0.78) -> dict[str, str]:
+    """
+    Map each normalized company key -> canonical key.
+    Merges near-duplicates (keyword/token overlap) without joining distinct orgs
+    that only share a city/prefix (requires ≥2 shared tokens when score < 1).
+
+    Never merges when one name is a proper subset of the other (e.g. Orissa Concrete
+    vs Orissa Concrete Raipur — separate companies / invoices).
+    """
+    uniq = sorted({k for k in keys if k})
+    parent = {k: k for k in uniq}
+
+    def find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: str, b: str) -> None:
+        ra, rb = find(a), find(b)
+        if ra == rb:
+            return
+        # Prefer longer key as display root (more specific spelling)
+        if len(rb) > len(ra) or (len(rb) == len(ra) and rb < ra):
+            parent[ra] = rb
+        else:
+            parent[rb] = ra
+
+    pairs: list[tuple[float, str, str]] = []
+    for i, a in enumerate(uniq):
+        sa = set(a.split())
+        for b in uniq[i + 1 :]:
+            sb = set(b.split())
+            # Site / unit suffix → different company (Raipur, Unit 2, Bilaspur, …)
+            if sa < sb or sb < sa:
+                continue
+            score = name_token_jaccard(a, b)
+            if score < min_score:
+                continue
+            shared = len(sa & sb)
+            if score < 0.999 and shared < 2:
+                continue
+            pairs.append((score, a, b))
+    pairs.sort(key=lambda x: -x[0])
+    for _score, a, b in pairs:
+        union(a, b)
+
+    return {k: find(k) for k in uniq}
 
 
 def fuzzy_ageing_assignments(
