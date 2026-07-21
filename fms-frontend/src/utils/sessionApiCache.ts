@@ -39,7 +39,7 @@ export const API_CACHE_TTL_MS = {
   onboardingPaymentStatusList: 15 * 60 * 1000,
   trainingClientsList: 15 * 60 * 1000,
   trainingUsers: 30 * 60 * 1000,
-  delegationTasks: 15 * 60 * 1000,
+  delegationTasks: 60 * 1000,
   delegationUsers: 30 * 60 * 1000,
   checklistTasks: 15 * 60 * 1000,
   checklistOccurrences: 5 * 60 * 1000,

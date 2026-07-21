@@ -15351,6 +15351,13 @@ def update_user(
         data["role_id"] = payload.role_id
     if payload.is_active is not None:
         data["is_active"] = payload.is_active
+        # DB trigger also maintains deactivated_at; set/clear here for immediate consistency.
+        from datetime import datetime, timezone
+
+        if payload.is_active is False:
+            data["deactivated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        else:
+            data["deactivated_at"] = None
     if not data:
         return supabase.table("user_profiles").select("*").eq("id", user_id).single().execute().data
     supabase.table("user_profiles").update(data).eq("id", user_id).execute()
@@ -16744,6 +16751,9 @@ def update_delegation_task(task_id: str, payload: dict, auth: dict = Depends(get
             data["document_url"] = payload["document_url"]
     if payload.get("status") == "completed":
         data["completed_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    if payload.get("status") == "cancelled":
+        # DB trigger also stamps cancelled_at; set here so API clients see it immediately.
+        data["cancelled_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     if not data:
         raise HTTPException(400, "No valid fields to update")
     try:

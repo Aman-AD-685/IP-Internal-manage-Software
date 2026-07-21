@@ -18,7 +18,9 @@ Do not remove entries; add dated bullets.
 - 2026-05-21: Render cold start — `.github/workflows/render-keepalive.yml` (5 min) + `docs/RENDER_KEEPALIVE_SETUP.md` (cron-job.org steps); not fixed by app code alone.
 - 2026-05-21: Rate limit — do not put `/tickets` on expensive tier; bypass limits for `127.0.0.1` / `RATE_LIMIT_DEV_BYPASS=1` in local dev.
 - 2026-05-22: Cross-tab auth — JWT mirrored to localStorage while browser session active (tab lease); sessionStorage per-tab + hydrate on new tab; clear mirror when all tabs close; `syncAuthMirrorToSession`.
-- 2026-07-20: **Release refresh UI** — compact fixed bottom-left toast (~260px), not full-width bar; no body padding spacer.
+- 2026-07-20: **Release refresh UI** — compact fixed bottom-left toast; `width: fit-content` so black strip ends with text (not full viewport).
+- 2026-07-21: **Delegation list freshness** — `delegationApi.getTasks` always networks (page paints from cache); focus/visibility refetch; paint TTL 60s. Cross-user creates do not clear another user's cache.
+- 2026-07-21: **24h purge** — run `database/PURGE_CANCELLED_DELEGATION_AND_DEACTIVATED_USER_TASKS.sql` in Supabase before relying on `cancelled_at` / `deactivated_at` API stamps.
 - 2026-05-22: Open in new tab — `data-open-href` + global context menu; modal actions use `?open=` deep links (`openActions.ts`, `useDeepLinkAction`).
 - 2026-05-22: **1–2s paint target** — defer `/users/me` with `scheduleWhenIdle`; defer header activity count 2.5s; login `warmupAfterLogin` (bootstrap + prefetch); tickets list cache-first (no `skipCache` on initial); checklist/delegation/support-dashboard session cache instant paint; AppLayout prefetch stays 12s after mount.
 - 2026-05-22: **Dashboard KPI 7–10s** — `/dashboard/kpi` is expensive-tier; use cache-first paint (`sessionApiCacheGet`), `prefetchDashboardKpiPerson` on chooser hover/click + header menu; session TTL 8m; backend `@cached(ttl=120)` for `/dashboard/kpi` and soumya-kpi. First open per person/week still ~3–7s (DB work); repeat open should be &lt;2s.
