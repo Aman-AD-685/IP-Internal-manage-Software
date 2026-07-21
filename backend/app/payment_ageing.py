@@ -36,6 +36,7 @@ _COMPANY_NAME_ALIASES: dict[str, str] = {
     "odissa concrete allied industries raipur": "orissa concrete allied industries raipur",
     "kodarma petrohemicals": "kodarma petrochemicals",
     "dadiji steels manufacture trade": "dadiji steel manufacture trade",
+    "black rock steel power": "blackrock steel power",
 }
 
 
@@ -71,6 +72,51 @@ def normalize_company_name(s: str | None) -> str:
     return t
 
 
+def compact_company_key(norm: str | None) -> str:
+    """Letter-level key: drop spaces/punctuation so 'Black Rock' == 'BlackRock'."""
+    return re.sub(r"[^a-z0-9]", "", (norm or "").lower())
+
+
+def _levenshtein(a: str, b: str) -> int:
+    if a == b:
+        return 0
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+    if len(a) < len(b):
+        a, b = b, a
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            ins = cur[j - 1] + 1
+            delete = prev[j] + 1
+            sub = prev[j - 1] + (0 if ca == cb else 1)
+            cur.append(min(ins, delete, sub))
+        prev = cur
+    return prev[-1]
+
+
+def names_letter_match(norm_a: str, norm_b: str) -> bool:
+    """
+    True when names match after ignoring spaces / tiny letter typos.
+    Refuses prefix pairs (Orissa vs Orissa Raipur stay separate).
+    """
+    ca, cb = compact_company_key(norm_a), compact_company_key(norm_b)
+    if not ca or not cb:
+        return False
+    if ca == cb:
+        return True
+    # Site / unit suffix on otherwise-identical name → different company
+    if ca.startswith(cb) or cb.startswith(ca):
+        return False
+    if abs(len(ca) - len(cb)) > 2:
+        return False
+    max_ed = 1 if min(len(ca), len(cb)) < 18 else 2
+    return _levenshtein(ca, cb) <= max_ed
+
+
 def name_token_jaccard(norm_a: str, norm_b: str) -> float:
     """Token-set Jaccard on already-normalized names (0..1)."""
     if not norm_a or not norm_b:
@@ -85,11 +131,11 @@ def name_token_jaccard(norm_a: str, norm_b: str) -> float:
 def collapse_near_duplicate_keys(keys: list[str], *, min_score: float = 0.78) -> dict[str, str]:
     """
     Map each normalized company key -> canonical key.
-    Merges near-duplicates (keyword/token overlap) without joining distinct orgs
-    that only share a city/prefix (requires ≥2 shared tokens when score < 1).
 
-    Never merges when one name is a proper subset of the other (e.g. Orissa Concrete
-    vs Orissa Concrete Raipur — separate companies / invoices).
+    Merge order:
+    1) Same letter-compact key (Black Rock == BlackRock)
+    2) Near letter match (1–2 char typo), not a prefix/suffix site pair
+    3) Token Jaccard ≥ min_score (not a proper token subset — Raipur / Unit 2)
     """
     uniq = sorted({k for k in keys if k})
     parent = {k: k for k in uniq}
@@ -110,13 +156,27 @@ def collapse_near_duplicate_keys(keys: list[str], *, min_score: float = 0.78) ->
         else:
             parent[rb] = ra
 
+    # (1) Exact letter-compact buckets
+    by_compact: dict[str, list[str]] = {}
+    for k in uniq:
+        by_compact.setdefault(compact_company_key(k), []).append(k)
+    for group in by_compact.values():
+        root = group[0]
+        for other in group[1:]:
+            union(root, other)
+
     pairs: list[tuple[float, str, str]] = []
     for i, a in enumerate(uniq):
         sa = set(a.split())
         for b in uniq[i + 1 :]:
+            if find(a) == find(b):
+                continue
             sb = set(b.split())
             # Site / unit suffix → different company (Raipur, Unit 2, Bilaspur, …)
             if sa < sb or sb < sa:
+                continue
+            if names_letter_match(a, b):
+                pairs.append((1.0, a, b))
                 continue
             score = name_token_jaccard(a, b)
             if score < min_score:
