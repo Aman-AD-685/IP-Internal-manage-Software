@@ -10474,17 +10474,24 @@ def _payment_ageing_report_payload():
         inv_d = _pa._parse_date(row.get("invoice_date")) or _pa._parse_date(row.get("timestamp"))
         if not inv_d:
             continue
-        invoice_quarter_key_set.add(_pa.fy_quarter_key(inv_d))
+        inv_qkey = _pa.fy_quarter_key(inv_d)
+        invoice_quarter_key_set.add(inv_qkey)
         if nm not in by_name:
             by_name[nm] = {
                 "display_name": company_name,
                 "invoice_total": 0,
                 "received_total": 0,
                 "first_date": inv_d,
+                "latest_invoice_date": inv_d,
+                "has_q1_or_q2_invoice": False,
                 "quarter_days": defaultdict(list),
             }
         agg = by_name[nm]
-        agg["display_name"] = company_name or agg["display_name"]
+        if inv_qkey[1] in (1, 2):
+            agg["has_q1_or_q2_invoice"] = True
+        # Prefer longer / more official spelling for the merged display name
+        if len(company_name) > len(agg.get("display_name") or ""):
+            agg["display_name"] = company_name
         if inv_d < agg["first_date"]:
             agg["first_date"] = inv_d
         cp_id = str(row.get("id") or "").strip()
@@ -10492,7 +10499,12 @@ def _payment_ageing_report_payload():
         amount = _parse_invoice_amount(row.get("invoice_amount"))
         received_amount = _parse_invoice_amount((rec_row or {}).get("amount")) if rec_row else (amount if row.get("payment_received_date") else 0)
         if not _client_payment_row_marked_na(row):
-            agg["invoice_total"] = _company_ageing_amount_incl_gst(agg["invoice_total"], amount)
+            # Newest invoice amount wins (mid-quarter update replaces older amount).
+            if inv_d > agg["latest_invoice_date"] or (
+                inv_d == agg["latest_invoice_date"] and amount >= int(agg.get("invoice_total") or 0)
+            ):
+                agg["latest_invoice_date"] = inv_d
+                agg["invoice_total"] = amount
             agg["received_total"] += received_amount
         paid_d = _pa._parse_date((rec_row or {}).get("payment_date")) or _pa._parse_date(row.get("payment_received_date"))
         if paid_d and paid_d >= inv_d and not _client_payment_row_marked_na(row):
@@ -10500,8 +10512,43 @@ def _payment_ageing_report_payload():
             payment_quarter_key_set.add(ageing_qkey)
             agg["quarter_days"][ageing_qkey].append((paid_d - inv_d).days)
 
-    all_quarter_keys = invoice_quarter_key_set | payment_quarter_key_set
+    # Keyword-merge near-duplicate normalized keys (Steel/Steels, Odissa/Orissa, …)
+    key_map = _pa.collapse_near_duplicate_keys(list(by_name.keys()))
+    if any(key_map.get(k, k) != k for k in by_name):
+        merged: dict[str, dict] = {}
+        for nm, agg in by_name.items():
+            canon = key_map.get(nm, nm)
+            if canon not in merged:
+                merged[canon] = agg
+                continue
+            dst = merged[canon]
+            if len(agg.get("display_name") or "") > len(dst.get("display_name") or ""):
+                dst["display_name"] = agg.get("display_name")
+            if agg["first_date"] < dst["first_date"]:
+                dst["first_date"] = agg["first_date"]
+            if agg.get("has_q1_or_q2_invoice"):
+                dst["has_q1_or_q2_invoice"] = True
+            if agg["latest_invoice_date"] > dst["latest_invoice_date"] or (
+                agg["latest_invoice_date"] == dst["latest_invoice_date"]
+                and int(agg.get("invoice_total") or 0) >= int(dst.get("invoice_total") or 0)
+            ):
+                dst["latest_invoice_date"] = agg["latest_invoice_date"]
+                dst["invoice_total"] = agg.get("invoice_total") or 0
+            dst["received_total"] = int(dst.get("received_total") or 0) + int(agg.get("received_total") or 0)
+            for qk, days in (agg.get("quarter_days") or {}).items():
+                dst["quarter_days"][qk].extend(days)
+        by_name = merged
+
+    # Companies with Q1/Q2 raised invoices, plus any newly invoiced in the current FY quarter.
     current_key = _pa.fy_quarter_key(today)
+    by_name = {
+        nm: agg
+        for nm, agg in by_name.items()
+        if agg.get("has_q1_or_q2_invoice")
+        or _pa.fy_quarter_key(agg.get("latest_invoice_date") or today) == current_key
+    }
+
+    all_quarter_keys = invoice_quarter_key_set | payment_quarter_key_set
     if all_quarter_keys:
         start_key = min(all_quarter_keys, key=_fiscal_quarter_ordinal)
         end_key = max(max(all_quarter_keys, key=_fiscal_quarter_ordinal), current_key, key=_fiscal_quarter_ordinal)
