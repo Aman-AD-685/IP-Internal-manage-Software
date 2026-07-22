@@ -48,10 +48,11 @@ export const delegationApi = {
   getUsers: async () => {
     const key = 'delegation:users'
     const cached = sessionApiCacheGet<{ users: { id: string; full_name: string }[] }>(key)
-    if (cached) return cached
+    if (cached?.users && Array.isArray(cached.users)) return cached
     const r = await apiClient.get<{ users: { id: string; full_name: string }[] }>('/delegation/users')
-    sessionApiCacheSet(key, r.data, API_CACHE_TTL_MS.delegationUsers)
-    return r.data
+    const data = r.data?.users ? r.data : { users: [] }
+    sessionApiCacheSet(key, data, API_CACHE_TTL_MS.delegationUsers)
+    return data
   },
 
   getTasks: async (params?: { status?: string; assignee_id?: string; reference_no?: string }) => {
