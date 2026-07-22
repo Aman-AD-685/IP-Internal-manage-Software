@@ -125,13 +125,17 @@ _CLIENT_HEADER_EXEMPT_PREFIXES = (
     "/api/escalation/send-",
     "/reminders/",
     "/api/reminders/",
+    "/integrations/",  # Claude/script API key auth (no SPA header)
+    "/api/integrations/",
 )
 
 
 def _normalize_path(path: str) -> str:
     p = (path or "/").split("?")[0].rstrip("/") or "/"
     if p.startswith("/api/"):
-        p = "/" + p[4:]
+        p = "/" + p[5:]
+    elif p == "/api":
+        p = "/"
     return p
 
 

@@ -16,6 +16,7 @@ Set RATE_LIMIT_ENABLED=0 to disable. For multi-instance deploys, move counters t
 
 from __future__ import annotations
 
+import hmac
 import os
 import time
 from collections import defaultdict, deque
@@ -100,8 +101,9 @@ _lock = Lock()
 def _normalize_path(path: str) -> str:
     p = (path or "/").split("?")[0].rstrip("/") or "/"
     if p.startswith("/api/"):
-        p = p[4:]  # store without /api for matching both mounts
-        p = "/" + p if p else "/"
+        p = "/" + p[5:]
+    elif p == "/api":
+        p = "/"
     return p
 
 
@@ -173,7 +175,14 @@ def rate_limit_response(request: Request) -> JSONResponse | None:
 
     window_sec, max_requests = _tier_limits(tier)
     bucket_tier: str = tier
-    if tier == "global" and not (request.headers.get("authorization") or "").strip():
+    has_bearer = bool((request.headers.get("authorization") or "").strip())
+    # Only trust a real integration key for the looser bucket (not any non-empty header).
+    integ_hdr = (request.headers.get("x-fms-integration-key") or "").strip()
+    integ_expected = (os.getenv("DELEGATION_INTEGRATION_API_KEY") or "").strip()
+    has_integration_key = bool(
+        integ_hdr and integ_expected and hmac.compare_digest(integ_hdr, integ_expected)
+    )
+    if tier == "global" and not has_bearer and not has_integration_key:
         bucket_tier = "public"
         window_sec, max_requests = _RATE_LIMIT_PUBLIC_WINDOW, _RATE_LIMIT_PUBLIC_MAX
     now = time.time()
