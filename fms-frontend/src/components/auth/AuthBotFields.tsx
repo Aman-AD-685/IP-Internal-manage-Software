@@ -1,10 +1,21 @@
-import { useRef } from 'react'
+import { useRef, type CSSProperties } from 'react'
 import { Form, Input } from 'antd'
+
+const honeypotWrapStyle: CSSProperties = {
+  position: 'absolute',
+  left: -10000,
+  top: 'auto',
+  width: 1,
+  height: 1,
+  overflow: 'hidden',
+  opacity: 0,
+  pointerEvents: 'none',
+}
 
 /** Hidden honeypot — bots often fill "website"; humans never see it. */
 export function AuthHoneypotField() {
   return (
-    <div className="auth-honeypot" aria-hidden="true">
+    <div className="auth-honeypot" style={honeypotWrapStyle} aria-hidden="true">
       <Form.Item name="website" initialValue="">
         <Input
           tabIndex={-1}

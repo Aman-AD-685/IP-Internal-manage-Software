@@ -34,6 +34,7 @@ import { useLocation } from 'react-router-dom'
 import { ROUTES } from '../../utils/constants'
 import { BulkActionBar } from '../../components/common/BulkActionBar'
 import { getStatusTagColor } from '../../utils/statusColors'
+import { AuthHoneypotField, useAuthFormOpenedMs, withAuthBotFields } from '../../components/auth/AuthBotFields'
 
 const { Title, Text } = Typography
 const { Dragger } = Upload
@@ -43,6 +44,7 @@ export const DelegationPage = () => {
   const location = useLocation()
   const { openMenu } = useContextMenu()
   const { user } = useAuth()
+  const formOpenedMs = useAuthFormOpenedMs()
   const { isAdmin, isApprover, isMasterAdmin } = useRole()
   const canManage = isAdmin || isApprover || isMasterAdmin
   const [form] = Form.useForm()
@@ -105,15 +107,24 @@ export const DelegationPage = () => {
   }, [loadTasks, canManage, userFilter])
 
   // Refetch when user returns to the tab (admin may have assigned meanwhile).
+  // Debounce: focus + visibilitychange often fire together → one load, one toast.
   useEffect(() => {
-    const onFocus = () => loadTasks()
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') loadTasks()
+    let timer: number | null = null
+    const schedule = () => {
+      if (timer != null) window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        timer = null
+        loadTasks()
+      }, 300)
     }
-    window.addEventListener('focus', onFocus)
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') schedule()
+    }
+    window.addEventListener('focus', schedule)
     document.addEventListener('visibilitychange', onVisibility)
     return () => {
-      window.removeEventListener('focus', onFocus)
+      if (timer != null) window.clearTimeout(timer)
+      window.removeEventListener('focus', schedule)
       document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [loadTasks])
@@ -241,6 +252,7 @@ export const DelegationPage = () => {
       return
     }
     setLoading(true)
+    const bot = withAuthBotFields(values as unknown as Record<string, unknown>, formOpenedMs)
     delegationApi
       .createTask({
         title: values.title,
@@ -250,6 +262,8 @@ export const DelegationPage = () => {
         delegation_on: values.delegation_on?.format('YYYY-MM-DD'),
         has_document: values.has_document,
         submitted_by: submitterId,
+        website: bot.website,
+        form_opened_ms: bot.form_opened_ms,
       })
       .then(() => {
         message.success('Delegation task created')
@@ -728,6 +742,7 @@ export const DelegationPage = () => {
         footer={null}
       >
         <Form form={form} layout="vertical" onFinish={onFinish}>
+          <AuthHoneypotField />
           <Form.Item name="title" label="Task Name" rules={[{ required: true, message: 'Please enter task name' }]}>
             <Input placeholder="Enter task name" />
           </Form.Item>

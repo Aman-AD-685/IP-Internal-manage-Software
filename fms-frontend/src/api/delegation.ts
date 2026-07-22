@@ -3,6 +3,7 @@ import {
   API_CACHE_TTL_MS,
   genericLogicalKey,
   sessionApiCacheClearLogicalPrefix,
+  sessionApiCacheGet,
   sessionApiCacheSet,
 } from '../utils/sessionApiCache'
 
@@ -37,6 +38,10 @@ export interface CreateDelegationTaskPayload {
   has_document?: 'yes' | 'no'
   document_url?: string
   submitted_by?: string
+  /** Bot honeypot — must stay empty */
+  website?: string
+  /** Form open timestamp (ms) for server timing check */
+  form_opened_ms?: number
 }
 
 export const delegationApi = {

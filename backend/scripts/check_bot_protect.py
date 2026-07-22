@@ -14,6 +14,8 @@ os.environ["BOT_UA_BLOCK"] = "1"
 os.environ["AUTH_FORM_BOT_CHECKS"] = "1"
 os.environ["AUTH_FORM_TIMING_REQUIRED"] = "1"
 os.environ["AUTH_FORM_MIN_MS"] = "800"
+os.environ["BOT_STRIKE_ENABLED"] = "1"
+os.environ["BOT_STRIKE_LIMIT"] = "3"
 
 from fastapi import HTTPException  # noqa: E402
 from app import bot_protect as bp  # noqa: E402
@@ -43,5 +45,67 @@ except HTTPException as e:
 
 # Normal human timing → ok
 bp.enforce_auth_form_bot_checks(website="", form_opened_ms=now - 2000)
+
+# Strikes: 3 bot fails → deactivate callback path (mock — no supabase user)
+# Without user_id resolution, strikes still count by email key
+bp.clear_bot_strikes(email="bot-test@example.com")
+assert bp.get_bot_strike_count(email="bot-test@example.com") == 0
+
+for i in range(2):
+    try:
+        bp.enforce_form_bot_checks_with_strike(
+            website="http://evil",
+            form_opened_ms=now - 2000,
+            email="bot-test@example.com",
+        )
+        raise SystemExit("strike path should reject")
+    except HTTPException as e:
+        assert e.status_code == 403
+        assert "inactive" not in (e.detail or "").lower()
+
+assert bp.get_bot_strike_count(email="bot-test@example.com") == 2
+
+# 3rd strike without resolvable user_id still rejects (cannot deactivate)
+try:
+    bp.enforce_form_bot_checks_with_strike(
+        website="http://evil",
+        form_opened_ms=now - 2000,
+        email="bot-test@example.com",
+    )
+    raise SystemExit("3rd strike should reject")
+except HTTPException as e:
+    assert e.status_code == 403
+
+assert bp.get_bot_strike_count(email="bot-test@example.com") == 3
+
+# With explicit user_id: stub deactivate
+_orig = bp.deactivate_user_for_bot_abuse
+_calls: list[str] = []
+
+
+def _fake_deact(uid: str) -> bool:
+    _calls.append(uid)
+    return True
+
+
+bp.deactivate_user_for_bot_abuse = _fake_deact  # type: ignore[assignment]
+bp.clear_bot_strikes(user_id="u-bot-1", email="u-bot-1@example.com")
+for _ in range(3):
+    try:
+        bp.enforce_form_bot_checks_with_strike(
+            website="x",
+            form_opened_ms=now - 2000,
+            user_id="u-bot-1",
+            email="u-bot-1@example.com",
+            page="Support ticket create",
+        )
+    except HTTPException:
+        pass
+assert _calls == ["u-bot-1"]
+bp.deactivate_user_for_bot_abuse = _orig  # type: ignore[assignment]
+
+events = bp.list_bot_events(limit=20)
+assert any(e.get("page") == "Support ticket create" for e in events)
+assert any(e.get("account_deactivated") for e in events)
 
 print("OK: bot_protect self-check passed")

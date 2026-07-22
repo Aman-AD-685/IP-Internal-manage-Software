@@ -130,6 +130,10 @@ export interface CreateTicketRequest {
   why_feature?: string
   attachment_url?: string
   repeat_of_ticket_id?: string
+  /** Bot honeypot — must stay empty */
+  website?: string
+  /** Form open timestamp (ms) for server timing check */
+  form_opened_ms?: number
 }
 
 export interface SimilarTicketMatch {

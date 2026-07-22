@@ -14,6 +14,7 @@ import { canUseSimilarTicketsSearch } from '../../utils/constants'
 import { SimilarTicketsPanel } from './SimilarTicketsPanel'
 import { ChoresBugsDetailDrawer } from '../tickets/ChoresBugsDetailDrawer'
 import { TicketDetailDrawer } from '../tickets/TicketDetailDrawer'
+import { AuthHoneypotField, useAuthFormOpenedMs, withAuthBotFields } from '../auth/AuthBotFields'
 const { TextArea } = Input
 const { Dragger } = Upload
 
@@ -115,6 +116,7 @@ interface SupportFormModalProps {
 
 export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportFormModalProps) => {
   const { user } = useAuth()
+  const formOpenedMs = useAuthFormOpenedMs()
   const canSimilarTickets = canUseSimilarTicketsSearch(user?.email)
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
@@ -405,6 +407,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
     repeatOfTicketId?: string
   ) => {
     const finalAttachmentUrl = attachmentUrl ?? toStr(values.attachment_url) ?? undefined
+    const bot = withAuthBotFields(values, formOpenedMs)
     const createRes = (await ticketsApi.create({
       title: toStr(values.title) ?? '',
       description: toStr(values.description),
@@ -424,6 +427,8 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
       query_response_at: toISODate(values.query_response_at),
       why_feature: toStr(values.why_feature),
       repeat_of_ticket_id: repeatOfTicketId,
+      website: bot.website,
+      form_opened_ms: bot.form_opened_ms,
     })) as { data?: import('../../api/tickets').Ticket } | import('../../api/tickets').Ticket
     const created =
       createRes && typeof createRes === 'object' && 'data' in createRes && createRes.data
@@ -525,6 +530,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
       destroyOnClose
     >
       <Form form={form} layout="vertical" style={{ marginTop: 16 }} onValuesChange={scheduleDraftSave}>
+        <AuthHoneypotField />
         <Form.Item name="company_id" label="Company Name" rules={[{ required: true, message: 'Required' }]}>
           <Select
             placeholder={companiesLoading ? 'Loading companies…' : 'Select company'}
