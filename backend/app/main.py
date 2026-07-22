@@ -250,6 +250,7 @@ from app.system_lock_routes import system_lock_router
 from app.bot_protect_routes import bot_protect_router
 from app.ws_routes import ws_router
 from app.attendance_sync_routes import attendance_sync_router
+from app.integrations_delegation_routes import integrations_delegation_router
 
 app.include_router(feature_approval_reminder_router)
 app.include_router(feature_approval_reminder_router, prefix="/api")
@@ -271,6 +272,8 @@ app.include_router(ws_router)
 app.include_router(ws_router, prefix="/api")
 app.include_router(attendance_sync_router)
 app.include_router(attendance_sync_router, prefix="/api")
+app.include_router(integrations_delegation_router)
+app.include_router(integrations_delegation_router, prefix="/api")
 
 
 @app.on_event("startup")
@@ -16766,6 +16769,8 @@ def create_delegation_task(
     auth: dict = Depends(get_current_user),
 ):
     """Create a delegation task."""
+    from app.delegation_write import insert_delegation_task
+
     require_active_user_profile(auth["id"])
     enforce_form_bot_checks_with_strike(
         website=payload.website,
@@ -16776,78 +16781,17 @@ def create_delegation_task(
         client_ip=_bot_client_ip(request),
         user_agent=(request.headers.get("user-agent") or "")[:300],
     )
-    try:
-        date.fromisoformat(payload.due_date)
-    except ValueError:
-        raise HTTPException(400, "Invalid due_date. Use YYYY-MM-DD")
-    for field_name, val in [("delegation_on", payload.delegation_on), ("submission_date", payload.submission_date)]:
-        if val:
-            try:
-                date.fromisoformat(val)
-            except ValueError as err:
-                raise HTTPException(400, f"Invalid {field_name}. Use YYYY-MM-DD") from err
-    data = {
-        "title": payload.title,
-        "assignee_id": payload.assignee_id,
-        "due_date": payload.due_date,
-        "created_by": auth["id"],
-    }
-    if payload.delegation_on:
-        data["delegation_on"] = payload.delegation_on
-    if payload.submission_date:
-        data["submission_date"] = payload.submission_date
-    if payload.has_document:
-        data["has_document"] = payload.has_document
-    if payload.document_url:
-        data["document_url"] = payload.document_url
-    if payload.submitted_by:
-        data["submitted_by"] = payload.submitted_by
-    data["shift_count"] = 0
-    data["shift_history"] = []
-    if payload.submission_date:
-        data["last_assigned_date"] = payload.submission_date
-    elif payload.due_date:
-        data["last_assigned_date"] = payload.due_date
-    # Generate unique reference_no based on submitted_by user name (e.g. DEL-AMAN-001)
-    try:
-        pr = supabase.table("user_profiles").select("full_name").eq("id", payload.submitted_by or payload.assignee_id).limit(1).execute()
-        name = (pr.data or [{}])[0].get("full_name") or "USER"
-        prefix = "".join(c for c in name.upper() if c.isalnum())[:6] or "USER"
-        prefix = prefix[:6]
-        existing = supabase.table("delegation_tasks").select("reference_no").like("reference_no", f"DEL-{prefix}-%").execute()
-        nums = []
-        for row in (existing.data or []):
-            ref = row.get("reference_no") or ""
-            if ref.startswith(f"DEL-{prefix}-"):
-                try:
-                    nums.append(int(ref.split("-")[-1]))
-                except ValueError:
-                    pass
-        next_num = max(nums, default=0) + 1
-        data["reference_no"] = f"DEL-{prefix}-{next_num:03d}"
-    except Exception as e:
-        _log(f"delegation reference_no fallback: {e}")
-        import uuid
-        data["reference_no"] = f"DEL-{str(uuid.uuid4())[:8].upper()}"
-    try:
-        r = supabase.table("delegation_tasks").insert(data).execute()
-        return r.data[0] if r.data else {}
-    except Exception as e:
-        _log(f"delegation create error: {e}")
-        err = str(e).lower()
-        if "shift_count" in err or "shift_history" in err or "last_assigned_date" in err:
-            data.pop("shift_count", None)
-            data.pop("shift_history", None)
-            data.pop("last_assigned_date", None)
-            try:
-                r = supabase.table("delegation_tasks").insert(data).execute()
-                return r.data[0] if r.data else {}
-            except Exception as e2:
-                e = e2
-                err = str(e2).lower()
-        if "does not exist" in err or "relation" in err:
-            raise HTTPException(503, "Delegation table not set up. Run database/DELEGATION_AND_PENDING_REMINDER.sql in Supabase.")
-        raise HTTPException(400, str(e)[:200])
+    return insert_delegation_task(
+        title=payload.title,
+        assignee_id=payload.assignee_id,
+        due_date=payload.due_date,
+        created_by=auth["id"],
+        delegation_on=payload.delegation_on,
+        submission_date=payload.submission_date,
+        has_document=payload.has_document,
+        document_url=payload.document_url,
+        submitted_by=payload.submitted_by,
+    )
 
 
 @api_router.put("/delegation/tasks/{task_id}")
