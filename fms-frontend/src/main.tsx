@@ -9,19 +9,6 @@ import { registerSW } from 'virtual:pwa-register'
 import App from './App'
 import { redirectRecoveryToResetPage, bootstrapRecoveryFromUrl } from './utils/recoveryAuth'
 
-installAuthBrowserSessionHandlers()
-bootstrapAuthBrowserSession()
-bootstrapRecoveryFromUrl()
-
-registerSW({
-  immediate: true,
-  onRegisteredSW(_url, registration) {
-    if (!registration) return
-    window.setInterval(() => {
-      void registration.update()
-    }, 60 * 60 * 1000)
-  },
-})
 import 'antd/dist/reset.css'
 import './styles/print.css'
 import './styles/responsive.css'
@@ -55,11 +42,29 @@ if (import.meta.env.DEV) {
   )
 }
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <App />
-      <QueryDevtools />
-    </QueryClientProvider>
-  </React.StrictMode>
-)
+async function start() {
+  installAuthBrowserSessionHandlers()
+  await bootstrapAuthBrowserSession()
+  bootstrapRecoveryFromUrl()
+
+  registerSW({
+    immediate: true,
+    onRegisteredSW(_url, registration) {
+      if (!registration) return
+      window.setInterval(() => {
+        void registration.update()
+      }, 60 * 60 * 1000)
+    },
+  })
+
+  ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      <QueryClientProvider client={queryClient}>
+        <App />
+        <QueryDevtools />
+      </QueryClientProvider>
+    </React.StrictMode>
+  )
+}
+
+void start()

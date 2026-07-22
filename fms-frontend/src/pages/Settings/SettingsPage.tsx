@@ -31,6 +31,7 @@ import { SkeletonOverlay } from '../../components/common/skeletons'
 import { EscalationEmailSettings } from './EscalationEmailSettings'
 import { ChecklistDelegationEmailSettings } from './ChecklistDelegationEmailSettings'
 import { SystemControlSettings } from './SystemControlSettings'
+import { BotProtectLogSettings } from './BotProtectLogSettings'
 
 const { Title, Paragraph, Text } = Typography
 
@@ -254,6 +255,8 @@ export const SettingsPage = () => {
             <>
               <Divider />
               <SystemControlSettings />
+              <Divider />
+              <BotProtectLogSettings />
             </>
           )}
 

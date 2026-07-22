@@ -12,10 +12,16 @@ const RELOAD_BACKUP_KEY = 'fms_auth_reload_backup'
 const BROWSER_SESSION_KEY = 'fms_browser_session'
 const TAB_COUNT_KEY = 'fms_tab_count'
 const HEARTBEAT_KEY = 'fms_session_heartbeat'
+const UNLOAD_AT_KEY = 'fms_unload_at'
+const LIVE_CHANNEL = 'fms_auth_tab_live'
 
 const HEARTBEAT_INTERVAL_MS = 4_000
-/** No tab ping within this window after a cold open → treat as browser closed (tolerate sleep). */
-const HEARTBEAT_STALE_MS = 5 * 60_000
+/** Used only to decide multi-tab hydrate while a confirmed peer may be throttled. */
+const HEARTBEAT_STALE_MS = 25_000
+/** Wait for another open tab that already confirmed this browser run. */
+const PEER_PROBE_MS = 300
+/** F5 pagehide→load is near-instant; Chrome session restore is not. */
+const RELOAD_UNLOAD_MAX_MS = 5_000
 
 const AUTH_KEYS = [STORAGE_KEYS.AUTH_TOKEN, STORAGE_KEYS.REFRESH_TOKEN, STORAGE_KEYS.USER] as const
 
@@ -51,6 +57,22 @@ function newBrowserSessionId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
+function isRecentUnloadForReload(): boolean {
+  const raw = getLocal()?.getItem(UNLOAD_AT_KEY)
+  if (!raw) return false
+  const ts = parseInt(raw, 10)
+  if (!Number.isFinite(ts)) return false
+  return Date.now() - ts < RELOAD_UNLOAD_MAX_MS
+}
+
+function markUnloadAt(): void {
+  getLocal()?.setItem(UNLOAD_AT_KEY, String(Date.now()))
+}
+
+function clearUnloadAt(): void {
+  getLocal()?.removeItem(UNLOAD_AT_KEY)
+}
+
 function isReloadNavigation(): boolean {
   try {
     const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined
@@ -78,14 +100,6 @@ function isHeartbeatFresh(): boolean {
   const ts = parseInt(raw, 10)
   if (!Number.isFinite(ts)) return false
   return Date.now() - ts < HEARTBEAT_STALE_MS
-}
-
-/** New tab with no session token yet but mirror may still hold auth from another tab. */
-function isNewTabNeedingHydrate(): boolean {
-  const session = getSession()
-  const local = getLocal()
-  if (!session || !local) return false
-  return !session.getItem(STORAGE_KEYS.AUTH_TOKEN) && !!local.getItem(STORAGE_KEYS.AUTH_TOKEN)
 }
 
 function readReloadBackup(): ReloadBackup | null {
@@ -165,45 +179,81 @@ function clearAllAuthStorage(): void {
   clearMirroredAuthInLocal()
   clearReloadBackup()
   clearHeartbeat()
+  clearUnloadAt()
   getSession()?.removeItem(BROWSER_SESSION_KEY)
   getLocal()?.removeItem(BROWSER_SESSION_KEY)
   getLocal()?.setItem(TAB_COUNT_KEY, '0')
   stopAuthSessionHeartbeat()
+  browserRunConfirmed = false
+}
+
+/**
+ * In-memory only — Chrome "Continue where you left off" / pinned-tab restore can bring
+ * back sessionStorage+localStorage, but this flag resets every real JS start.
+ * Only a confirmed live tab may answer peer pings (so restored tabs don't keep each other alive).
+ */
+let browserRunConfirmed = false
+
+function confirmBrowserRun(): void {
+  browserRunConfirmed = true
+}
+
+/** Another tab still running JS in this browser? (survives sleep better than heartbeat alone). */
+function probePeerTabsAlive(): Promise<boolean> {
+  if (typeof BroadcastChannel === 'undefined') return Promise.resolve(false)
+  return new Promise((resolve) => {
+    const ch = new BroadcastChannel(LIVE_CHANNEL)
+    let settled = false
+    const finish = (alive: boolean) => {
+      if (settled) return
+      settled = true
+      window.clearTimeout(timer)
+      try {
+        ch.close()
+      } catch {
+        /* ignore */
+      }
+      resolve(alive)
+    }
+    const timer = window.setTimeout(() => finish(false), PEER_PROBE_MS)
+    ch.onmessage = (ev: MessageEvent<{ type?: string }>) => {
+      if (ev.data?.type === 'pong') finish(true)
+    }
+    try {
+      ch.postMessage({ type: 'ping' })
+    } catch {
+      finish(false)
+    }
+  })
 }
 
 /**
  * Browser was fully closed (all tabs, including pinned): require login on next open.
- * Does NOT log out while another tab is still open in the same browser run.
+ * Chrome may restore sessionStorage after quit — never treat restored tokens as a live run
+ * unless a peer that already confirmed this browser process answers.
+ * F5 skips this (caller).
  */
-function clearStaleSessionAfterBrowserClose(): void {
+async function clearStaleSessionAfterBrowserClose(): Promise<void> {
   const local = getLocal()
   if (!local) return
 
   const hasLocalAuth = !!local.getItem(STORAGE_KEYS.AUTH_TOKEN)
-  if (!hasLocalAuth) return
-
+  const hasSessionAuth = !!getSession()?.getItem(STORAGE_KEYS.AUTH_TOKEN)
   const marker = local.getItem(BROWSER_SESSION_KEY)
   const tabCountBeforeOpen = readTabCount()
-  const newTabHydrate = isNewTabNeedingHydrate()
-  const heartbeatFresh = isHeartbeatFresh()
+  const hasResidue =
+    hasLocalAuth || hasSessionAuth || tabCountBeforeOpen !== 0 || !!marker || !!local.getItem(HEARTBEAT_KEY)
 
-  // Last tab closed cleanly — marker and mirror already dropped on pagehide.
-  if (!marker && tabCountBeforeOpen === 0) {
-    clearAllAuthStorage()
+  if (!hasResidue) return
+
+  // Live peer already confirmed in this browser process (multi-tab / sleep).
+  if (await probePeerTabsAlive()) {
+    confirmBrowserRun()
     return
   }
 
-  // Browser reopened after close/kill: mirror left behind but no live tab heartbeat.
-  if (newTabHydrate && tabCountBeforeOpen === 0 && !heartbeatFresh) {
-    clearAllAuthStorage()
-    return
-  }
-
-  // Orphan mirror without an active browser session marker.
-  if (!marker) {
-    clearMirroredAuthInLocal()
-    clearHeartbeat()
-  }
+  // No confirmed peer: cold reopen after close/kill, or Chrome pinned-tab session restore.
+  clearAllAuthStorage()
 }
 
 /** Copy mirrored auth from localStorage into this tab's sessionStorage. */
@@ -330,14 +380,19 @@ function stopAuthSessionHeartbeat(): void {
 }
 
 /**
- * Call once before React mounts.
+ * Call once before React mounts (await so cold-open clear finishes first).
  * F5 reload keeps login; closing browser (all tabs / pinned) ends session.
  */
-export function bootstrapAuthBrowserSession(): void {
+export async function bootstrapAuthBrowserSession(): Promise<void> {
   if (typeof window === 'undefined') return
 
-  if (!isReloadNavigation()) {
-    clearStaleSessionAfterBrowserClose()
+  const isReload = isReloadNavigation()
+  const recentUnload = isRecentUnloadForReload()
+
+  if (!isReload || !recentUnload) {
+    // Not a true F5 (incl. Chrome pinned-tab / session restore that may report reload).
+    clearReloadBackup()
+    await clearStaleSessionAfterBrowserClose()
   }
 
   bumpOpenTabCount()
@@ -346,16 +401,20 @@ export function bootstrapAuthBrowserSession(): void {
     clearHeartbeat()
   }
 
-  if (isReloadNavigation()) {
+  if (isReload && recentUnload) {
     restoreReloadBackup()
     ensureAuthMirroredToLocal()
+    clearUnloadAt()
+    if (hasSignedInStorage()) confirmBrowserRun()
     startAuthSessionHeartbeatIfSignedIn()
     return
   }
 
+  clearUnloadAt()
   hydrateAuthFromActiveBrowserSession()
   ensureAuthMirroredToLocal()
   clearStaleAuthAfterBrowserClose()
+  if (hasSignedInStorage()) confirmBrowserRun()
   startAuthSessionHeartbeatIfSignedIn()
 }
 
@@ -371,6 +430,7 @@ export function markAuthBrowserSessionActive(): void {
     local.setItem(TAB_COUNT_KEY, '1')
   }
   touchHeartbeat()
+  confirmBrowserRun()
   startAuthSessionHeartbeatIfSignedIn()
 }
 
@@ -385,14 +445,33 @@ export function installAuthBrowserSessionHandlers(): void {
   // Fires when tab/window closes, including pinned tabs when the browser exits.
   window.addEventListener('pagehide', (event) => {
     if (event.persisted) return
+    markUnloadAt()
     writeReloadBackup()
     clearAuthKeysInSession()
     decrementOpenTabCount()
   })
 
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && hasSignedInStorage()) {
+    if (document.visibilityState === 'visible' && browserRunConfirmed && hasSignedInStorage()) {
       touchHeartbeat()
     }
   })
+
+  window.addEventListener('focus', () => {
+    if (browserRunConfirmed && hasSignedInStorage()) touchHeartbeat()
+  })
+
+  if (typeof BroadcastChannel !== 'undefined') {
+    const liveCh = new BroadcastChannel(LIVE_CHANNEL)
+    liveCh.onmessage = (ev: MessageEvent<{ type?: string }>) => {
+      // Restored pinned tabs have storage but browserRunConfirmed=false — must not pong.
+      if (ev.data?.type === 'ping' && browserRunConfirmed && hasSignedInStorage()) {
+        try {
+          liveCh.postMessage({ type: 'pong' })
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }
 }

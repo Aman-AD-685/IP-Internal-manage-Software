@@ -216,8 +216,10 @@ FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "*").strip() or "*"
 
 from app.bot_protect import (
     bot_protect_response,
-    enforce_auth_form_bot_checks,
+    clear_bot_strikes,
+    enforce_form_bot_checks_with_strike,
     openapi_disabled,
+    require_active_user_profile,
     require_public_register,
     verify_turnstile_token,
     _client_ip as _bot_client_ip,
@@ -245,6 +247,7 @@ from app.escalation_email_routes import escalation_email_router
 from app.improvement_suggestions_routes import improvement_router
 from app.soft_suggestions_routes import soft_suggestions_router
 from app.system_lock_routes import system_lock_router
+from app.bot_protect_routes import bot_protect_router
 from app.ws_routes import ws_router
 from app.attendance_sync_routes import attendance_sync_router
 
@@ -262,6 +265,8 @@ app.include_router(soft_suggestions_router)
 app.include_router(soft_suggestions_router, prefix="/api")
 app.include_router(system_lock_router)
 app.include_router(system_lock_router, prefix="/api")
+app.include_router(bot_protect_router)
+app.include_router(bot_protect_router, prefix="/api")
 app.include_router(ws_router)
 app.include_router(ws_router, prefix="/api")
 app.include_router(attendance_sync_router)
@@ -812,7 +817,14 @@ async def register_user(payload: RegisterRequest, request: Request):
     import asyncio
     require_public_register()
     verify_turnstile_token(payload.turnstile_token, _bot_client_ip(request))
-    enforce_auth_form_bot_checks(website=payload.website, form_opened_ms=payload.form_opened_ms)
+    enforce_form_bot_checks_with_strike(
+        website=payload.website,
+        form_opened_ms=payload.form_opened_ms,
+        email=payload.email.strip().lower(),
+        page="Register",
+        client_ip=_bot_client_ip(request),
+        user_agent=(request.headers.get("user-agent") or "")[:300],
+    )
     _reg_key = f"register:{payload.email.strip().lower()}"
     enforce_account_backoff(_reg_key)
     record_account_attempt(_reg_key)
@@ -1019,8 +1031,14 @@ def login(payload: LoginRequest, request: Request):
     result = None
 
     verify_turnstile_token(payload.turnstile_token, _bot_client_ip(request))
-    enforce_auth_form_bot_checks(website=payload.website, form_opened_ms=payload.form_opened_ms)
-    # Per-account exponential backoff on failed logins (in addition to per-IP auth tier)
+    enforce_form_bot_checks_with_strike(
+        website=payload.website,
+        form_opened_ms=payload.form_opened_ms,
+        email=email,
+        page="Login",
+        client_ip=_bot_client_ip(request),
+        user_agent=(request.headers.get("user-agent") or "")[:300],
+    )
     enforce_account_backoff(f"login:{email}")
 
     # No slow pre-check or list_users() here — those added tens of seconds on every login (including
@@ -1121,6 +1139,7 @@ def login(payload: LoginRequest, request: Request):
                 system_lock_payload = lock_state
 
         clear_account_attempts(f"login:{email}")
+        clear_bot_strikes(user_id=user_id, email=email)
         return LoginResponse(
             access_token=result.session.access_token,
             refresh_token=result.session.refresh_token,
@@ -1206,7 +1225,14 @@ def forgot_password_lookup(payload: ForgotPasswordLookupRequest, request: Reques
     """
     email = payload.email.strip().lower()
     verify_turnstile_token(payload.turnstile_token, _bot_client_ip(request))
-    enforce_auth_form_bot_checks(website=payload.website, form_opened_ms=payload.form_opened_ms)
+    enforce_form_bot_checks_with_strike(
+        website=payload.website,
+        form_opened_ms=payload.form_opened_ms,
+        email=email,
+        page="Forgot password",
+        client_ip=_bot_client_ip(request),
+        user_agent=(request.headers.get("user-agent") or "")[:300],
+    )
     # Per-account throttle: each request sends an email, so every attempt counts.
     enforce_account_backoff(f"pwreset:{email}")
     record_account_attempt(f"pwreset:{email}")
@@ -1487,7 +1513,14 @@ def resend_confirmation(payload: ResendConfirmRequest, request: Request):
     if not email:
         raise HTTPException(400, "Email is required")
     verify_turnstile_token(payload.turnstile_token, _bot_client_ip(request))
-    enforce_auth_form_bot_checks(website=payload.website, form_opened_ms=payload.form_opened_ms)
+    enforce_form_bot_checks_with_strike(
+        website=payload.website,
+        form_opened_ms=payload.form_opened_ms,
+        email=email,
+        page="Resend confirmation",
+        client_ip=_bot_client_ip(request),
+        user_agent=(request.headers.get("user-agent") or "")[:300],
+    )
     enforce_account_backoff(f"resend:{email}")
     record_account_attempt(f"resend:{email}")
     try:
@@ -1550,6 +1583,9 @@ class CreateTicketRequest(BaseModel):
     why_feature: str | None = Field(None, max_length=10000)
     attachment_url: str | None = Field(None, max_length=2048)
     repeat_of_ticket_id: str | None = Field(None, max_length=64)
+    # Bot checker (honeypot + form timing) — not stored
+    website: str | None = Field(None, max_length=200)
+    form_opened_ms: int | None = Field(None, ge=0)
 
     @field_validator("type")
     @classmethod
@@ -1772,8 +1808,23 @@ def delete_support_ticket_draft(auth: dict = Depends(get_current_user)):
 
 
 @api_router.post("/tickets")
-def create_ticket(payload: CreateTicketRequest, auth: dict = Depends(get_current_user)):
+def create_ticket(
+    payload: CreateTicketRequest,
+    request: Request,
+    auth: dict = Depends(get_current_user),
+):
     from app.ticket_similarity import similar_tickets_access_allowed
+
+    require_active_user_profile(auth["id"])
+    enforce_form_bot_checks_with_strike(
+        website=payload.website,
+        form_opened_ms=payload.form_opened_ms,
+        user_id=auth.get("id"),
+        email=auth.get("email"),
+        page="Support ticket create",
+        client_ip=_bot_client_ip(request),
+        user_agent=(request.headers.get("user-agent") or "")[:300],
+    )
 
     data = {
         "title": payload.title,
@@ -16420,6 +16471,9 @@ class CreateDelegationTaskRequest(BaseModel):
     has_document: str | None = None  # 'yes' | 'no'
     document_url: str | None = None
     submitted_by: str | None = None
+    # Bot checker (honeypot + form timing) — not stored
+    website: str | None = Field(None, max_length=200)
+    form_opened_ms: int | None = Field(None, ge=0)
 
 
 def _parse_delegation_date(val) -> date | None:
@@ -16693,8 +16747,22 @@ def list_delegation_tasks(
 
 
 @api_router.post("/delegation/tasks")
-def create_delegation_task(payload: CreateDelegationTaskRequest, auth: dict = Depends(get_current_user)):
+def create_delegation_task(
+    payload: CreateDelegationTaskRequest,
+    request: Request,
+    auth: dict = Depends(get_current_user),
+):
     """Create a delegation task."""
+    require_active_user_profile(auth["id"])
+    enforce_form_bot_checks_with_strike(
+        website=payload.website,
+        form_opened_ms=payload.form_opened_ms,
+        user_id=auth.get("id"),
+        email=auth.get("email"),
+        page="Delegation task create",
+        client_ip=_bot_client_ip(request),
+        user_agent=(request.headers.get("user-agent") or "")[:300],
+    )
     try:
         date.fromisoformat(payload.due_date)
     except ValueError:
