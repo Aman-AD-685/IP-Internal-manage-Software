@@ -57,6 +57,7 @@ export const DelegationPage = () => {
   const [userFilter, setUserFilter] = useState<string | undefined>(undefined)
   const [delegationOnRangeFilter, setDelegationOnRangeFilter] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null)
   const initialUserFilterSet = useRef(false)
+  const loadGenRef = useRef(0)
   const [referenceNoFilter, setReferenceNoFilter] = useState<string>('__all__')
   const [completeModalTask, setCompleteModalTask] = useState<DelegationTask | null>(null)
   const [completeDocumentUrl, setCompleteDocumentUrl] = useState<string | null>(null)
@@ -74,6 +75,45 @@ export const DelegationPage = () => {
     }
   }, [canManage, location.search, user?.id])
 
+  const mergeUsers = useCallback(
+    (incoming: { id: string; full_name: string }[]) => {
+      setUsers((prev) => {
+        const map = new Map<string, string>()
+        for (const u of prev) {
+          if (u?.id) map.set(u.id, u.full_name || u.id)
+        }
+        for (const u of incoming) {
+          if (!u?.id) continue
+          const next = (u.full_name || '').trim()
+          const prevName = map.get(u.id)
+          const looksLikeId = !next || next === u.id || /^[0-9a-f-]{36}$/i.test(next)
+          if (!looksLikeId) map.set(u.id, next)
+          else if (!prevName) map.set(u.id, next || u.id)
+        }
+        if (user?.id) {
+          map.set(user.id, user.full_name || user.email || map.get(user.id) || 'You')
+        }
+        return Array.from(map.entries())
+          .map(([id, full_name]) => ({ id, full_name }))
+          .sort((a, b) => a.full_name.localeCompare(b.full_name))
+      })
+    },
+    [user?.id, user?.full_name, user?.email],
+  )
+
+  const loadUsers = useCallback(() => {
+    delegationApi
+      .getUsers()
+      .then((usersRes) => {
+        const loaded = usersRes.users || []
+        if (loaded.length) mergeUsers(loaded)
+        else if (user?.id) mergeUsers([{ id: user.id, full_name: user.full_name || user.email || 'You' }])
+      })
+      .catch(() => {
+        if (user?.id) mergeUsers([{ id: user.id, full_name: user.full_name || user.email || 'You' }])
+      })
+  }, [mergeUsers, user?.id, user?.full_name, user?.email])
+
   const loadTasks = useCallback(() => {
     const params: { status?: string; assignee_id?: string } = {}
     params.status = statusFilter
@@ -89,18 +129,39 @@ export const DelegationPage = () => {
     } else {
       setLoading(true)
     }
-    const tasksPromise = delegationApi.getTasks(params)
-    const usersPromise = delegationApi.getUsers()
-    Promise.all([tasksPromise, usersPromise])
-      .then(([tasksRes, usersRes]) => {
-        setTasks(tasksRes.tasks || [])
-        const loaded = usersRes.users || []
-        if (loaded.length) setUsers(loaded)
-        else if (user?.id) setUsers([{ id: user.id, full_name: user.full_name || user.email || 'You' }])
+    const gen = ++loadGenRef.current
+    delegationApi
+      .getTasks(params)
+      .then((tasksRes) => {
+        if (gen !== loadGenRef.current) return
+        const next = tasksRes.tasks || []
+        setTasks(next)
+        // Keep filter names even if /delegation/users failed or lagged.
+        mergeUsers(
+          next.flatMap((t) => {
+            const rows: { id: string; full_name: string }[] = []
+            if (t.assignee_id) {
+              rows.push({ id: t.assignee_id, full_name: t.assignee_name || t.assignee_id })
+            }
+            if (t.submitted_by) {
+              rows.push({ id: t.submitted_by, full_name: t.submitted_by_name || t.submitted_by })
+            }
+            return rows
+          }),
+        )
       })
-      .catch(() => message.error('Failed to load delegation tasks'))
-      .finally(() => setLoading(false))
-  }, [statusFilter, userFilter, canManage, user?.id, user?.full_name, user?.email])
+      .catch(() => {
+        if (gen !== loadGenRef.current) return
+        message.error('Failed to load delegation tasks')
+      })
+      .finally(() => {
+        if (gen === loadGenRef.current) setLoading(false)
+      })
+  }, [statusFilter, userFilter, canManage, mergeUsers])
+
+  useEffect(() => {
+    loadUsers()
+  }, [loadUsers])
 
   useEffect(() => {
     if (!canManage || userFilter !== undefined) loadTasks()
@@ -115,7 +176,8 @@ export const DelegationPage = () => {
       timer = window.setTimeout(() => {
         timer = null
         loadTasks()
-      }, 300)
+        loadUsers()
+      }, 400)
     }
     const onVisibility = () => {
       if (document.visibilityState === 'visible') schedule()
@@ -127,7 +189,19 @@ export const DelegationPage = () => {
       window.removeEventListener('focus', schedule)
       document.removeEventListener('visibilitychange', onVisibility)
     }
-  }, [loadTasks])
+  }, [loadTasks, loadUsers])
+
+  const userFilterOptions = useMemo(() => {
+    const opts = [{ value: '__all__', label: 'All' }, ...users.map((u) => ({ value: u.id, label: u.full_name || u.id }))]
+    // Selected UUID must always have a label (Ant Design otherwise shows raw id).
+    if (userFilter && userFilter !== '__all__' && !opts.some((o) => o.value === userFilter)) {
+      opts.push({
+        value: userFilter,
+        label: user?.id === userFilter ? user.full_name || user.email || 'You' : userFilter,
+      })
+    }
+    return opts
+  }, [users, userFilter, user?.id, user?.full_name, user?.email])
 
   const displayTasks = useMemo(() => {
     let rows = [...tasks]
@@ -642,11 +716,12 @@ export const DelegationPage = () => {
             {canManage && (
               <Select
                 placeholder="Filter by user"
-                allowClear
-                style={{ width: 160 }}
+                showSearch
+                optionFilterProp="label"
+                style={{ width: 200 }}
                 value={userFilter ?? '__all__'}
-                onChange={(v) => setUserFilter(v ?? undefined)}
-                options={[{ value: '__all__', label: 'All' }, ...users.map((u) => ({ value: u.id, label: u.full_name }))]}
+                onChange={(v) => setUserFilter(v == null || v === '' ? '__all__' : v)}
+                options={userFilterOptions}
               />
             )}
             <ContextMenuTarget

@@ -16566,6 +16566,7 @@ def _previous_week_range_ist() -> tuple[date, date]:
 @api_router.get("/delegation/users")
 def list_delegation_users(auth: dict = Depends(get_current_user), current: dict = Depends(get_current_user_with_role)):
     """List active users for Submitted By / assignee dropdowns (all authenticated users)."""
+    _ = auth, current
     try:
         r = (
             supabase.table("user_profiles")
@@ -16575,8 +16576,20 @@ def list_delegation_users(auth: dict = Depends(get_current_user), current: dict 
             .limit(500)
             .execute()
         )
-        return {"users": r.data or []}
-    except Exception:
+        users = []
+        for row in r.data or []:
+            uid = row.get("id")
+            if not uid:
+                continue
+            users.append(
+                {
+                    "id": str(uid),
+                    "full_name": (row.get("full_name") or "").strip() or str(uid),
+                }
+            )
+        return {"users": users}
+    except Exception as e:
+        _log(f"delegation/users error: {e}")
         return {"users": []}
 
 
