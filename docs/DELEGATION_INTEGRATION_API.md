@@ -41,8 +41,8 @@ Content-Type: application/json
   "title": "Follow up client invoice",
   "assignee_email": "staff@company.com",
   "due_date": "2026-07-25",
-  "delegation_on": "2026-07-22",
-  "submission_date": "2026-07-24",
+  "delegation_on": "2026-07-25",
+  "submission_date": "2026-07-25",
   "has_document": "no",
   "submitted_by_email": "manager@company.com",
   "external_ref": "claude-run-001"
@@ -50,6 +50,8 @@ Content-Type: application/json
 ```
 
 Required: `title`, `due_date`, and either `assignee_email` (preferred) or `assignee_id`.
+
+**Dates:** `delegation_on` and `submission_date` are always saved. CamelCase (`delegationOn`, `submissionDate`, `dueDate`) is accepted. If either date is missing/empty, it defaults to `due_date` (all three end up set).
 
 ## Claude Project instructions (paste)
 

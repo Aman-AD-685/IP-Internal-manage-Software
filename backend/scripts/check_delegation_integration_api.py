@@ -74,4 +74,28 @@ from app.bot_protect import _WRITE_BOT_UA_PATHS  # noqa: E402
 assert "/delegation/tasks" in _WRITE_BOT_UA_PATHS
 assert "/integrations/delegation/tasks" not in _WRITE_BOT_UA_PATHS
 
+# CamelCase body aliases + default dates → due_date
+from app.integrations_delegation_routes import (  # noqa: E402
+    IntegrationCreateDelegationRequest,
+    _ymd,
+)
+
+parsed = IntegrationCreateDelegationRequest.model_validate(
+    {
+        "title": "t",
+        "dueDate": "2026-07-25",
+        "assigneeEmail": "a@b.com",
+        "delegationOn": "2026-07-24",
+        "submissionDate": "2026-07-26",
+    }
+)
+assert parsed.due_date == "2026-07-25"
+assert parsed.delegation_on == "2026-07-24"
+assert parsed.submission_date == "2026-07-26"
+assert parsed.assignee_email == "a@b.com"
+
+# Missing dates → caller defaults via _ymd(None) or due
+assert _ymd(None) is None
+assert _ymd("2026-07-25T12:00:00Z") == "2026-07-25"
+
 print("check_delegation_integration_api: OK")
