@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import date
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 
 from app.delegation_write import insert_delegation_task
 from app.integration_auth import require_integration_key
@@ -22,18 +24,99 @@ integrations_delegation_router = APIRouter(
 _log = logging.getLogger("integrations_delegation")
 
 
+def _ymd(value: Any) -> str | None:
+    """Normalize to YYYY-MM-DD; accept ISO datetime strings."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    s = s[:10]
+    try:
+        date.fromisoformat(s)
+    except ValueError as err:
+        raise HTTPException(400, f"Invalid date {s!r}. Use YYYY-MM-DD") from err
+    return s
+
+
 class IntegrationCreateDelegationRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=500)
-    due_date: str  # YYYY-MM-DD
-    assignee_email: str | None = Field(None, max_length=320)
-    assignee_id: str | None = None
-    submitted_by_email: str | None = Field(None, max_length=320)
-    submitted_by: str | None = None
-    delegation_on: str | None = None
-    submission_date: str | None = None
-    has_document: str | None = None  # 'yes' | 'no'
-    document_url: str | None = Field(None, max_length=2000)
-    external_ref: str | None = Field(None, max_length=200)  # caller idempotency hint (logged only)
+    due_date: str = Field(
+        ...,
+        validation_alias=AliasChoices("due_date", "dueDate", "DueDate"),
+    )
+    assignee_email: str | None = Field(
+        None,
+        max_length=320,
+        validation_alias=AliasChoices("assignee_email", "assigneeEmail"),
+    )
+    assignee_id: str | None = Field(
+        None,
+        validation_alias=AliasChoices("assignee_id", "assigneeId"),
+    )
+    submitted_by_email: str | None = Field(
+        None,
+        max_length=320,
+        validation_alias=AliasChoices("submitted_by_email", "submittedByEmail"),
+    )
+    submitted_by: str | None = Field(
+        None,
+        validation_alias=AliasChoices("submitted_by", "submittedBy"),
+    )
+    # Bot often sends camelCase; accept both. Missing → defaulted to due_date on create.
+    delegation_on: str | None = Field(
+        None,
+        validation_alias=AliasChoices(
+            "delegation_on",
+            "delegationOn",
+            "DelegationOn",
+            "delegation_date",
+            "delegationDate",
+        ),
+    )
+    submission_date: str | None = Field(
+        None,
+        validation_alias=AliasChoices(
+            "submission_date",
+            "submissionDate",
+            "SubmissionDate",
+            "submit_date",
+            "submitDate",
+        ),
+    )
+    has_document: str | None = Field(
+        None,
+        validation_alias=AliasChoices("has_document", "hasDocument"),
+    )
+    document_url: str | None = Field(
+        None,
+        max_length=2000,
+        validation_alias=AliasChoices("document_url", "documentUrl"),
+    )
+    external_ref: str | None = Field(
+        None,
+        max_length=200,
+        validation_alias=AliasChoices("external_ref", "externalRef"),
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _flatten_nested(cls, data: Any) -> Any:
+        """Accept {task:{...}} / {data:{...}} wrappers some bots send."""
+        if not isinstance(data, dict):
+            return data
+        for nest in ("task", "data", "payload", "body"):
+            inner = data.get(nest)
+            if isinstance(inner, dict):
+                return {**inner, **{k: v for k, v in data.items() if k != nest}}
+        return data
+
+    @field_validator("due_date", "delegation_on", "submission_date", mode="before")
+    @classmethod
+    def _normalize_dates(cls, v: Any) -> Any:
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None
+        return str(v).strip()
 
 
 def _norm_email(value: str | None) -> str:
@@ -164,22 +247,32 @@ def create_integration_delegation_task(payload: IntegrationCreateDelegationReque
     if has_document and has_document not in ("yes", "no"):
         raise HTTPException(400, "has_document must be 'yes' or 'no'.")
 
+    due_date = _ymd(payload.due_date)
+    if not due_date:
+        raise HTTPException(400, "due_date is required (YYYY-MM-DD).")
+    # Always persist all three dates — missing → same as due_date (bot may omit or camelCase).
+    delegation_on = _ymd(payload.delegation_on) or due_date
+    submission_date = _ymd(payload.submission_date) or due_date
+
     created_by = _integration_actor_id(assignee_id)
     row = insert_delegation_task(
         title=title,
         assignee_id=assignee_id,
-        due_date=payload.due_date.strip(),
+        due_date=due_date,
         created_by=created_by,
-        delegation_on=(payload.delegation_on or "").strip() or None,
-        submission_date=(payload.submission_date or "").strip() or None,
+        delegation_on=delegation_on,
+        submission_date=submission_date,
         has_document=has_document,
         document_url=(payload.document_url or "").strip() or None,
         submitted_by=submitted_by_id,
     )
     _log.info(
-        "integration create task ref=%s assignee=%s external_ref=%s",
+        "integration create task ref=%s assignee=%s due=%s delegation_on=%s submission_date=%s external_ref=%s",
         row.get("reference_no"),
         assignee.get("email"),
+        due_date,
+        delegation_on,
+        submission_date,
         (payload.external_ref or "").strip() or None,
     )
     return {

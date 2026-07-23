@@ -77,18 +77,19 @@ def insert_delegation_task(
         "shift_count": 0,
         "shift_history": [],
     }
-    if delegation_on:
-        data["delegation_on"] = delegation_on
-    if submission_date:
-        data["submission_date"] = submission_date
+    # Always write date columns when provided (integration defaults both to due_date).
+    if delegation_on is not None and str(delegation_on).strip():
+        data["delegation_on"] = str(delegation_on).strip()[:10]
+    if submission_date is not None and str(submission_date).strip():
+        data["submission_date"] = str(submission_date).strip()[:10]
     if has_document:
         data["has_document"] = has_document
     if document_url:
         data["document_url"] = document_url
     if submitted_by:
         data["submitted_by"] = submitted_by
-    if submission_date:
-        data["last_assigned_date"] = submission_date
+    if data.get("submission_date"):
+        data["last_assigned_date"] = data["submission_date"]
     elif due_date:
         data["last_assigned_date"] = due_date
 
