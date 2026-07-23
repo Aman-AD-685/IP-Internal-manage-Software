@@ -243,11 +243,11 @@ export function OperationsOverview({ operations, user }: OperationsOverviewProps
 
   const supportColumns = [
     {
-      title: 'Reference No',
+      title: 'Ref',
       dataIndex: 'referenceNo',
       key: 'referenceNo',
       fixed: 'left' as const,
-      width: 140,
+      width: 88,
       render: (value: string, row: DashboardSupportDetailRow | DashboardOperationDetailRow) => {
         const targetUrl = 'targetUrl' in row
           ? row.targetUrl
@@ -255,15 +255,24 @@ export function OperationsOverview({ operations, user }: OperationsOverviewProps
         return <Typography.Link onClick={() => targetUrl && navigate(targetUrl)}>{value}</Typography.Link>
       },
     },
-    { title: 'Title', dataIndex: 'title', key: 'title', width: 220 },
-    { title: 'Type', dataIndex: 'type', key: 'type', width: 100 },
-    { title: 'Company', dataIndex: 'company', key: 'company', width: 180 },
-    { title: 'Current Stage', dataIndex: 'currentStage', key: 'currentStage', width: 150 },
+    {
+      title: 'Title',
+      dataIndex: 'title',
+      key: 'title',
+      width: 380,
+      // Allow multi-line titles in Support Details (no ellipsis clamp).
+      render: (value: string) => (
+        <span style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>{value || '—'}</span>
+      ),
+    },
+    { title: 'Type', dataIndex: 'type', key: 'type', width: 90 },
+    { title: 'Company', dataIndex: 'company', key: 'company', width: 170 },
+    { title: 'Current Stage', dataIndex: 'currentStage', key: 'currentStage', width: 130 },
     {
       title: 'Status',
       dataIndex: 'stageStatus',
       key: 'stageStatus',
-      width: 140,
+      width: 120,
       render: (value: string) => {
         const displayStatus = (value || 'Pending').trim() || 'Pending'
         return <Tag color={getStatusTagColor(displayStatus)}>{displayStatus}</Tag>
@@ -533,7 +542,7 @@ export function OperationsOverview({ operations, user }: OperationsOverviewProps
             columns={supportColumns}
             dataSource={visibleSupportRows}
             pagination={false}
-            scroll={{ x: 1000 }}
+            scroll={{ x: 980 }}
             locale={{ emptyText: supportLoading ? 'Loading Support data...' : 'No Support data found' }}
           />
           {hasMoreSupportRows && (
