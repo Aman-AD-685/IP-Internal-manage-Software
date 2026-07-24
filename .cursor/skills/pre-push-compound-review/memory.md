@@ -67,6 +67,7 @@ Do not remove entries; add dated bullets.
 ## Rejected suggestions
 
 - (Add when user declines a review recommendation)
+- 2026-07-24: App-wide IndustryPrime color/layout redesign — user kept **Team table only**; revert all other theme/sidebar/header/KPI color parity.
 
 ## Repository landmines
 
