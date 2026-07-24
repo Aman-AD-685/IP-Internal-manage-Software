@@ -1,4 +1,4 @@
-import { Alert, Button, Card, Col, Empty, List, Modal, Row, Skeleton, Space, Typography } from 'antd'
+import { Alert, Button, Card, Col, Empty, List, Modal, Progress, Row, Skeleton, Space, Table, Typography } from 'antd'
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { checklistApi } from '../../api/checklist'
@@ -22,7 +22,7 @@ const MyWork = lazy(() => import('./MyWork').then((m) => ({ default: m.MyWork })
 const KpiOverview = lazy(() => import('./KpiOverview').then((m) => ({ default: m.KpiOverview })))
 const DASHBOARD_KPI_NAMES = ['Shreyasi', 'Rimpa', 'Akash', 'Adrija', 'Soumya', 'Souvik'] as const
 const ADMIN_DASHBOARD_USERS = DASHBOARD_KPI_NAMES.filter((name) => name !== 'Soumya')
-const EXCLUDED_ADMIN_DASHBOARD_USERS = ['ayussh jhunjhunwala', 'bot', 'shubham', 'test']
+const EXCLUDED_ADMIN_DASHBOARD_USERS = ['ayussh jhunjhunwala', 'bot', 'test']
 
 type DashboardPerson = { id: string; full_name: string }
 type DashboardKpiPerson = (typeof DASHBOARD_KPI_NAMES)[number]
@@ -183,91 +183,118 @@ function AdminUserOverviewCards({
   }
 
   return (
-    <div className="universal-dashboard-user-grid">
-      {users.map((item) => {
-        const kpiPerson = personNameFromUser(item.full_name)
-        const personName = kpiPerson ?? item.full_name
-        const kpiHref = kpiPerson ? `${ROUTES.DASHBOARD_KPI}?person=${encodeURIComponent(kpiPerson)}` : ''
-        const workSummary = workSummaries[item.id]
-        const checklistDue = workSummary?.checklist.count ?? 0
-        const delegationDue = workSummary?.delegation.count ?? 0
-        const weeklyKpi = kpiSummaries[item.id]?.weekly
-        const monthlyKpi = kpiSummaries[item.id]?.monthly
-        const attendance = attendanceLeaveSummaries[item.id]?.attendance
-
-        return (
-          <Card className="universal-dashboard-user-card" key={item.id}>
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <div>
-                <Text type="secondary">User Dashboard</Text>
-                <Title level={4}>{personName} Dashboard</Title>
-              </div>
-
-              <div className="universal-dashboard-user-card-metrics">
-                <button
-                  type="button"
-                  className="universal-dashboard-user-card-metric-clickable"
-                  onClick={() => onOpenWorkSummary('checklist', item)}
-                >
-                  <Text type="secondary">Checklist</Text>
-                  <Title level={4}>{checklistDue}</Title>
-                  <Text type="secondary">Pending today</Text>
-                </button>
-                <button
-                  type="button"
-                  className="universal-dashboard-user-card-metric-clickable"
-                  onClick={() => onOpenWorkSummary('delegation', item)}
-                >
-                  <Text type="secondary">Delegation</Text>
-                  <Title level={4}>{delegationDue}</Title>
-                  <Text type="secondary">Assigned</Text>
-                </button>
-                {kpiPerson && (
-                  <>
-                    <div>
-                      <Text type="secondary">Weekly KPI</Text>
-                      <Title level={4}>{weeklyKpi == null ? '-' : `${weeklyKpi}%`}</Title>
-                      <Text type="secondary">Overview</Text>
-                    </div>
-                    <div>
-                      <Text type="secondary">Monthly KPI</Text>
-                      <Title level={4}>{monthlyKpi == null ? '-' : `${monthlyKpi}%`}</Title>
-                      <Text type="secondary">Overview</Text>
-                    </div>
-                  </>
-                )}
-                <button
-                  type="button"
-                  className="universal-dashboard-user-card-metric-clickable"
-                  onClick={() => onOpenWorkSummary('attendance', item)}
-                >
-                  <Text type="secondary">Attendance</Text>
-                  <Title level={4}>{attendance?.present ?? 0}</Title>
-                  <Text type="secondary">This month</Text>
-                </button>
-                <button
-                  type="button"
-                  className="universal-dashboard-user-card-metric-clickable"
-                  onClick={() => onOpenWorkSummary('leave', item)}
-                >
-                  <Text type="secondary">Absent</Text>
-                  <Title level={4}>{attendance?.absent ?? 0}</Title>
-                  <Text type="secondary">Days this month</Text>
-                </button>
-              </div>
-
-              {kpiPerson && (
-                <Space wrap>
-                  <Button type="primary" onClick={() => navigate(kpiHref)}>
-                    KPI Details
-                  </Button>
-                </Space>
-              )}
-            </Space>
-          </Card>
-        )
-      })}
-    </div>
+    <Table
+      className="universal-dashboard-team-table"
+      size="small"
+      rowKey="id"
+      pagination={false}
+      dataSource={users}
+      scroll={{ x: 900 }}
+      columns={[
+        {
+          title: 'Name',
+          key: 'name',
+          fixed: 'left' as const,
+          width: 160,
+          render: (_: unknown, item: DashboardPerson) => {
+            const kpiPerson = personNameFromUser(item.full_name)
+            return <Text strong>{kpiPerson ?? item.full_name}</Text>
+          },
+        },
+        {
+          title: 'KPI',
+          key: 'kpi',
+          width: 160,
+          render: (_: unknown, item: DashboardPerson) => {
+            const weekly = kpiSummaries[item.id]?.weekly
+            const monthly = kpiSummaries[item.id]?.monthly
+            const pct = monthly ?? weekly
+            if (pct == null) return <Text type="secondary">—</Text>
+            return (
+              <Progress
+                percent={Math.max(0, Math.min(100, Number(pct)))}
+                size="small"
+                status={Number(pct) < 50 ? 'exception' : Number(pct) < 80 ? 'active' : 'success'}
+                format={() => `${pct}%`}
+              />
+            )
+          },
+        },
+        {
+          title: 'Checklist',
+          key: 'checklist',
+          width: 100,
+          render: (_: unknown, item: DashboardPerson) => (
+            <Button type="link" onClick={() => onOpenWorkSummary('checklist', item)}>
+              {workSummaries[item.id]?.checklist.count ?? 0}
+            </Button>
+          ),
+        },
+        {
+          title: 'Delegation',
+          key: 'delegation',
+          width: 110,
+          render: (_: unknown, item: DashboardPerson) => (
+            <Button type="link" onClick={() => onOpenWorkSummary('delegation', item)}>
+              {workSummaries[item.id]?.delegation.count ?? 0}
+            </Button>
+          ),
+        },
+        {
+          title: 'Present',
+          key: 'present',
+          width: 90,
+          render: (_: unknown, item: DashboardPerson) => (
+            <Button type="link" onClick={() => onOpenWorkSummary('attendance', item)}>
+              {attendanceLeaveSummaries[item.id]?.attendance?.present ?? 0}
+            </Button>
+          ),
+        },
+        {
+          title: 'Absent',
+          key: 'absent',
+          width: 90,
+          render: (_: unknown, item: DashboardPerson) => (
+            <Button type="link" onClick={() => onOpenWorkSummary('leave', item)}>
+              {attendanceLeaveSummaries[item.id]?.attendance?.absent ?? 0}
+            </Button>
+          ),
+        },
+        {
+          title: 'Status',
+          key: 'status',
+          width: 110,
+          render: (_: unknown, item: DashboardPerson) => {
+            const checklistDue = workSummaries[item.id]?.checklist.count ?? 0
+            const delegationDue = workSummaries[item.id]?.delegation.count ?? 0
+            const load = checklistDue + delegationDue
+            const cls =
+              load === 0
+                ? 'fms-status-pill fms-status-pill--ok'
+                : load >= 8
+                  ? 'fms-status-pill fms-status-pill--danger'
+                  : 'fms-status-pill fms-status-pill--warn'
+            const label = load === 0 ? 'Clear' : load >= 8 ? 'Heavy' : 'Pending'
+            return <span className={cls}>{label}</span>
+          },
+        },
+        {
+          title: '',
+          key: 'actions',
+          width: 120,
+          render: (_: unknown, item: DashboardPerson) => {
+            const kpiPerson = personNameFromUser(item.full_name)
+            if (!kpiPerson) return null
+            const kpiHref = `${ROUTES.DASHBOARD_KPI}?person=${encodeURIComponent(kpiPerson)}`
+            return (
+              <Button type="primary" size="small" onClick={() => navigate(kpiHref)}>
+                KPI Details
+              </Button>
+            )
+          },
+        },
+      ]}
+    />
   )
 }
 
