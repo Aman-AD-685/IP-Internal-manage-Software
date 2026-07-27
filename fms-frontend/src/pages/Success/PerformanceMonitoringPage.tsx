@@ -358,49 +358,56 @@ export const PerformanceMonitoringPage = () => {
     setTrainingModalOpen(true)
   }
 
-  const loadTrainingIntoForm = async (ticketId: string) => {
-    try {
-      const res = await fetchWithTimeout(
-        `${API_BASE_URL}/success/performance/training?ticket_id=${ticketId}`,
-        { headers: getAuthHeaders() },
-      )
-      if (!res.ok) {
-        const detail = await res.text().catch(() => '')
-        message.error(
-          res.status === 403
-            ? 'Failed to load training data (client blocked). Refresh and try again.'
-            : `Failed to load training data (${res.status}${detail ? `: ${detail.slice(0, 80)}` : ''})`,
-        )
-        return
+  useEffect(() => {
+    if (!trainingModalOpen || !selectedItem?.id) return
+    const ticketId = selectedItem.id
+    let cancelled = false
+    ;(async () => {
+      try {
+        // Use axios (same as list) so production X-FMS-Client + auth interceptors always apply.
+        const data = await dashboardApi.getSuccessPerformanceTraining(ticketId)
+        if (cancelled) return
+        setFeaturesLocked(Boolean(data.features_locked))
+        const t = data.training
+        if (t) {
+          trainingForm.setFieldsValue({
+            call_poc: yesNoValue(t.call_poc),
+            message_poc: yesNoValue(t.message_poc),
+            message_owner: yesNoValue(t.message_owner),
+            training_schedule_date: toDateInputValue(t.training_schedule_date),
+            training_status: yesNoValue(t.training_status),
+            remarks: (t.remarks as string | null | undefined) ?? '',
+            feature_ids: Array.isArray(data.feature_ids) ? data.feature_ids : [],
+          })
+        } else {
+          trainingForm.setFieldsValue({
+            call_poc: 'no',
+            message_poc: 'no',
+            message_owner: 'no',
+            training_status: 'no',
+            training_schedule_date: undefined,
+            remarks: '',
+            feature_ids: [],
+          })
+        }
+      } catch (e) {
+        if (cancelled) return
+        const ax = e as { response?: { status?: number; data?: { detail?: string } }; message?: string }
+        const status = ax.response?.status
+        const detail = ax.response?.data?.detail
+        if (status === 403) {
+          message.error('Failed to load training data (blocked). Hard-refresh the page and try again.')
+        } else if (status) {
+          message.error(`Failed to load training data (${status}${detail ? `: ${String(detail).slice(0, 80)}` : ''})`)
+        } else {
+          message.error(`Failed to load training data${ax.message ? `: ${ax.message}` : ''}`)
+        }
       }
-      const data = await res.json()
-      const t = data.training as Record<string, unknown> | null | undefined
-      setFeaturesLocked(Boolean(data.features_locked))
-      if (t) {
-        trainingForm.setFieldsValue({
-          call_poc: yesNoValue(t.call_poc),
-          message_poc: yesNoValue(t.message_poc),
-          message_owner: yesNoValue(t.message_owner),
-          training_schedule_date: toDateInputValue(t.training_schedule_date),
-          training_status: yesNoValue(t.training_status),
-          remarks: t.remarks ?? '',
-          feature_ids: Array.isArray(data.feature_ids) ? data.feature_ids : [],
-        })
-      } else {
-        trainingForm.setFieldsValue({
-          call_poc: 'no',
-          message_poc: 'no',
-          message_owner: 'no',
-          training_status: 'no',
-          training_schedule_date: undefined,
-          remarks: '',
-          feature_ids: [],
-        })
-      }
-    } catch {
-      message.error('Failed to load training data')
+    })()
+    return () => {
+      cancelled = true
     }
-  }
+  }, [trainingModalOpen, selectedItem?.id])
 
   const openFollowupModal = async (record: POCItem) => {
     setSelectedItem(record)
@@ -478,32 +485,24 @@ export const PerformanceMonitoringPage = () => {
     if (!selectedItem) return
     setSubmitting(true)
     try {
-      const res = await fetchWithTimeout(`${API_BASE_URL}/success/performance/training`, {
-        method: 'POST',
-        headers: getAuthHeadersWithJson(),
-        body: JSON.stringify({
-          ticket_id: selectedItem.id,
-          call_poc: values.call_poc,
-          message_poc: values.message_poc,
-          message_owner: values.message_owner,
-          training_schedule_date: values.training_schedule_date || null,
-          training_status: values.training_status,
-          remarks: values.remarks || null,
-          feature_ids: values.feature_ids || [],
-        }),
+      const data = await dashboardApi.saveSuccessPerformanceTraining({
+        ticket_id: selectedItem.id,
+        call_poc: values.call_poc,
+        message_poc: values.message_poc,
+        message_owner: values.message_owner,
+        training_schedule_date: values.training_schedule_date || null,
+        training_status: values.training_status,
+        remarks: values.remarks || null,
+        feature_ids: values.feature_ids || [],
       })
-      const data = await res.json().catch(() => ({}))
-      if (res.ok) {
-        if (data.features_locked != null) setFeaturesLocked(data.features_locked)
-        message.success('Training saved.')
-        setTrainingModalOpen(false)
-        invalidateAfterPerformanceNaChange()
-        loadItems(undefined, { skipCache: true })
-      } else {
-        message.error((data as { detail?: string })?.detail || 'Failed to save training')
-      }
-    } catch {
-      message.error('Failed to save training')
+      if (data.features_locked != null) setFeaturesLocked(data.features_locked)
+      message.success('Training saved.')
+      setTrainingModalOpen(false)
+      invalidateAfterPerformanceNaChange()
+      loadItems(undefined, { skipCache: true })
+    } catch (e) {
+      const ax = e as { response?: { data?: { detail?: string } } }
+      message.error(ax.response?.data?.detail || 'Failed to save training')
     } finally {
       setSubmitting(false)
     }
@@ -1054,9 +1053,6 @@ export const PerformanceMonitoringPage = () => {
         title={selectedItem?.has_training ? `Edit Training - ${selectedItem?.reference_no}` : `Training - ${selectedItem?.reference_no}`}
         open={trainingModalOpen}
         onCancel={() => { setTrainingModalOpen(false); setSelectedItem(null) }}
-        afterOpenChange={(open) => {
-          if (open && selectedItem?.id) void loadTrainingIntoForm(selectedItem.id)
-        }}
         footer={null}
         destroyOnClose
         width={560}
