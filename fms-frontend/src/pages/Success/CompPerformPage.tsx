@@ -1,9 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Card, Typography, Select, Table, message, Modal, Alert, Descriptions, Space } from 'antd'
 import { LineChartOutlined } from '@ant-design/icons'
-import { API_BASE_URL } from '../../api/axios'
 import { dashboardApi } from '../../api/dashboard'
-import { storage } from '../../utils/storage'
 import { sessionApiCacheGet } from '../../utils/sessionApiCache'
 import { sortPerformanceRefOptions } from '../../utils/performanceRefs'
 import { PerformanceTablePaginationBar } from '../../components/success/PerformanceTablePaginationBar'
@@ -11,8 +9,6 @@ import { TableWithSkeletonLoading } from '../../components/common/skeletons'
 import { OperationsSectionTabs } from '../../components/common/OperationsSectionTabs'
 
 const { Title } = Typography
-
-const FETCH_TIMEOUT_MS = 15000
 
 interface POCItem {
   id: string
@@ -68,16 +64,6 @@ export const CompPerformPage = () => {
   useEffect(() => {
     setTablePage(1)
   }, [filterRef, filterCompany])
-
-  const fetchWithTimeout = (url: string, options: RequestInit = {}) => {
-    const controller = new AbortController()
-    const id = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
-    return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(id))
-  }
-
-  const getAuthHeaders = () => ({
-    Authorization: `Bearer ${storage.getToken() ?? ''}`,
-  })
 
   const loadItems = async (options?: { skipCache?: boolean }) => {
     setSetupError(null)

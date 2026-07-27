@@ -19,7 +19,7 @@ import {
 } from 'antd'
 import dayjs from 'dayjs'
 import { PlusOutlined, LineChartOutlined, EditOutlined, FormOutlined, UndoOutlined } from '@ant-design/icons'
-import { API_BASE_URL } from '../../api/axios'
+import { API_BASE_URL, getBrowserApiHeaders } from '../../api/axios'
 import { dashboardApi } from '../../api/dashboard'
 import { storage } from '../../utils/storage'
 import {
@@ -180,13 +180,8 @@ export const PerformanceMonitoringPage = () => {
     return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(id))
   }
 
-  const getAuthHeaders = () => ({
-    Authorization: `Bearer ${storage.getToken() ?? ''}`,
-  })
-  const getAuthHeadersWithJson = () => ({
-    Authorization: `Bearer ${storage.getToken() ?? ''}`,
-    'Content-Type': 'application/json',
-  })
+  const getAuthHeaders = () => getBrowserApiHeaders()
+  const getAuthHeadersWithJson = () => getBrowserApiHeaders({ 'Content-Type': 'application/json' })
 
   const loadCapabilities = async () => {
     try {
@@ -370,7 +365,12 @@ export const PerformanceMonitoringPage = () => {
         { headers: getAuthHeaders() },
       )
       if (!res.ok) {
-        message.error('Failed to load training data')
+        const detail = await res.text().catch(() => '')
+        message.error(
+          res.status === 403
+            ? 'Failed to load training data (client blocked). Refresh and try again.'
+            : `Failed to load training data (${res.status}${detail ? `: ${detail.slice(0, 80)}` : ''})`,
+        )
         return
       }
       const data = await res.json()
