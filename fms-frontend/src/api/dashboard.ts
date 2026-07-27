@@ -457,6 +457,46 @@ export const dashboardApi = {
     sessionApiCacheSet(key, r.data, API_CACHE_TTL_MS.successPerformanceFeatures)
     return r.data
   },
+  getSuccessPerformanceTraining: async (
+    ticketId: string,
+  ): Promise<{
+    training: Record<string, unknown> | null
+    feature_ids: string[]
+    features_locked?: boolean
+  }> => {
+    const r = await apiClient.get<{
+      training: Record<string, unknown> | null
+      feature_ids: string[]
+      features_locked?: boolean
+    }>('/success/performance/training', {
+      params: { ticket_id: ticketId },
+      timeout: 45000,
+    })
+    return r.data
+  },
+  saveSuccessPerformanceTraining: async (body: {
+    ticket_id: string
+    call_poc: string
+    message_poc: string
+    message_owner: string
+    training_schedule_date?: string | null
+    training_status: string
+    remarks?: string | null
+    feature_ids: string[]
+  }): Promise<{
+    training: Record<string, unknown> | null
+    feature_ids: string[]
+    features_locked?: boolean
+    detail?: string
+  }> => {
+    const r = await apiClient.post<{
+      training: Record<string, unknown> | null
+      feature_ids: string[]
+      features_locked?: boolean
+      detail?: string
+    }>('/success/performance/training', body, { timeout: 45000 })
+    return r.data
+  },
   getSuccessKpiTillDate: async (): Promise<{
     success: boolean
     rangeStart?: string
