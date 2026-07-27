@@ -35,6 +35,16 @@ const { Title, Text } = Typography
 /* List endpoint batches Supabase calls; allow headroom for cold DB / network. */
 const FETCH_TIMEOUT_MS = 45000
 
+function toDateInputValue(value: unknown): string | undefined {
+  if (value == null || value === '') return undefined
+  const match = String(value).match(/^(\d{4}-\d{2}-\d{2})/)
+  return match?.[1]
+}
+
+function yesNoValue(value: unknown): 'yes' | 'no' {
+  return String(value ?? 'no').trim().toLowerCase() === 'yes' ? 'yes' : 'no'
+}
+
 interface Company {
   id: string
   name: string
@@ -346,39 +356,46 @@ export const PerformanceMonitoringPage = () => {
     }
   }
 
-  const openTrainingModal = async (record: POCItem) => {
+  const openTrainingModal = (record: POCItem) => {
     setSelectedItem(record)
-    setTrainingModalOpen(true)
     setFeaturesLocked(false)
+    trainingForm.resetFields()
+    setTrainingModalOpen(true)
+  }
+
+  const loadTrainingIntoForm = async (ticketId: string) => {
     try {
       const res = await fetchWithTimeout(
-        `${API_BASE_URL}/success/performance/training?ticket_id=${record.id}`,
-        { headers: getAuthHeaders() }
+        `${API_BASE_URL}/success/performance/training?ticket_id=${ticketId}`,
+        { headers: getAuthHeaders() },
       )
-      if (res.ok) {
-        const data = await res.json()
-        const t = data.training
-        setFeaturesLocked(data.features_locked ?? false)
-        if (t) {
-          trainingForm.setFieldsValue({
-            call_poc: t.call_poc ?? 'no',
-            message_poc: t.message_poc ?? 'no',
-            message_owner: t.message_owner ?? 'no',
-            training_schedule_date: t.training_schedule_date || undefined,
-            training_status: t.training_status ?? 'no',
-            remarks: t.remarks,
-            feature_ids: data.feature_ids || [],
-          })
-        } else {
-          trainingForm.resetFields()
-          trainingForm.setFieldsValue({
-            call_poc: 'no',
-            message_poc: 'no',
-            message_owner: 'no',
-            training_status: 'no',
-            feature_ids: [],
-          })
-        }
+      if (!res.ok) {
+        message.error('Failed to load training data')
+        return
+      }
+      const data = await res.json()
+      const t = data.training as Record<string, unknown> | null | undefined
+      setFeaturesLocked(Boolean(data.features_locked))
+      if (t) {
+        trainingForm.setFieldsValue({
+          call_poc: yesNoValue(t.call_poc),
+          message_poc: yesNoValue(t.message_poc),
+          message_owner: yesNoValue(t.message_owner),
+          training_schedule_date: toDateInputValue(t.training_schedule_date),
+          training_status: yesNoValue(t.training_status),
+          remarks: t.remarks ?? '',
+          feature_ids: Array.isArray(data.feature_ids) ? data.feature_ids : [],
+        })
+      } else {
+        trainingForm.setFieldsValue({
+          call_poc: 'no',
+          message_poc: 'no',
+          message_owner: 'no',
+          training_status: 'no',
+          training_schedule_date: undefined,
+          remarks: '',
+          feature_ids: [],
+        })
       }
     } catch {
       message.error('Failed to load training data')
@@ -1037,6 +1054,9 @@ export const PerformanceMonitoringPage = () => {
         title={selectedItem?.has_training ? `Edit Training - ${selectedItem?.reference_no}` : `Training - ${selectedItem?.reference_no}`}
         open={trainingModalOpen}
         onCancel={() => { setTrainingModalOpen(false); setSelectedItem(null) }}
+        afterOpenChange={(open) => {
+          if (open && selectedItem?.id) void loadTrainingIntoForm(selectedItem.id)
+        }}
         footer={null}
         destroyOnClose
         width={560}
@@ -1117,7 +1137,7 @@ export const PerformanceMonitoringPage = () => {
             label="Current total %"
             help="Calculated from server. New total = this + feature share when marked Completed."
           >
-            <InputNumber min={0} max={100} step={0.01} style={{ width: 120 }} disabled />
+            <InputNumber min={0} max={100} step={0.01} style={{ width: 120 }} readOnly controls={false} />
           </Form.Item>
           <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
             <Form.Item name="status" label="Status *" rules={[{ required: true }]} style={{ marginBottom: 8 }}>
