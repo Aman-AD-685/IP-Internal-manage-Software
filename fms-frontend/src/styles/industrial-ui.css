@@ -147,10 +147,20 @@
 
 .app-content .ant-table-tbody > tr > td {
   border-bottom: 1px solid #f1f5f9 !important;
+  color: var(--fms-text, #0f172a) !important;
 }
 
 .app-content .ant-table-tbody > tr:hover > td {
   background: #f8fafc !important;
+}
+
+.app-content .ant-btn-default,
+.app-content .ant-btn-default .ant-btn-icon {
+  color: var(--fms-text, #0f172a) !important;
+}
+
+.app-content .ant-btn-link:not(.ant-btn-dangerous) {
+  color: var(--fms-primary, #60a5fa) !important;
 }
 
 /* Forms — all inputs inside app pages */
@@ -235,6 +245,21 @@
   background: var(--fms-accent) !important;
   border-color: var(--fms-accent) !important;
   color: var(--fms-text) !important;
+}
+
+.ant-modal .ant-select-selection-item,
+.ant-modal .ant-input,
+.ant-modal textarea.ant-input,
+.ant-modal .ant-input-number-input {
+  color: var(--fms-text, #0f172a) !important;
+  -webkit-text-fill-color: var(--fms-text, #0f172a) !important;
+}
+
+.ant-modal .ant-input-number-disabled .ant-input-number-input,
+.ant-modal .ant-input-number-readonly .ant-input-number-input {
+  color: var(--fms-text, #0f172a) !important;
+  -webkit-text-fill-color: var(--fms-text, #0f172a) !important;
+  opacity: 1 !important;
 }
 
 /* ── Dashboard KPI page ───────────────────────────────────────────────────── */
