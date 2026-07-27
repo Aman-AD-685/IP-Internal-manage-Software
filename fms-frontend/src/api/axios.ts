@@ -162,6 +162,15 @@ export function resolveEscalationStageCronUrl(): string {
 
 export const API_BASE_URL = resolveApiBase()
 
+/** Headers for raw `fetch` calls (must match axios interceptor — production requires X-FMS-Client). */
+export function getBrowserApiHeaders(extra?: Record<string, string>): Record<string, string> {
+  return {
+    Authorization: `Bearer ${storage.getToken() ?? ''}`,
+    'X-FMS-Client': 'web',
+    ...extra,
+  }
+}
+
 if (import.meta.env.PROD && (API_BASE_URL.includes("127.0.0.1") || API_BASE_URL.includes("localhost"))) {
   console.error(
     "[FMS] Production build is using localhost as API. Set VITE_API_BASE_URL on Vercel, window.__FMS_API_BASE_URL__, or fix .env.production."

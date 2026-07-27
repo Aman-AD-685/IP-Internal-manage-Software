@@ -77,6 +77,7 @@ Do not remove entries; add dated bullets.
 - Production API must be Render backend URL, not Vercel frontend URL.
 - Branch `fix/production-frontend-cache` is active deploy branch (verify before merging to main).
 - 2026-07-27: Ant Design Modal `destroyOnClose` + `setFieldsValue` before Form mount fails on slow prod API — load in `afterOpenChange` (or remove destroyOnClose).
+- 2026-07-27: Production `FMS_CLIENT_HEADER_REQUIRED` — raw `fetch` must send `X-FMS-Client: web` (axios interceptor does; Success Performance training/followup used fetch without it → 403).
 
 ## Coding style (learned)
 
