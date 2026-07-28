@@ -1689,6 +1689,22 @@ class PromoteToFeatureRequest(BaseModel):
         return self
 
 
+class ShiftTicketTypeRequest(BaseModel):
+    """Chore ↔ Bug shift (same family as promote-to-feature)."""
+    target_type: str
+    why: str
+
+    @model_validator(mode="after")
+    def require_shift_fields(self):
+        tt = (self.target_type or "").strip().lower()
+        if tt not in ("chore", "bug"):
+            raise ValueError("target_type must be chore or bug")
+        if not (self.why or "").strip():
+            raise ValueError("why is required when shifting ticket type")
+        self.target_type = tt
+        return self
+
+
 class CreateTicketResponseRequest(BaseModel):
     response_text: str
 
@@ -3180,6 +3196,76 @@ def promote_ticket_to_feature(
     from app.ws_hub import broadcast_ticket_changed
 
     broadcast_ticket_changed(ticket_id, "promote")
+    rows = _enrich_tickets_with_lookups([out.data[0]])
+    return rows[0] if rows else out.data[0]
+
+
+@api_router.post("/tickets/{ticket_id}/shift-type")
+def shift_ticket_type(
+    ticket_id: str,
+    payload: ShiftTicketTypeRequest,
+    auth: dict = Depends(get_current_user),
+):
+    """Shift Chore → Bug or Bug → Chore: new CH/BU ref, keep history. Same gate as promote-to-feature."""
+    target = payload.target_type
+    r = (
+        supabase.table("tickets")
+        .select("id, type, reference_no, staging_planned, status_2")
+        .eq("id", ticket_id)
+        .single()
+        .execute()
+    )
+    if not r.data:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    row = r.data
+    _require_ticket_section_edit(auth["id"], "chores_bugs")
+    ticket_type = (row.get("type") or "").strip().lower()
+    if ticket_type not in ("chore", "bug"):
+        raise HTTPException(status_code=400, detail="Only Chores or Bug tickets can be shifted between Chore and Bug")
+    if ticket_type == target:
+        raise HTTPException(status_code=400, detail=f"Ticket is already a {target}")
+    if row.get("staging_planned") or (row.get("status_2") or "").strip().lower() == "staging":
+        raise HTTPException(
+            status_code=400,
+            detail="Tickets in Staging cannot be type-shifted. Move back to Chores & Bugs first.",
+        )
+
+    old_ref = (row.get("reference_no") or "").strip()
+    if not old_ref:
+        raise HTTPException(status_code=400, detail="Ticket has no reference number")
+
+    new_ref = _next_ex_ticket_reference_no(target)
+    now = datetime.utcnow().isoformat()
+    why = payload.why.strip()
+    patch = {
+        "reference_no": new_ref,
+        "type": target,
+        "updated_at": now,
+    }
+    out = supabase.table("tickets").update(patch).eq("id", ticket_id).execute()
+    if not out.data:
+        raise HTTPException(status_code=500, detail=f"Could not shift ticket to {target}")
+
+    try:
+        supabase.table("ticket_history").insert({
+            "ticket_id": ticket_id,
+            "changed_by": auth["id"],
+            "field_name": "type_shift",
+            "old_value": f"{ticket_type}:{old_ref}",
+            "new_value": f"{target}:{new_ref}|why:{why[:500]}",
+            "change_type": "type_shift",
+        }).execute()
+    except Exception:
+        pass
+
+    global _REF_NO_TO_COMPANY_LOADED, _COMPANIES_BY_NAME_LOADED
+    _REF_NO_TO_COMPANY_LOADED = False
+    _COMPANIES_BY_NAME_LOADED = False
+    invalidate_dashboard_read_caches()
+    _invalidate_ttl_cache_key_prefix("tickets:list:")
+    from app.ws_hub import broadcast_ticket_changed
+
+    broadcast_ticket_changed(ticket_id, "type_shift")
     rows = _enrich_tickets_with_lookups([out.data[0]])
     return rows[0] if rows else out.data[0]
 
