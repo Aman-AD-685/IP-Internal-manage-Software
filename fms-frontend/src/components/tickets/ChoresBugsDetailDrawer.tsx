@@ -14,7 +14,16 @@ import {
   Divider,
   DatePicker,
 } from 'antd'
-import { RocketOutlined, EditOutlined, CheckOutlined, CloseOutlined, RetweetOutlined, StarOutlined } from '@ant-design/icons'
+import {
+  RocketOutlined,
+  EditOutlined,
+  CheckOutlined,
+  CloseOutlined,
+  RetweetOutlined,
+  StarOutlined,
+  BugOutlined,
+  ToolOutlined,
+} from '@ant-design/icons'
 import { ticketsApi, type Stage2Remark } from '../../api/tickets'
 import { formatDateTable, formatReplySla, formatDelay, stagingDelaySeconds } from '../../utils/helpers'
 import type { Ticket } from '../../api/tickets'
@@ -81,6 +90,9 @@ export const ChoresBugsDetailDrawer = ({
   const [promoteModalOpen, setPromoteModalOpen] = useState(false)
   const [promoteWhyFeature, setPromoteWhyFeature] = useState('')
   const [promotingToFeature, setPromotingToFeature] = useState(false)
+  const [typeShiftTarget, setTypeShiftTarget] = useState<'chore' | 'bug' | null>(null)
+  const [typeShiftWhy, setTypeShiftWhy] = useState('')
+  const [typeShifting, setTypeShifting] = useState(false)
   const [stage2Remarks, setStage2Remarks] = useState<Stage2Remark[]>([])
   const [newRemarkText, setNewRemarkText] = useState('')
   const [addingRemark, setAddingRemark] = useState(false)
@@ -466,6 +478,8 @@ export const ChoresBugsDetailDrawer = ({
   const inStaging =
     !!(ticket?.staging_planned) || (ticket?.status_2 || '').toLowerCase() === 'staging'
   const canPromoteToFeature = !readOnly && !inStaging && (ticket?.type === 'chore' || ticket?.type === 'bug')
+  const canShiftToBug = canPromoteToFeature && ticket?.type === 'chore'
+  const canShiftToChore = canPromoteToFeature && ticket?.type === 'bug'
 
   const handlePromoteToFeature = async () => {
     if (!ticketId || readOnly) return
@@ -500,6 +514,58 @@ export const ChoresBugsDetailDrawer = ({
       setPromotingToFeature(false)
     }
   }
+
+  const handleShiftType = async () => {
+    if (!ticketId || readOnly || !typeShiftTarget) return
+    const why = typeShiftWhy.trim()
+    if (!why) {
+      message.warning(
+        typeShiftTarget === 'bug'
+          ? 'Please explain why this should be a Bug'
+          : 'Please explain why this should be a Chore',
+      )
+      return
+    }
+    setTypeShifting(true)
+    try {
+      const updated = await ticketsApi.shiftType(ticketId, typeShiftTarget, why)
+      const label = typeShiftTarget === 'bug' ? 'Bug' : 'Chore'
+      message.success(`Shifted to ${label} as ${updated.reference_no}`)
+      setTypeShiftTarget(null)
+      setTypeShiftWhy('')
+      onUpdate?.()
+      onClose()
+    } catch (e: unknown) {
+      message.error(
+        apiUserMessage(e, `Could not shift this ticket to ${typeShiftTarget}. Please try again.`, {
+          status503:
+            'Type shift is temporarily unavailable. Please try again in a few minutes or contact your administrator.',
+        }),
+      )
+    } finally {
+      setTypeShifting(false)
+    }
+  }
+
+  const typeShiftButtons = (
+    <>
+      {canShiftToBug && (
+        <Button icon={<BugOutlined />} onClick={() => setTypeShiftTarget('bug')}>
+          Shift to Bug
+        </Button>
+      )}
+      {canShiftToChore && (
+        <Button icon={<ToolOutlined />} onClick={() => setTypeShiftTarget('chore')}>
+          Shift to Chore
+        </Button>
+      )}
+      {canPromoteToFeature && (
+        <Button icon={<StarOutlined />} onClick={() => setPromoteModalOpen(true)}>
+          Shift to Feature
+        </Button>
+      )}
+    </>
+  )
 
   return (
     <>
@@ -616,19 +682,13 @@ export const ChoresBugsDetailDrawer = ({
                   >
                     Mark as Staging
                   </Button>
-                  {canPromoteToFeature && (
-                    <Button icon={<StarOutlined />} onClick={() => setPromoteModalOpen(true)}>
-                      Shift to Feature
-                    </Button>
-                  )}
+                  {typeShiftButtons}
                 </Space>
               </div>
             )}
             {!readOnly && canPromoteToFeature && (ticket.staging_planned || status1 !== 'no') && (
               <div style={{ marginBottom: 16 }}>
-                <Button icon={<StarOutlined />} onClick={() => setPromoteModalOpen(true)}>
-                  Shift to Feature
-                </Button>
+                <Space wrap>{typeShiftButtons}</Space>
               </div>
             )}
 
@@ -1241,6 +1301,41 @@ export const ChoresBugsDetailDrawer = ({
             value={promoteWhyFeature}
             onChange={(e) => setPromoteWhyFeature(e.target.value)}
             placeholder="Explain why this is a feature request, not a chore or bug fix"
+            style={{ marginTop: 8 }}
+          />
+        </div>
+      </Modal>
+
+      <Modal
+        title={typeShiftTarget === 'bug' ? 'Shift to Bug' : 'Shift to Chore'}
+        open={!!typeShiftTarget}
+        onCancel={() => {
+          setTypeShiftTarget(null)
+          setTypeShiftWhy('')
+        }}
+        onOk={() => void handleShiftType()}
+        confirmLoading={typeShifting}
+        okText={typeShiftTarget === 'bug' ? 'Shift to Bug' : 'Shift to Chore'}
+      >
+        <Typography.Paragraph type="secondary">
+          This ticket will receive a new {typeShiftTarget === 'bug' ? 'Bug (BU-)' : 'Chore (CH-)'} reference.
+          Current reference <Text strong>{ticket?.reference_no || '—'}</Text> is kept in history.
+        </Typography.Paragraph>
+        <div>
+          <Text strong>
+            {typeShiftTarget === 'bug'
+              ? 'Why should this be a Bug? *'
+              : 'Why should this be a Chore? *'}
+          </Text>
+          <TextArea
+            rows={4}
+            value={typeShiftWhy}
+            onChange={(e) => setTypeShiftWhy(e.target.value)}
+            placeholder={
+              typeShiftTarget === 'bug'
+                ? 'Explain why this is a bug, not a chore'
+                : 'Explain why this is a chore, not a bug'
+            }
             style={{ marginTop: 8 }}
           />
         </div>

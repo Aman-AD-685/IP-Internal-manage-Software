@@ -407,6 +407,20 @@ export const ticketsApi = {
     return response.data
   },
 
+  /** Chore → Bug or Bug → Chore (new CH/BU reference, history preserved). */
+  shiftType: async (
+    ticketId: string,
+    targetType: 'chore' | 'bug',
+    why: string,
+  ): Promise<Ticket> => {
+    const response = await apiClient.post<Ticket>(`/tickets/${ticketId}/shift-type`, {
+      target_type: targetType,
+      why,
+    })
+    invalidateAfterTicketMutation(ticketId)
+    return response.data
+  },
+
   getStage2Remarks: async (ticketId: string): Promise<ApiResponse<{ data: Stage2Remark[] }>> => {
     const response = await apiClient.get<ApiResponse<{ data: Stage2Remark[] }>>(`/tickets/${ticketId}/stage2-remarks`)
     return response.data
