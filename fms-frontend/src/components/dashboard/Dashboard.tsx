@@ -189,7 +189,7 @@ function AdminUserOverviewCards({
       rowKey="id"
       pagination={false}
       dataSource={users}
-      scroll={{ x: 900 }}
+      scroll={{ x: 780 }}
       columns={[
         {
           title: 'Name',
@@ -206,9 +206,8 @@ function AdminUserOverviewCards({
           key: 'kpi',
           width: 160,
           render: (_: unknown, item: DashboardPerson) => {
-            const weekly = kpiSummaries[item.id]?.weekly
-            const monthly = kpiSummaries[item.id]?.monthly
-            const pct = monthly ?? weekly
+            // Card summaries are fetched for previous week; show that weekly %, not month average.
+            const pct = kpiSummaries[item.id]?.weekly
             if (pct == null) return <Text type="secondary">—</Text>
             return (
               <Progress
@@ -259,24 +258,6 @@ function AdminUserOverviewCards({
               {attendanceLeaveSummaries[item.id]?.attendance?.absent ?? 0}
             </Button>
           ),
-        },
-        {
-          title: 'Status',
-          key: 'status',
-          width: 110,
-          render: (_: unknown, item: DashboardPerson) => {
-            const checklistDue = workSummaries[item.id]?.checklist.count ?? 0
-            const delegationDue = workSummaries[item.id]?.delegation.count ?? 0
-            const load = checklistDue + delegationDue
-            const cls =
-              load === 0
-                ? 'fms-status-pill fms-status-pill--ok'
-                : load >= 8
-                  ? 'fms-status-pill fms-status-pill--danger'
-                  : 'fms-status-pill fms-status-pill--warn'
-            const label = load === 0 ? 'Clear' : load >= 8 ? 'Heavy' : 'Pending'
-            return <span className={cls}>{label}</span>
-          },
         },
         {
           title: '',
