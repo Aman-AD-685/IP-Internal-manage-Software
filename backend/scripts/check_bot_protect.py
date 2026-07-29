@@ -25,6 +25,46 @@ assert bp.public_register_allowed() is False
 assert bp.turnstile_required() is False
 assert bp.client_header_required() is True
 
+# cron-job.org reminder paths must not require X-FMS-Client (secret auth is on the route)
+os.environ["BOT_PROTECT_FORCE"] = "1"
+from starlette.requests import Request  # noqa: E402
+
+
+def _http(path: str, headers: dict[str, str] | None = None) -> Request:
+    hdrs = [(k.lower().encode(), v.encode()) for k, v in (headers or {}).items()]
+    return Request(
+        {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "https",
+            "path": path,
+            "raw_path": path.encode(),
+            "query_string": b"",
+            "headers": hdrs,
+            "client": ("23.88.105.37", 443),
+            "server": ("example.com", 443),
+        }
+    )
+
+
+# Normal API without client header → blocked
+blocked = bp.bot_protect_response(_http("/tickets"))
+assert blocked is not None and blocked.status_code == 403
+
+# Checklist / Delegation cron paths without client header → allowed through
+for cron_path in (
+    "/checklist/send-daily-reminders",
+    "/api/checklist/send-daily-reminders",
+    "/delegation/send-daily-reminders",
+    "/api/delegation/send-daily-reminders",
+    "/reminders/send-pending-digest",
+):
+    assert bp.bot_protect_response(_http(cron_path)) is None, cron_path
+
+os.environ.pop("BOT_PROTECT_FORCE", None)
+
 # Honeypot: filled website → reject
 try:
     bp.enforce_auth_form_bot_checks(

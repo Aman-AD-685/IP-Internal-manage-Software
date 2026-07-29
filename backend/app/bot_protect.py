@@ -125,6 +125,11 @@ _CLIENT_HEADER_EXEMPT_PREFIXES = (
     "/api/escalation/send-",
     "/reminders/",
     "/api/reminders/",
+    # cron-job.org: X-Cron-Secret only (no SPA X-FMS-Client)
+    "/checklist/send-daily-reminders",
+    "/api/checklist/send-daily-reminders",
+    "/delegation/send-daily-reminders",
+    "/api/delegation/send-daily-reminders",
     "/integrations/",  # Claude/script API key auth (no SPA header)
     "/api/integrations/",
 )
