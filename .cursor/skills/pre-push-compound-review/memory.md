@@ -78,6 +78,7 @@ Do not remove entries; add dated bullets.
 - Branch `fix/production-frontend-cache` is active deploy branch (verify before merging to main).
 - 2026-07-27: Ant Design Modal `destroyOnClose` + `setFieldsValue` before Form mount fails on slow prod API — load in `afterOpenChange` (or remove destroyOnClose).
 - 2026-07-27: Production `FMS_CLIENT_HEADER_REQUIRED` — raw `fetch` must send `X-FMS-Client: web` (axios interceptor does; Success Performance training/followup used fetch without it → 403).
+- 2026-07-29: Cron reminder URLs (`/checklist/send-daily-reminders`, `/delegation/send-daily-reminders`) must stay on `_CLIENT_HEADER_EXEMPT_PREFIXES`; cron-job.org only sends `X-Cron-Secret` → otherwise Settings shows `bad_client`.
 
 ## Coding style (learned)
 
