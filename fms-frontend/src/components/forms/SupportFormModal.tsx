@@ -116,7 +116,7 @@ interface SupportFormModalProps {
 
 export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportFormModalProps) => {
   const { user } = useAuth()
-  const formOpenedMs = useAuthFormOpenedMs()
+  const formOpenedMs = useAuthFormOpenedMs(open)
   const canSimilarTickets = canUseSimilarTicketsSearch(user?.email)
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)

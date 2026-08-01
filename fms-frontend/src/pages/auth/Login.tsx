@@ -198,7 +198,13 @@ export const Login = () => {
                       const values = form.getFieldsValue()
                       if (values?.email && values?.password) {
                         setConnectionError(null)
-                        attemptLogin(values as LoginRequest, 0)
+                        attemptLogin(
+                          withAuthBotFields(
+                            { ...values, turnstile_token: turnstileToken || undefined },
+                            formOpenedMs,
+                          ) as LoginRequest,
+                          0,
+                        )
                       } else {
                         message.warning('Enter email and password first')
                       }

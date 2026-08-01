@@ -44,7 +44,6 @@ export const DelegationPage = () => {
   const location = useLocation()
   const { openMenu } = useContextMenu()
   const { user } = useAuth()
-  const formOpenedMs = useAuthFormOpenedMs()
   const { isAdmin, isApprover, isMasterAdmin } = useRole()
   const canManage = isAdmin || isApprover || isMasterAdmin
   const [form] = Form.useForm()
@@ -53,6 +52,7 @@ export const DelegationPage = () => {
   const [users, setUsers] = useState<{ id: string; full_name: string }[]>([])
   const [loading, setLoading] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
+  const formOpenedMs = useAuthFormOpenedMs(modalOpen)
   const [statusFilter, setStatusFilter] = useState<string>('pending')
   const [userFilter, setUserFilter] = useState<string | undefined>(undefined)
   const [delegationOnRangeFilter, setDelegationOnRangeFilter] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null)

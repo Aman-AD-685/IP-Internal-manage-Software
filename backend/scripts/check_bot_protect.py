@@ -86,6 +86,23 @@ except HTTPException as e:
 # Normal human timing → ok
 bp.enforce_auth_form_bot_checks(website="", form_opened_ms=now - 2000)
 
+# Client clock slightly ahead (negative elapsed within skew) → ok
+bp.enforce_auth_form_bot_checks(website="", form_opened_ms=now + 30_000)
+
+# Client clock way ahead (beyond skew) → reject
+try:
+    bp.enforce_auth_form_bot_checks(website="", form_opened_ms=now + 10 * 60 * 1000)
+    raise SystemExit("extreme clock skew should reject")
+except HTTPException as e:
+    assert e.status_code == 403
+
+# Too old (> max) → reject
+try:
+    bp.enforce_auth_form_bot_checks(website="", form_opened_ms=now - (3 * 60 * 60 * 1000))
+    raise SystemExit("stale form_opened_ms should reject")
+except HTTPException as e:
+    assert e.status_code == 403
+
 # Strikes: 3 bot fails → deactivate callback path (mock — no supabase user)
 # Without user_id resolution, strikes still count by email key
 bp.clear_bot_strikes(email="bot-test@example.com")
