@@ -28,9 +28,18 @@ export function AuthHoneypotField() {
   )
 }
 
-/** Capture when the auth form mounted (ms since epoch) for server timing check. */
-export function useAuthFormOpenedMs(): number {
+/**
+ * Capture when the form became active (ms since epoch) for server timing check.
+ * Pass `active` (e.g. modal `open`) so long-lived layouts reset the timer each open —
+ * otherwise a morning layout mount makes afternoon submits look >2h old and get blocked.
+ */
+export function useAuthFormOpenedMs(active = true): number {
   const opened = useRef(Date.now())
+  const wasActive = useRef(active)
+  if (active && !wasActive.current) {
+    opened.current = Date.now()
+  }
+  wasActive.current = active
   return opened.current
 }
 

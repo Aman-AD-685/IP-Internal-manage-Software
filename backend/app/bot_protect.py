@@ -200,10 +200,11 @@ def require_public_register() -> None:
 # ---------------------------------------------------------------------------
 
 def _auth_form_min_ms() -> int:
+    # ponytail: 250ms — password managers often submit under the old 800ms floor
     try:
-        return max(0, int(os.getenv("AUTH_FORM_MIN_MS", "800")))
+        return max(0, int(os.getenv("AUTH_FORM_MIN_MS", "250")))
     except ValueError:
-        return 800
+        return 250
 
 
 def _auth_form_max_ms() -> int:
@@ -211,6 +212,14 @@ def _auth_form_max_ms() -> int:
         return max(60_000, int(os.getenv("AUTH_FORM_MAX_MS", str(2 * 60 * 60 * 1000))))
     except ValueError:
         return 2 * 60 * 60 * 1000
+
+
+def _auth_form_clock_skew_ms() -> int:
+    """Allow client clock slightly ahead of server (negative elapsed)."""
+    try:
+        return max(0, int(os.getenv("AUTH_FORM_CLOCK_SKEW_MS", str(5 * 60 * 1000))))
+    except ValueError:
+        return 5 * 60 * 1000
 
 
 def enforce_auth_form_bot_checks(
@@ -222,6 +231,7 @@ def enforce_auth_form_bot_checks(
     Reject obvious bots without 3rd-party captcha:
       - honeypot `website` must be empty (humans never see/fill it)
       - form must stay open AUTH_FORM_MIN_MS..AUTH_FORM_MAX_MS before submit
+      - small negative elapsed (client clock ahead) allowed within AUTH_FORM_CLOCK_SKEW_MS
     Generic 403 — do not tell bots which check failed.
     """
     if not _truthy("AUTH_FORM_BOT_CHECKS", "1"):
@@ -233,6 +243,7 @@ def enforce_auth_form_bot_checks(
 
     min_ms = _auth_form_min_ms()
     max_ms = _auth_form_max_ms()
+    skew_ms = _auth_form_clock_skew_ms()
     require_timing = _truthy("AUTH_FORM_TIMING_REQUIRED", "1" if is_production() else "0")
 
     if form_opened_ms is None:
@@ -247,6 +258,11 @@ def enforce_auth_form_bot_checks(
 
     now_ms = int(time.time() * 1000)
     elapsed = now_ms - opened
+    # Client clock ahead of server → negative elapsed; tolerate small skew
+    if elapsed < 0:
+        if elapsed >= -skew_ms:
+            return
+        raise HTTPException(status_code=403, detail="Request rejected.")
     if elapsed < min_ms or elapsed > max_ms:
         raise HTTPException(status_code=403, detail="Request rejected.")
 
