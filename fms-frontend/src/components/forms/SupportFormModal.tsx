@@ -137,6 +137,8 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
   const draftSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const skipDraftSaveRef = useRef(false)
   const isLoadingDraftRef = useRef(false)
+  /** Last company we reacted to — only clear division when the user switches company. */
+  const prevCompanyIdRef = useRef<string | undefined>(undefined)
   const divisionsFetchGenRef = useRef(0)
   const similarFetchGenRef = useRef(0)
   const similarDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -205,6 +207,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
       setSelectedRepeatRef(null)
       setPreviewTicketId(null)
       setPreviewTicketType(null)
+      prevCompanyIdRef.current = undefined
       void reloadCompanies()
       void reloadPages()
 
@@ -252,11 +255,13 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
           const draftType = typeof data.type_of_request === 'string' ? data.type_of_request : ''
           setRequestType(draftType)
           setTypeFeature(draftType === 'feature')
+          const draftDivisionId = typeof data.division_id === 'string' ? data.division_id : undefined
           if (data.company_id) {
             const d = await supportApi.getDivisions(data.company_id as string, { bustCache: true })
             setDivisions(d)
-            const hasOther = d.some((x) => x.name === 'Other')
-            setDivisionOther(hasOther)
+            setDivisionOther(d.some((x) => x.id === draftDivisionId && x.name === 'Other'))
+            // Align company watcher so restore does not look like a user company switch.
+            prevCompanyIdRef.current = String(data.company_id)
           }
           const attUrl = typeof data.attachment_url === 'string' ? data.attachment_url : null
           if (attUrl) {
@@ -265,18 +270,26 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
             form.setFieldValue('attachment_url', attUrl)
           }
           form.setFieldsValue(fields)
+          // Re-apply after setFieldsValue in case company watcher raced and cleared it.
+          if (draftDivisionId) {
+            form.setFieldValue('division_id', draftDivisionId)
+            if (data.division_other != null && data.division_other !== '') {
+              form.setFieldValue('division_other', data.division_other)
+            }
+          }
         })
         .catch(() => {})
         .finally(() => {
           setTimeout(() => {
             skipDraftSaveRef.current = false
             isLoadingDraftRef.current = false
-            // If user selected company during draft-load window, fetch divisions now.
             const selectedCompanyId = form.getFieldValue('company_id') as string | undefined
+            const keepDivisionId = form.getFieldValue('division_id') as string | undefined
             if (selectedCompanyId) {
               supportApi.getDivisions(selectedCompanyId, { bustCache: true }).then((d) => {
                 setDivisions(d)
-                setDivisionOther(d.some((x) => x.name === 'Other'))
+                setDivisionOther(d.some((x) => x.id === keepDivisionId && x.name === 'Other'))
+                if (keepDivisionId) form.setFieldValue('division_id', keepDivisionId)
               })
             }
           }, 500)
@@ -290,24 +303,36 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
   useEffect(() => {
     if (companyId) {
       const fetchGen = ++divisionsFetchGenRef.current
+      const companyChanged =
+        prevCompanyIdRef.current !== undefined && prevCompanyIdRef.current !== companyId
+      // Draft restore sets company_id — must not wipe division. Clear only on real user switch.
+      const shouldClearDivision = !isLoadingDraftRef.current && companyChanged
+
       supportApi
         .getDivisions(companyId, { bustCache: true })
         .then((d) => {
           if (fetchGen !== divisionsFetchGenRef.current) return
           setDivisions(d)
-          setDivisionOther(d.some((x) => x.name === 'Other'))
+          const selectedId = form.getFieldValue('division_id') as string | undefined
+          setDivisionOther(d.some((x) => x.id === selectedId && x.name === 'Other'))
         })
         .catch(() => {
           if (fetchGen !== divisionsFetchGenRef.current) return
           setDivisions([])
         })
-      form.setFieldValue('division_id', undefined)
-      form.setFieldValue('division_other', undefined)
+      if (shouldClearDivision) {
+        form.setFieldValue('division_id', undefined)
+        form.setFieldValue('division_other', undefined)
+        setDivisionOther(false)
+      }
+      prevCompanyIdRef.current = companyId
     } else {
       divisionsFetchGenRef.current += 1
       setDivisions([])
       form.setFieldValue('division_id', undefined)
       form.setFieldValue('division_other', undefined)
+      setDivisionOther(false)
+      prevCompanyIdRef.current = undefined
     }
   }, [companyId, form])
 
@@ -480,6 +505,9 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
     form.resetFields()
     setAttachmentFileList([])
     setAttachmentUrl(null)
+    setDivisions([])
+    setDivisionOther(false)
+    prevCompanyIdRef.current = undefined
     setTypeFeature(false)
     setRequestType('')
     setSimilarResult(null)
