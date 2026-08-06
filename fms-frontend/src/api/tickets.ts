@@ -79,6 +79,8 @@ export interface Ticket {
   source_type?: 'chore' | 'bug'
   promoted_to_feature_at?: string
   promoted_by?: string
+  /** When set, UI shows (C.R) on list and "Claude Review" on ticket open */
+  claude_reviewed_at?: string | null
   /** Tickets created with repeat_of_ticket_id pointing to this row */
   repeat_child_count?: number
   /** Set by backend for Level 3 (user) role: true = this user has used their one-time edit; drawer is view-only except Stage 2 */

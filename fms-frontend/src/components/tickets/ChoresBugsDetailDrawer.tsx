@@ -589,7 +589,12 @@ export const ChoresBugsDetailDrawer = ({
             {/* BASE FIELDS (read-only) */}
             <Descriptions column={1} size="small" bordered style={{ marginBottom: 16 }}>
               <Descriptions.Item label="Reference No">
-                <PriorityColoredReference referenceNo={ticket.reference_no} priority={ticket.priority} />
+                <PriorityColoredReference
+                  referenceNo={ticket.reference_no}
+                  priority={ticket.priority}
+                  claudeReviewed={Boolean(ticket.claude_reviewed_at)}
+                  claudeReviewDisplay="label"
+                />
               </Descriptions.Item>
               <Descriptions.Item label="Timestamp">{formatDateTable(ticket.created_at)}</Descriptions.Item>
               <Descriptions.Item label="Title">{ticket.title || '-'}</Descriptions.Item>
@@ -1261,7 +1266,13 @@ export const ChoresBugsDetailDrawer = ({
       >
         <div style={{ marginBottom: 8 }}>
           <Text strong>Reference No: </Text>
-          <PriorityColoredReference referenceNo={ticket?.reference_no} priority={ticket?.priority} strong={false} />
+          <PriorityColoredReference
+            referenceNo={ticket?.reference_no}
+            priority={ticket?.priority}
+            strong={false}
+            claudeReviewed={Boolean(ticket?.claude_reviewed_at)}
+            claudeReviewDisplay="label"
+          />
         </div>
         <div style={{ marginBottom: 8 }}>
           <Text strong>Submitted By: </Text>
