@@ -1219,7 +1219,7 @@ export const TicketList = () => {
       title: 'Reference No',
       dataIndex: 'reference_no',
       key: 'reference_no',
-      width: 100,
+      width: 130,
       fixed: 'left' as const,
       sorter: isChoresBugsSection || typeFromUrl === 'feature',
       sortOrder:
@@ -1229,7 +1229,11 @@ export const TicketList = () => {
             : 'descend'
           : undefined,
       render: (v: string, r: Ticket) => (
-        <PriorityColoredReference referenceNo={v} priority={r.priority} />
+        <PriorityColoredReference
+          referenceNo={v}
+          priority={r.priority}
+          claudeReviewed={Boolean(r.claude_reviewed_at)}
+        />
       ),
     },
     ...(showRepeatedColumn ? [repeatedColumn] : []),
@@ -1587,7 +1591,11 @@ export const TicketList = () => {
       key: 'reference_no',
       width: 110,
       render: (v: string, r: Ticket) => (
-        <PriorityColoredReference referenceNo={v} priority={r.priority} />
+        <PriorityColoredReference
+          referenceNo={v}
+          priority={r.priority}
+          claudeReviewed={Boolean(r.claude_reviewed_at)}
+        />
       ),
     },
     {

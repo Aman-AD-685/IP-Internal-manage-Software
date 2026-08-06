@@ -302,7 +302,12 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
         <>
           <Descriptions column={1} size="small" bordered style={{ marginBottom: 24 }}>
             <Descriptions.Item label="Reference">
-              <PriorityColoredReference referenceNo={ticket.reference_no} priority={ticket.priority} />
+              <PriorityColoredReference
+                referenceNo={ticket.reference_no}
+                priority={ticket.priority}
+                claudeReviewed={Boolean(ticket.claude_reviewed_at)}
+                claudeReviewDisplay="label"
+              />
             </Descriptions.Item>
             {ticket.source_reference_no && (
               <Descriptions.Item label="Originally logged as">
@@ -596,7 +601,13 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
       >
         <div style={{ marginBottom: 8 }}>
           <Text strong>Reference No: </Text>
-          <PriorityColoredReference referenceNo={ticket?.reference_no} priority={ticket?.priority} strong={false} />
+          <PriorityColoredReference
+            referenceNo={ticket?.reference_no}
+            priority={ticket?.priority}
+            strong={false}
+            claudeReviewed={Boolean(ticket?.claude_reviewed_at)}
+            claudeReviewDisplay="label"
+          />
         </div>
         <div style={{ marginBottom: 8 }}>
           <Text strong>Submitted By: </Text>

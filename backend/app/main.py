@@ -251,6 +251,7 @@ from app.bot_protect_routes import bot_protect_router
 from app.ws_routes import ws_router
 from app.attendance_sync_routes import attendance_sync_router
 from app.integrations_delegation_routes import integrations_delegation_router
+from app.integrations_support_routes import integrations_support_router
 
 app.include_router(feature_approval_reminder_router)
 app.include_router(feature_approval_reminder_router, prefix="/api")
@@ -274,6 +275,8 @@ app.include_router(attendance_sync_router)
 app.include_router(attendance_sync_router, prefix="/api")
 app.include_router(integrations_delegation_router)
 app.include_router(integrations_delegation_router, prefix="/api")
+app.include_router(integrations_support_router)
+app.include_router(integrations_support_router, prefix="/api")
 
 
 @app.on_event("startup")
@@ -2042,7 +2045,9 @@ _TICKET_LIST_SELECT_BASE = (
 _TICKET_LIST_SELECT_PROMOTE = (
     ",source_reference_no,source_type,promoted_to_feature_at,promoted_by"
 )
+_TICKET_LIST_SELECT_CLAUDE = ",claude_reviewed_at"
 _TICKET_PROMOTE_COLUMNS: bool | None = None
+_TICKET_CLAUDE_REVIEW_COLUMN: bool | None = None
 
 
 def _ticket_promote_columns_available() -> bool:
@@ -2067,12 +2072,35 @@ def _ticket_promote_columns_available() -> bool:
         return False
 
 
+def _ticket_claude_review_column_available() -> bool:
+    """True when claude_reviewed_at exists. Only caches a positive result."""
+    global _TICKET_CLAUDE_REVIEW_COLUMN
+    if _TICKET_CLAUDE_REVIEW_COLUMN is True:
+        return True
+    try:
+        supabase.table("tickets").select("claude_reviewed_at").limit(1).execute()
+        _TICKET_CLAUDE_REVIEW_COLUMN = True
+        return True
+    except Exception as e:
+        err = str(e).lower()
+        if "claude_reviewed_at" in err and any(
+            tok in err
+            for tok in ("does not exist", "42703", "pgrst204", "could not find", "schema cache")
+        ):
+            return False
+        _log(f"ticket claude_reviewed_at probe: {e}")
+        return False
+
+
 def _ticket_list_select(*, wide: bool = False) -> str:
     if wide:
         return "*"
+    sel = _TICKET_LIST_SELECT_BASE
     if _ticket_promote_columns_available():
-        return _TICKET_LIST_SELECT_BASE + _TICKET_LIST_SELECT_PROMOTE
-    return _TICKET_LIST_SELECT_BASE
+        sel += _TICKET_LIST_SELECT_PROMOTE
+    if _ticket_claude_review_column_available():
+        sel += _TICKET_LIST_SELECT_CLAUDE
+    return sel
 
 
 _TICKET_REF_PATTERNS: dict[str, list[tuple[re.Pattern[str], str]]] = {
