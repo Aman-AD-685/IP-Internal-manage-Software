@@ -18,7 +18,22 @@ Important:
 - This does **not** complete Stage 2 inside FMS (status stays `pending` until a human updates it).
 - It only marks **Claude Review done** (`claude_reviewed_at`).
 - **One URL** is used for both GET and POST.
+- **Stale reset:** If Claude marked C.R but Stage 2 is still `pending` after **24 weekday hours** (Saturday & Sunday do **not** count, timezone `Asia/Kolkata`), GET clears `claude_reviewed_at`. Ticket shows no C.R again and returns in the unreviewed pull list.
 
+---
+
+## Stale reset (24h excluding Sat/Sun)
+
+| Condition | Result |
+|-----------|--------|
+| C.R marked + Stage 2 still `pending` + ≥24 Mon–Fri hours elapsed | Clear C.R → pending for Claude again |
+| Stage 2 moved off `pending` (e.g. completed) | No reset (C.R stays) |
+| Saturday / Sunday hours | Do not count toward the 24h |
+
+- Automatic on every **GET** (`reset_stale=true` default)
+- Manual SQL: `database/TICKETS_CLAUDE_REVIEW_RESET_STALE.sql` (preview SELECT, then UPDATE)
+
+Example: marked Friday 3pm → weekend ignored → clock continues Monday → resets when 24 weekday hours complete.
 ---
 
 ## Production API (copy these)
