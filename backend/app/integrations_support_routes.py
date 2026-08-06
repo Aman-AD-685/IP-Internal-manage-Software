@@ -1,13 +1,17 @@
 """Machine/integration API: one URL for Stage 2 pending GET + Claude Review POST.
 
 Auth: X-FMS-Integration-Key (DELEGATION_INTEGRATION_API_KEY).
-Does not change status_2 — only sets claude_reviewed_at for UI (C.R) badge.
+Does not change status_2 — only sets/clears claude_reviewed_at for UI (C.R) badge.
+
+Stale reset: if still Stage 2 pending after 24 weekday hours (Sat/Sun excluded, IST),
+clear claude_reviewed_at so Claude can pull it again. Runs on each GET.
 """
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import AliasChoices, BaseModel, Field, model_validator
@@ -22,8 +26,10 @@ integrations_support_router = APIRouter(
 )
 _log = logging.getLogger("integrations_support")
 
-# Single production path — GET list, POST mark done
 CLAUDE_REVIEW_PATH = "/claude-review"
+_IST = ZoneInfo("Asia/Kolkata")
+_STALE_WEEKDAY_HOURS = 24
+_STALE_SCAN_LIMIT = 500
 
 _STAGE2_PENDING_SELECT = (
     "id,reference_no,title,description,type,priority,status,status_1,status_2,"
@@ -43,6 +49,46 @@ def _bust_ticket_list_cache() -> None:
 
 def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _parse_ts(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        s = str(value).strip()
+        if not s:
+            return None
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        try:
+            dt = datetime.fromisoformat(s)
+        except ValueError:
+            return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def weekday_hours_between(start: datetime, end: datetime) -> float:
+    """Elapsed hours counting only Mon–Fri (IST). Sat/Sun contribute 0."""
+    start_ist = start.astimezone(_IST)
+    end_ist = end.astimezone(_IST)
+    if end_ist <= start_ist:
+        return 0.0
+    hours = 0.0
+    cur = start_ist
+    # Cap walk: ~14 days max for safety
+    hard_end = min(end_ist, start_ist + timedelta(days=14))
+    while cur < hard_end:
+        nxt = min(cur + timedelta(hours=1), hard_end)
+        if cur.weekday() < 5:  # Mon=0 .. Fri=4
+            hours += (nxt - cur).total_seconds() / 3600.0
+        cur = nxt
+        if hours >= _STALE_WEEKDAY_HOURS:
+            break
+    return hours
 
 
 def _missing_column_http(e: Exception) -> HTTPException | None:
@@ -71,6 +117,66 @@ def _stage2_pending_query(*, unreviewed_only: bool):
     if unreviewed_only:
         q = q.is_("claude_reviewed_at", "null")
     return q
+
+
+def _reset_stale_claude_reviews(*, now: datetime | None = None) -> dict:
+    """Clear Claude Review when Stage 2 still pending after 24 weekday hours (no Sat/Sun)."""
+    now = now or datetime.now(timezone.utc)
+    try:
+        r = (
+            supabase.table("tickets")
+            .select(
+                "id,reference_no,claude_reviewed_at,status_2,quality_solution,"
+                "staging_planned,live_review_status,repeat_of_ticket_id,type"
+            )
+            .in_("type", ["chore", "bug"])
+            .eq("status_2", "pending")
+            .is_("quality_solution", "null")
+            .not_.is_("claude_reviewed_at", "null")
+            .is_("repeat_of_ticket_id", "null")
+            .or_("staging_planned.is.null,live_review_status.eq.completed")
+            .order("claude_reviewed_at")
+            .limit(_STALE_SCAN_LIMIT)
+            .execute()
+        )
+    except Exception as e:
+        col = _missing_column_http(e)
+        if col:
+            raise col from e
+        _log.exception("claude-review stale scan failed: %s", e)
+        return {"reset_count": 0, "reset_refs": [], "error": str(e)}
+
+    due_ids: list[str] = []
+    due_refs: list[str] = []
+    for row in r.data or []:
+        marked = _parse_ts(row.get("claude_reviewed_at"))
+        if not marked:
+            continue
+        if weekday_hours_between(marked, now) < _STALE_WEEKDAY_HOURS:
+            continue
+        tid = str(row.get("id") or "")
+        if not tid:
+            continue
+        due_ids.append(tid)
+        ref = (row.get("reference_no") or "").strip()
+        if ref:
+            due_refs.append(ref)
+
+    if not due_ids:
+        return {"reset_count": 0, "reset_refs": []}
+
+    stamp = now.isoformat()
+    try:
+        supabase.table("tickets").update(
+            {"claude_reviewed_at": None, "updated_at": stamp}
+        ).in_("id", due_ids).eq("status_2", "pending").execute()
+    except Exception as e:
+        _log.exception("claude-review stale reset failed: %s", e)
+        return {"reset_count": 0, "reset_refs": [], "error": str(e)}
+
+    _bust_ticket_list_cache()
+    _log.info("claude review stale reset count=%s refs=%s", len(due_ids), due_refs[:20])
+    return {"reset_count": len(due_ids), "reset_refs": due_refs}
 
 
 def _ticket_public(row: dict) -> dict:
@@ -131,7 +237,12 @@ def _list_stage2_pending(
     unreviewed_only: bool,
     page: int,
     page_size: int,
+    reset_stale: bool,
 ) -> dict:
+    stale_info = {"reset_count": 0, "reset_refs": []}
+    if reset_stale:
+        stale_info = _reset_stale_claude_reviews()
+
     try:
         offset = (page - 1) * page_size
         r = (
@@ -156,6 +267,13 @@ def _list_stage2_pending(
         "page": page,
         "page_size": page_size,
         "unreviewed_only": unreviewed_only,
+        "stale_reset": stale_info,
+        "stale_rule": {
+            "weekday_hours": _STALE_WEEKDAY_HOURS,
+            "exclude": ["Saturday", "Sunday"],
+            "timezone": "Asia/Kolkata",
+            "only_if": "status_2=pending (Stage 2 not completed)",
+        },
     }
 
 
@@ -246,6 +364,12 @@ def _mark_claude_review_done(payload: ClaudeReviewDoneRequest) -> dict:
             "claude_reviewed": True,
         },
         "note": (payload.note or "").strip() or None,
+        "stale_rule": {
+            "weekday_hours": _STALE_WEEKDAY_HOURS,
+            "exclude": ["Saturday", "Sunday"],
+            "timezone": "Asia/Kolkata",
+            "only_if": "status_2 still pending after 24 weekday hours → C.R cleared",
+        },
     }
 
 
@@ -257,12 +381,17 @@ def get_claude_review(
     unreviewed_only: bool = Query(True),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
+    reset_stale: bool = Query(
+        True,
+        description="Clear C.R when Stage 2 still pending after 24 weekday hours (Sat/Sun excluded).",
+    ),
 ):
-    """GET: Stage 2 pending Support tickets."""
+    """GET: Stage 2 pending Support tickets (auto-resets stale Claude Review first)."""
     return _list_stage2_pending(
         unreviewed_only=unreviewed_only,
         page=page,
         page_size=page_size,
+        reset_stale=reset_stale,
     )
 
 

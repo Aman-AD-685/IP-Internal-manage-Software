@@ -59,4 +59,17 @@ assert parsed.note == "run-1"
 nested = ClaudeReviewDoneRequest.model_validate({"ticket": {"ticket_id": "abc-uuid"}})
 assert nested.ticket_id == "abc-uuid"
 
+# 24 weekday hours: Fri 10:00 IST → Mon 10:00 IST = 24h (weekend excluded)
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from app.integrations_support_routes import weekday_hours_between  # noqa: E402
+
+IST = ZoneInfo("Asia/Kolkata")
+fri = datetime(2026, 8, 7, 10, 0, tzinfo=IST)  # Friday
+mon = datetime(2026, 8, 10, 10, 0, tzinfo=IST)  # Monday
+assert abs(weekday_hours_between(fri, mon) - 24.0) < 0.01, weekday_hours_between(fri, mon)
+sat = datetime(2026, 8, 8, 10, 0, tzinfo=IST)
+assert weekday_hours_between(fri, sat) < 15  # only Fri afternoon hours
+
 print("check_support_claude_review_api: OK")
