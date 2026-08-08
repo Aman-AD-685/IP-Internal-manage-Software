@@ -567,6 +567,14 @@ function getCommLabel(communicated_through?: string): string {
   return COMM_LABELS[communicated_through] ?? communicated_through
 }
 
+/** tickets.attachment_url stores one URL per line (multi-attachment support). */
+export function splitAttachmentUrls(v?: string | null): string[] {
+  return (v || '')
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((s) => s.startsWith('http://') || s.startsWith('https://'))
+}
+
 /** Minimal shape for ticket export row input; Ticket satisfies this. */
 export type TicketExportInput = {
   reference_no?: string
@@ -597,7 +605,7 @@ export function buildTicketExportRow<T extends TicketExportInput>(
     reference_no: t.reference_no ?? '-',
     title: t.title ?? '-',
     description: t.description ?? '-',
-    attachment: t.attachment_url && String(t.attachment_url).trim() ? String(t.attachment_url).trim() : '-',
+    attachment: splitAttachmentUrls(t.attachment_url).join(' | ') || '-',
     type_of_request: typeLabel,
     page: t.page_name ?? '-',
     company_name: t.company_name ?? '-',

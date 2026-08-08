@@ -11,6 +11,7 @@ import type { Company, Page, Division } from '../../api/support'
 import { dedupeCompaniesForSelect } from '../../utils/companiesDedupe'
 import { TICKET_PRIORITY_OPTIONS, normalizePriorityValue } from '../../utils/ticketPriority'
 import { canUseSimilarTicketsSearch } from '../../utils/constants'
+import { splitAttachmentUrls } from '../../utils/helpers'
 import { SimilarTicketsPanel } from './SimilarTicketsPanel'
 import { ChoresBugsDetailDrawer } from '../tickets/ChoresBugsDetailDrawer'
 import { TicketDetailDrawer } from '../tickets/TicketDetailDrawer'
@@ -152,6 +153,16 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
   const [previewTicketType, setPreviewTicketType] = useState<'chore' | 'bug' | 'feature' | null>(null)
   const attachmentUrlRef = useRef<string | null>(null)
   attachmentUrlRef.current = attachmentUrl
+  /** Concurrent uploads counter — OK stays disabled until every file finished */
+  const pendingUploadsRef = useRef(0)
+
+  // Multi-attachment: the file list is the source of truth; attachment_url stores
+  // the URLs newline-joined (tickets.attachment_url is TEXT, one URL per line).
+  useEffect(() => {
+    const joined = attachmentFileList.map((f) => f.url).filter(Boolean).join('\n')
+    setAttachmentUrl(joined || null)
+    form.setFieldValue('attachment_url', joined || undefined)
+  }, [attachmentFileList, form])
 
   const reloadCompanies = useCallback(() => {
     setCompaniesLoading(true)
@@ -196,6 +207,7 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
   useEffect(() => {
     if (open) {
       setAttachmentUrl(null)
+      setAttachmentFileList([])
       setDivisions([])
       setDivisionOther(false)
       setTypeFeature(false)
@@ -218,8 +230,8 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
         setRequestType(t)
         setTypeFeature(t === 'feature')
         if (prefill.attachment_url) {
-          setAttachmentUrl(prefill.attachment_url)
-          setAttachmentFileList([{ uid: prefill.attachment_url, name: 'Link', url: prefill.attachment_url }])
+          const urls = splitAttachmentUrls(prefill.attachment_url)
+          setAttachmentFileList(urls.map((u, i) => ({ uid: u, name: urls.length > 1 ? `Link ${i + 1}` : 'Link', url: u })))
         }
         form.setFieldsValue({
           title: prefill.title ?? '',
@@ -265,9 +277,10 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
           }
           const attUrl = typeof data.attachment_url === 'string' ? data.attachment_url : null
           if (attUrl) {
-            setAttachmentUrl(attUrl)
-            setAttachmentFileList([{ uid: attUrl, name: 'Draft attachment', url: attUrl }])
-            form.setFieldValue('attachment_url', attUrl)
+            const urls = splitAttachmentUrls(attUrl)
+            setAttachmentFileList(
+              urls.map((u, i) => ({ uid: u, name: urls.length > 1 ? `Draft attachment ${i + 1}` : 'Draft attachment', url: u }))
+            )
           }
           form.setFieldsValue(fields)
           // Re-apply after setFieldsValue in case company watcher raced and cleared it.
@@ -648,16 +661,16 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
         <Form.Item label="Attachment (Optional)">
           <Dragger
             name="attachment"
-            multiple={false}
+            multiple
             fileList={attachmentFileList}
             showUploadList={{ showRemoveIcon: true }}
-            maxCount={1}
             beforeUpload={(file) => {
               const isLt10M = file.size / 1024 / 1024 < 10
               if (!isLt10M) {
                 message.error('File must be smaller than 10 MB')
                 return Upload.LIST_IGNORE
               }
+              pendingUploadsRef.current += 1
               setUploading(true)
               uploadAttachment(file)
                 .then((res) => {
@@ -667,9 +680,9 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
                     message.error('Upload succeeded but no URL returned. Try again.')
                     return
                   }
-                  setAttachmentUrl(url)
-                  form.setFieldValue('attachment_url', url)
-                  setAttachmentFileList([{ uid: url, name: file.name, url }])
+                  setAttachmentFileList((prev) =>
+                    prev.some((f) => f.url === url) ? prev : [...prev, { uid: url, name: file.name, url }]
+                  )
                   message.success(`${file.name} uploaded`)
                   scheduleDraftSave()
                 })
@@ -680,13 +693,14 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
                     'Upload failed. Ensure backend is running and bucket "ticket-attachments" exists in Supabase.'
                   message.error(formatApiError(detail, 'Upload failed'))
                 })
-                .finally(() => setUploading(false))
+                .finally(() => {
+                  pendingUploadsRef.current -= 1
+                  if (pendingUploadsRef.current <= 0) setUploading(false)
+                })
               return false
             }}
-            onRemove={() => {
-              setAttachmentFileList([])
-              setAttachmentUrl(null)
-              form.setFieldValue('attachment_url', undefined)
+            onRemove={(file) => {
+              setAttachmentFileList((prev) => prev.filter((f) => f.uid !== file.uid))
               scheduleDraftSave()
             }}
             accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.txt,.doc,.docx,.xls,.xlsx"
@@ -694,7 +708,9 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
             <p className="ant-upload-drag-icon">
               <InboxOutlined style={{ color: '#1890ff' }} />
             </p>
-            <p className="ant-upload-text">Click or drag file to upload (PDF, images, Word, Excel, text). Max 10 MB.</p>
+            <p className="ant-upload-text">
+              Click or drag files to upload (PDF, images, Word, Excel, text). Multiple files allowed, max 10 MB each.
+            </p>
           </Dragger>
         </Form.Item>
         <Form.Item name="description" label="Description (Optional)">
