@@ -1587,7 +1587,8 @@ class CreateTicketRequest(BaseModel):
     customer_questions: str | None = Field(None, max_length=10000)
     query_response_at: str | None = Field(None, max_length=64)
     why_feature: str | None = Field(None, max_length=10000)
-    attachment_url: str | None = Field(None, max_length=2048)
+    # Multiple attachments: newline-separated URLs (column is TEXT)
+    attachment_url: str | None = Field(None, max_length=20000)
     repeat_of_ticket_id: str | None = Field(None, max_length=64)
     # Bot checker (honeypot + form timing) — not stored
     website: str | None = Field(None, max_length=200)
@@ -1653,6 +1654,22 @@ class UpdateTicketRequest(BaseModel):
     assignee_id: str | None = None
     resolution_notes: str | None = None
     remarks: str | None = None
+    # Support-form core fields — editable by the ticket creator until the work
+    # stage completes (see _require_ticket_update_edit_access).
+    company_id: str | None = Field(None, max_length=64)
+    page_id: str | None = Field(None, max_length=64)
+    division_id: str | None = Field(None, max_length=64)
+    division_other: str | None = Field(None, max_length=200)
+    user_name: str | None = Field(None, max_length=200)
+    communicated_through: str | None = Field(None, max_length=200)
+    submitted_by: str | None = Field(None, max_length=200)
+    query_arrival_at: str | None = Field(None, max_length=64)
+    quality_of_response: str | None = Field(None, max_length=200)
+    customer_questions: str | None = Field(None, max_length=10000)
+    query_response_at: str | None = Field(None, max_length=64)
+    why_feature: str | None = Field(None, max_length=10000)
+    # Multiple attachments: newline-separated URLs (column is TEXT)
+    attachment_url: str | None = Field(None, max_length=20000)
     approval_status: str | None = None
     approval_actual_at: str | None = None
     unapproval_actual_at: str | None = None
@@ -2856,13 +2873,10 @@ _TICKET_STAGE_EDIT_KEYS = (
         "quality_solution",
     }
 )
-_TICKET_CORE_EDIT_KEYS = {
+# Support-form fields the ticket creator may edit until status_2 completes.
+_TICKET_SUPPORT_FORM_EDIT_KEYS = {
     "title",
     "description",
-    "priority",
-    "assignee_id",
-    "resolution_notes",
-    "remarks",
     "company_id",
     "page_id",
     "division_id",
@@ -2876,6 +2890,12 @@ _TICKET_CORE_EDIT_KEYS = {
     "query_response_at",
     "why_feature",
     "attachment_url",
+}
+_TICKET_CORE_EDIT_KEYS = _TICKET_SUPPORT_FORM_EDIT_KEYS | {
+    "priority",
+    "assignee_id",
+    "resolution_notes",
+    "remarks",
 }
 _APPROVAL_EDIT_KEYS = {
     "approval_status",
@@ -2927,7 +2947,7 @@ def _require_ticket_update_edit_access(user_id: str, ticket_id: str, data: dict)
 
     current = (
         supabase.table("tickets")
-        .select("id, type, staging_planned, status_2")
+        .select("id, type, staging_planned, status_2, created_by")
         .eq("id", ticket_id)
         .single()
         .execute()
@@ -2946,7 +2966,22 @@ def _require_ticket_update_edit_access(user_id: str, ticket_id: str, data: dict)
     elif staging_changed:
         required_sections.add(_ticket_base_edit_section(ticket))
 
-    if changed & (_TICKET_STAGE_EDIT_KEYS | _TICKET_CORE_EDIT_KEYS | {"staging_planned"}):
+    # Ticket creator may edit support-form fields only (company, division, page,
+    # title, description, attachment, …) without section edit permission until the
+    # work stage completes. Chores & Bugs UI "Stage 2" and Feature UI "Stage 1"
+    # are both stored in status_2. Priority / assignee / remarks stay section-gated.
+    creator_support_form_edit_allowed = (
+        str(ticket.get("created_by") or "") == str(user_id)
+        and (ticket.get("status_2") or "").strip().lower() != "completed"
+    )
+    stage_changed = changed & (_TICKET_STAGE_EDIT_KEYS | {"staging_planned"})
+    support_form_changed = changed & _TICKET_SUPPORT_FORM_EDIT_KEYS
+    other_core_changed = changed & (_TICKET_CORE_EDIT_KEYS - _TICKET_SUPPORT_FORM_EDIT_KEYS)
+    if (
+        stage_changed
+        or other_core_changed
+        or (support_form_changed and not creator_support_form_edit_allowed)
+    ):
         required_sections.add(_ticket_base_edit_section(ticket))
 
     for section_key in sorted(required_sections):

@@ -33,6 +33,7 @@ import {
   getTicketTimeDelayDisplay,
   sortTicketsByCreatedDescThenReference,
   sortTicketsByReferenceDesc,
+  splitAttachmentUrls,
   TICKET_EXPORT_COLUMNS,
   buildTicketExportRow,
   truncateTitleDescCell,
@@ -1284,26 +1285,28 @@ export const TicketList = () => {
       key: 'attachment_url',
       width: 100,
       render: (v: string) => {
-        if (!v || !v.trim()) return '-'
-        const url = v.trim()
-        const isExternal = url.startsWith('http://') || url.startsWith('https://')
-        const handleClick = (e: React.MouseEvent) => {
-          e.preventDefault()
-          e.stopPropagation()
-          if (isExternal) {
-            window.open(url, '_blank', 'noopener,noreferrer')
-          }
-        }
+        const urls = splitAttachmentUrls(v)
+        if (urls.length === 0) return '-'
         return (
-          <a
-            href={isExternal ? url : '#'}
-            target={isExternal ? '_blank' : undefined}
-            rel={isExternal ? 'noopener noreferrer' : undefined}
-            onClick={handleClick}
-            title="View attachment (opens in new tab)"
-          >
-            <LinkOutlined /> View
-          </a>
+          <>
+            {urls.map((url, i) => (
+              <a
+                key={url}
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  window.open(url, '_blank', 'noopener,noreferrer')
+                }}
+                title="View attachment (opens in new tab)"
+                style={i > 0 ? { display: 'block' } : undefined}
+              >
+                <LinkOutlined /> View{urls.length > 1 ? ` ${i + 1}` : ''}
+              </a>
+            ))}
+          </>
         )
       },
     },

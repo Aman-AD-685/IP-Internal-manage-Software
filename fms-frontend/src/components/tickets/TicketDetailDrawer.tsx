@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Drawer, Descriptions, Tag, Typography, Input, Button, Space, message, Modal, Divider, Select } from 'antd'
-import { CheckOutlined, CloseOutlined, PauseCircleOutlined, UndoOutlined, RetweetOutlined } from '@ant-design/icons'
+import { CheckOutlined, CloseOutlined, PauseCircleOutlined, UndoOutlined, RetweetOutlined, EditOutlined } from '@ant-design/icons'
 import { ticketsApi } from '../../api/tickets'
 import { formatDateTable, formatDuration, featureStage1DelaySeconds, featureStage2DelaySeconds, formatDelay } from '../../utils/helpers'
 import type { Ticket } from '../../api/tickets'
@@ -11,6 +11,7 @@ import { getStatusTagColor } from '../../utils/statusColors'
 import { useTicketRealtimeRefresh } from '../../hooks/useTicketRealtimeRefresh'
 import { RepeatedTicketsModal } from './RepeatedTicketsModal'
 import { PriorityColoredReference } from './PriorityColoredReference'
+import { TicketCoreEditModal } from './TicketCoreEditModal'
 
 const { TextArea } = Input
 const { Text } = Typography
@@ -94,6 +95,13 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
   const [solutionText, setSolutionText] = useState('')
   const [repeatedOpen, setRepeatedOpen] = useState(false)
   const [submittingSolution, setSubmittingSolution] = useState(false)
+  const [editModalOpen, setEditModalOpen] = useState(false)
+
+  // Ticket creator can edit all support-form fields until Feature Stage 1
+  // ("Stage 1" in the feature drawer is stored in status_2) is Completed.
+  const isCreator = !!user?.id && ticket?.created_by === user.id
+  const creatorStageOpen = ticket?.status_2 !== 'completed'
+  const canEditAsCreator = isCreator && creatorStageOpen
 
   const handleFeatureStageUpdate = async (updates: Partial<Ticket>) => {
     if (!ticketId || readOnly || approvalMode) return
@@ -414,6 +422,25 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
             )}
           </Descriptions>
 
+          {ticket.type === 'feature' && !approvalMode && !readOnly && isCreator && (
+            <div style={{ marginBottom: 16 }}>
+              <Space direction="vertical" size={4}>
+                <Button
+                  icon={<EditOutlined />}
+                  onClick={() => setEditModalOpen(true)}
+                  disabled={!canEditAsCreator}
+                >
+                  Edit
+                </Button>
+                {!creatorStageOpen && (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    Editing is locked — Stage 1 is marked Completed.
+                  </Text>
+                )}
+              </Space>
+            </div>
+          )}
+
           {ticket.type === 'feature' ? (
             <Descriptions column={1} size="small" bordered style={{ marginBottom: 24 }}>
               <Descriptions.Item label="Title">{ticket.title || '-'}</Descriptions.Item>
@@ -639,6 +666,16 @@ export const TicketDetailDrawer = ({ ticketId, open, onClose, onUpdate, readOnly
             if (data) setTicket(data as Ticket)
           })
         }
+      }}
+    />
+
+    <TicketCoreEditModal
+      ticket={ticket}
+      open={editModalOpen}
+      onClose={() => setEditModalOpen(false)}
+      onSaved={(fresh) => {
+        if (fresh) setTicket(fresh)
+        onUpdate?.()
       }}
     />
     </>
