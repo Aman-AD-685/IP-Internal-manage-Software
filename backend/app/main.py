@@ -2563,8 +2563,10 @@ def list_tickets(
         q = q.not_.is_("quality_solution", "null")
         rsf = (register_status_filter or "all").strip().lower()
         if rsf == "completed":
-            q = q.eq("status_1", "yes")
+            # Stage 4 completed — covers First Action Yes (shortcut) and No → Stage 2–4.
+            # Do NOT require status_1=yes; that hid the common status_1=no path (e.g. CH-0672).
             q = q.or_("status_4.eq.completed,status_4.eq.Completed")
+            q = q.or_("status_2.is.null,status_2.neq.rejected")
         elif rsf == "rejected":
             q = q.or_("status_2.eq.rejected,status.eq.rejected")
     elif apply_section_filter and section == "chores-bugs":
