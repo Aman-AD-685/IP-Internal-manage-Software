@@ -12,8 +12,8 @@ import {
 
 export { getLocalUvicornStartCommand } from "../utils/localBackend"
 
-/** Default production backend (Render). Must match your deployed FastAPI URL. */
-export const PRODUCTION_API_FALLBACK = "https://ip-internal-manage-software.onrender.com"
+/** Default production backend. Must match Render custom domain. */
+export const PRODUCTION_API_FALLBACK = "https://support.industryprime.dpdns.org"
 
 declare global {
   interface Window {

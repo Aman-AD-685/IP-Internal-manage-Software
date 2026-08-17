@@ -1,6 +1,5 @@
 # Industry Prime — IP Internal Management (FMS)
-# Replace Sitemap URL if you use a custom production domain.
 User-agent: *
 Allow: /
 
-Sitemap: https://industryprime.vercel.app/sitemap.xml
+Sitemap: https://industryprime.dpdns.org/sitemap.xml

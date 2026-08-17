@@ -1,4 +1,18 @@
 {
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "industryprime.vercel.app" }],
+      "destination": "https://industryprime.dpdns.org/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "ip-internal-manage-software.vercel.app" }],
+      "destination": "https://industryprime.dpdns.org/:path*",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     { "source": "/release.json", "destination": "/release.json" },
     { "source": "/(.*)", "destination": "/index.html" }
