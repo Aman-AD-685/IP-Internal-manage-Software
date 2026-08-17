@@ -8,6 +8,9 @@ import {
 import { registerSW } from 'virtual:pwa-register'
 import App from './App'
 import { redirectRecoveryToResetPage, bootstrapRecoveryFromUrl } from './utils/recoveryAuth'
+import { sessionApiCacheClearAll } from './utils/sessionApiCache'
+
+const APP_ORIGIN_KEY = 'fms_app_origin'
 
 import 'antd/dist/reset.css'
 import './styles/print.css'
@@ -26,6 +29,21 @@ const queryClient = new QueryClient({
     },
   },
 })
+
+/** Drop stale API cache when the app origin changes (e.g. vercel.app → dpdns.org). */
+if (import.meta.env.PROD && typeof window !== 'undefined') {
+  const host = window.location.hostname.toLowerCase()
+  const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0'
+  if (!isLocal) {
+    const origin = window.location.origin
+    const stored = localStorage.getItem(APP_ORIGIN_KEY)
+    if (stored && stored !== origin) {
+      sessionApiCacheClearAll()
+      queryClient.clear()
+    }
+    localStorage.setItem(APP_ORIGIN_KEY, origin)
+  }
+}
 
 let QueryDevtools = () => null
 

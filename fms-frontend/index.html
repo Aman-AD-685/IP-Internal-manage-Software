@@ -5,6 +5,30 @@
     <link rel="icon" type="image/png" href="/logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
+    <!-- Canonical production host — redirect legacy Vercel URLs before any cached SPA loads. -->
+    <script>
+      (function () {
+        try {
+          var CANONICAL = "industryprime.dpdns.org";
+          var host = (window.location.hostname || "").toLowerCase();
+          var isLocal = host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0";
+          if (isLocal || host === CANONICAL) return;
+          var legacy =
+            host === "industryprime.vercel.app" ||
+            host === "ip-internal-manage-software.vercel.app" ||
+            host === "www." + CANONICAL;
+          if (!legacy) return;
+          var dest =
+            "https://" +
+            CANONICAL +
+            (window.location.pathname || "/") +
+            (window.location.search || "") +
+            (window.location.hash || "");
+          window.location.replace(dest);
+        } catch (e) {}
+      })();
+    </script>
+
     <!--
       PERF: open the network connections to the API + Supabase before the JS bundle
       parses, so DNS + TLS handshake overlaps with bundle download (saves ~100–300ms
