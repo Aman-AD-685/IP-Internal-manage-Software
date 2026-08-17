@@ -122,7 +122,8 @@ export default defineConfig(({ mode }) => {
               urlPattern: ({ url }) =>
                 url.pathname.startsWith('/api') ||
                 url.hostname.includes('supabase.co') ||
-                url.hostname.includes('onrender.com'),
+                url.hostname.includes('onrender.com') ||
+                url.hostname.includes('industryprime.dpdns.org'),
               handler: 'NetworkOnly',
             },
             {
