@@ -10,8 +10,8 @@
       parses, so DNS + TLS handshake overlaps with bundle download (saves ~100–300ms
       on the first API call). Keep these in sync with .env.production / Supabase URL.
     -->
-    <link rel="preconnect" href="https://ip-internal-manage-software.onrender.com" crossorigin />
-    <link rel="dns-prefetch" href="https://ip-internal-manage-software.onrender.com" />
+    <link rel="preconnect" href="https://support.industryprime.dpdns.org" crossorigin />
+    <link rel="dns-prefetch" href="https://support.industryprime.dpdns.org" />
     <link rel="preconnect" href="https://geqcgxassdkrymzsjpoj.supabase.co" crossorigin />
     <link rel="dns-prefetch" href="https://geqcgxassdkrymzsjpoj.supabase.co" />
     <!--
@@ -30,7 +30,7 @@
           if (isLocal) return;
           var api =
             (window.__FMS_API_BASE_URL__ && window.__FMS_API_BASE_URL__.trim()) ||
-            "https://ip-internal-manage-software.onrender.com";
+            "https://support.industryprime.dpdns.org";
           api = api.replace(/\/+$/, "");
           if (!/^https?:\/\//.test(api)) return;
           // keepalive lets the request survive the page handing off to the SPA.
@@ -52,7 +52,7 @@
     <meta name="author" content="Industry Prime" />
     <meta name="robots" content="index, follow" />
     <meta name="googlebot" content="index, follow" />
-    <link rel="canonical" href="https://industryprime.vercel.app/" />
+    <link rel="canonical" href="https://industryprime.dpdns.org/" />
 
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
@@ -63,8 +63,8 @@
       property="og:description"
       content="Industryprime: internal operations platform — onboarding, client payment, dashboards, KPIs, and more. Search industryprime."
     />
-    <meta property="og:url" content="https://industryprime.vercel.app/" />
-    <meta property="og:image" content="https://industryprime.vercel.app/logo.png" />
+    <meta property="og:url" content="https://industryprime.dpdns.org/" />
+    <meta property="og:image" content="https://industryprime.dpdns.org/logo.png" />
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
@@ -73,7 +73,7 @@
       name="twitter:description"
       content="Industry Prime (industryprime): FMS / internal management — React + FastAPI + Supabase."
     />
-    <meta name="twitter:image" content="https://industryprime.vercel.app/logo.png" />
+    <meta name="twitter:image" content="https://industryprime.dpdns.org/logo.png" />
 
     <!-- Theme / PWA -->
     <meta name="theme-color" content="#1677ff" />
@@ -94,13 +94,13 @@
           {
             "@type": "Organization",
             "name": "Industry Prime",
-            "url": "https://industryprime.vercel.app/",
-            "logo": "https://industryprime.vercel.app/logo.png"
+            "url": "https://industryprime.dpdns.org/",
+            "logo": "https://industryprime.dpdns.org/logo.png"
           },
           {
             "@type": "WebSite",
             "name": "Industry Prime — IP Internal Management",
-            "url": "https://industryprime.vercel.app/",
+            "url": "https://industryprime.dpdns.org/",
             "publisher": { "@type": "Organization", "name": "Industry Prime" }
           },
           {
@@ -108,14 +108,14 @@
             "name": "Industry Prime — IP Internal Management Software",
             "alternateName": ["industryprime", "IP Internal Management", "IP Internal Management Software"],
             "description": "Web-based internal management and FMS-style platform for Industry Prime: client onboarding, payments and ageing, KPI dashboards, training workflows, and support tooling. Stack: React (Vite), FastAPI, Supabase.",
-            "url": "https://industryprime.vercel.app/",
+            "url": "https://industryprime.dpdns.org/",
             "applicationCategory": "BusinessApplication",
             "operatingSystem": "Any (web browser)",
             "browserRequirements": "Requires JavaScript. Modern evergreen browser recommended.",
             "provider": {
               "@type": "Organization",
               "name": "Industry Prime",
-              "url": "https://industryprime.vercel.app/"
+              "url": "https://industryprime.dpdns.org/"
             }
           },
           {
@@ -143,13 +143,9 @@
       }
     </script>
 
-    <!--
-      When you use a custom domain, replace every https://industryprime.vercel.app/
-      in this file plus public/robots.txt and public/sitemap.xml with your live URL.
-    -->
-    <!-- If Vercel env wrongly points API at this site (404 on Save), set your Render URL here and redeploy once: -->
+    <!-- Production API (override in Vercel env if needed). -->
     <script>
-      window.__FMS_API_BASE_URL__ = window.__FMS_API_BASE_URL__ || ""
+      window.__FMS_API_BASE_URL__ = window.__FMS_API_BASE_URL__ || "https://support.industryprime.dpdns.org"
     </script>
   </head>
   <body>

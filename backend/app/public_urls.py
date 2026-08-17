@@ -9,8 +9,8 @@ from __future__ import annotations
 import os
 
 # Must match fms-frontend/src/api/axios.ts PRODUCTION_API_FALLBACK
-PRODUCTION_API_FALLBACK = "https://ip-internal-manage-software.onrender.com"
-PRODUCTION_FRONTEND_FALLBACK = "https://industryprime.vercel.app"
+PRODUCTION_API_FALLBACK = "https://support.industryprime.dpdns.org"
+PRODUCTION_FRONTEND_FALLBACK = "https://industryprime.dpdns.org"
 
 
 def _env(key: str) -> str:
@@ -89,7 +89,7 @@ def log_public_urls_startup() -> None:
     )
     if on_render and is_loopback_url(api):
         print(
-            "[urls] Set PUBLIC_API_URL=https://ip-internal-manage-software.onrender.com on Render and redeploy.",
+            "[urls] Set PUBLIC_API_URL=https://support.industryprime.dpdns.org on Render and redeploy.",
             file=sys.stderr,
             flush=True,
         )

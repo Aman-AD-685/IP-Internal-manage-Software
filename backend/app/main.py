@@ -450,7 +450,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 # CORS configuration - allow frontend origin
 # Reads: CORS_ORIGINS (comma-separated), CORS_ORIGIN, CORS_ORIGIN_1, CORS_ORIGIN_2, ... CORS_ORIGIN_10
 _dev_defaults = "http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:3004,http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:3002,http://127.0.0.1:3003,http://127.0.0.1:3004"
-_prod_defaults = "https://industryprime.vercel.app,https://ip-internal-manage-software.vercel.app,https://ip-internal-manage-software.onrender.com"
+_prod_defaults = "https://industryprime.dpdns.org,https://support.industryprime.dpdns.org"
 _default = f"{_dev_defaults},{_prod_defaults}"
 
 def _collect_cors_origins() -> list[str]:
