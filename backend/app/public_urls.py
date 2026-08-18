@@ -10,7 +10,7 @@ import os
 
 # Must match fms-frontend/src/api/axios.ts PRODUCTION_API_FALLBACK
 PRODUCTION_API_FALLBACK = "https://support.industryprime.dpdns.org"
-PRODUCTION_FRONTEND_FALLBACK = "https://industryprime.dpdns.org"
+PRODUCTION_FRONTEND_FALLBACK = "https://www.industryprime.dpdns.org"
 
 
 def _env(key: str) -> str:

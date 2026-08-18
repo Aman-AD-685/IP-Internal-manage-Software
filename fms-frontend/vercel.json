@@ -3,13 +3,19 @@
     {
       "source": "/:path*",
       "has": [{ "type": "host", "value": "industryprime.vercel.app" }],
-      "destination": "https://industryprime.dpdns.org/:path*",
+      "destination": "https://www.industryprime.dpdns.org/:path*",
       "permanent": true
     },
     {
       "source": "/:path*",
       "has": [{ "type": "host", "value": "ip-internal-manage-software.vercel.app" }],
-      "destination": "https://industryprime.dpdns.org/:path*",
+      "destination": "https://www.industryprime.dpdns.org/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "industryprime.dpdns.org" }],
+      "destination": "https://www.industryprime.dpdns.org/:path*",
       "permanent": true
     }
   ],

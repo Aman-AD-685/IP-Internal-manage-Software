@@ -2,4 +2,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://industryprime.dpdns.org/sitemap.xml
+Sitemap: https://www.industryprime.dpdns.org/sitemap.xml

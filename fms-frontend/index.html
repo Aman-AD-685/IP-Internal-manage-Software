@@ -9,14 +9,14 @@
     <script>
       (function () {
         try {
-          var CANONICAL = "industryprime.dpdns.org";
+          var CANONICAL = "www.industryprime.dpdns.org";
           var host = (window.location.hostname || "").toLowerCase();
           var isLocal = host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0";
           if (isLocal || host === CANONICAL) return;
           var legacy =
+            host === "industryprime.dpdns.org" ||
             host === "industryprime.vercel.app" ||
-            host === "ip-internal-manage-software.vercel.app" ||
-            host === "www." + CANONICAL;
+            host === "ip-internal-manage-software.vercel.app";
           if (!legacy) return;
           var dest =
             "https://" +
@@ -76,7 +76,7 @@
     <meta name="author" content="Industry Prime" />
     <meta name="robots" content="index, follow" />
     <meta name="googlebot" content="index, follow" />
-    <link rel="canonical" href="https://industryprime.dpdns.org/" />
+    <link rel="canonical" href="https://www.industryprime.dpdns.org/" />
 
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
@@ -87,8 +87,8 @@
       property="og:description"
       content="Industryprime: internal operations platform — onboarding, client payment, dashboards, KPIs, and more. Search industryprime."
     />
-    <meta property="og:url" content="https://industryprime.dpdns.org/" />
-    <meta property="og:image" content="https://industryprime.dpdns.org/logo.png" />
+    <meta property="og:url" content="https://www.industryprime.dpdns.org/" />
+    <meta property="og:image" content="https://www.industryprime.dpdns.org/logo.png" />
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
@@ -97,7 +97,7 @@
       name="twitter:description"
       content="Industry Prime (industryprime): FMS / internal management — React + FastAPI + Supabase."
     />
-    <meta name="twitter:image" content="https://industryprime.dpdns.org/logo.png" />
+    <meta name="twitter:image" content="https://www.industryprime.dpdns.org/logo.png" />
 
     <!-- Theme / PWA -->
     <meta name="theme-color" content="#1677ff" />
@@ -118,13 +118,13 @@
           {
             "@type": "Organization",
             "name": "Industry Prime",
-            "url": "https://industryprime.dpdns.org/",
-            "logo": "https://industryprime.dpdns.org/logo.png"
+            "url": "https://www.industryprime.dpdns.org/",
+            "logo": "https://www.industryprime.dpdns.org/logo.png"
           },
           {
             "@type": "WebSite",
             "name": "Industry Prime — IP Internal Management",
-            "url": "https://industryprime.dpdns.org/",
+            "url": "https://www.industryprime.dpdns.org/",
             "publisher": { "@type": "Organization", "name": "Industry Prime" }
           },
           {
@@ -132,14 +132,14 @@
             "name": "Industry Prime — IP Internal Management Software",
             "alternateName": ["industryprime", "IP Internal Management", "IP Internal Management Software"],
             "description": "Web-based internal management and FMS-style platform for Industry Prime: client onboarding, payments and ageing, KPI dashboards, training workflows, and support tooling. Stack: React (Vite), FastAPI, Supabase.",
-            "url": "https://industryprime.dpdns.org/",
+            "url": "https://www.industryprime.dpdns.org/",
             "applicationCategory": "BusinessApplication",
             "operatingSystem": "Any (web browser)",
             "browserRequirements": "Requires JavaScript. Modern evergreen browser recommended.",
             "provider": {
               "@type": "Organization",
               "name": "Industry Prime",
-              "url": "https://industryprime.dpdns.org/"
+              "url": "https://www.industryprime.dpdns.org/"
             }
           },
           {
