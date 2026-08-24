@@ -60,11 +60,19 @@ def get_public_api_base() -> str:
     return f"http://127.0.0.1:{port}"
 
 
+def _normalize_production_frontend_url(url: str) -> str:
+    """Apex dpdns host → www so password-reset links keep hash tokens after redirect."""
+    base = (url or "").rstrip("/")
+    if base == "https://industryprime.dpdns.org":
+        return PRODUCTION_FRONTEND_FALLBACK.rstrip("/")
+    return base
+
+
 def get_frontend_base() -> str:
     for key in ("FRONTEND_URL", "SITE_URL", "PUBLIC_FRONTEND_URL"):
         v = _env(key)
         if v and not (running_on_render() and is_loopback_url(v)):
-            return v.rstrip("/")
+            return _normalize_production_frontend_url(v)
     if running_on_render():
         return PRODUCTION_FRONTEND_FALLBACK.rstrip("/")
     return "http://localhost:3001"

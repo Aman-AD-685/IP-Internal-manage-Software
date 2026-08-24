@@ -161,6 +161,26 @@ export const authApi = {
       })
       return { data: response.data, error: undefined }
     } catch (err: any) {
+      const isNetworkError =
+        err.code === 'ECONNREFUSED' ||
+        err.code === 'ERR_NETWORK' ||
+        err.code === 'ECONNABORTED' ||
+        !err.response
+      if (isNetworkError) {
+        const hint = isLocalBackend
+          ? `Start the backend: ${getLocalUvicornStartCommand()}`
+          : 'Server may be down or check your connection.'
+        const errorMessage =
+          err.code === 'ECONNABORTED'
+            ? `Request timed out. ${hint}`
+            : err.message?.includes('Network Error') || err.code === 'ERR_NETWORK'
+              ? `Cannot reach server. ${hint}`
+              : `Connection failed: ${err.message || 'Backend not reachable'}. ${hint}`
+        return {
+          data: undefined,
+          error: { message: errorMessage, code: 'NETWORK_ERROR' },
+        }
+      }
       const rawDetail = err.response?.data?.detail
       const msg =
         (typeof rawDetail === 'string'
