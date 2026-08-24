@@ -342,8 +342,8 @@ export function DbDashPage() {
   return (
     <div className="db-dash-page industrial-page industrial-dashboard">
       <Card className="db-dash-main">
-        <div className="db-dash-title-bar">
-          <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
+        <div className="page-toolbar-row db-dash-title-bar">
+          <Title level={4} className="page-main-heading" style={{ margin: 0, fontSize: 15 }}>
             ACTIVE CLIENT DATABASE
           </Title>
           <OperationsSectionTabs module="db-client" />

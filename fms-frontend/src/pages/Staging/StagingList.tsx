@@ -498,23 +498,26 @@ export const StagingList = () => {
   )
 
   return (
-    <div style={{ maxWidth: 1400, margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', flexWrap: 'wrap', gap: 16, marginBottom: 10 }}>
-        <Title level={2} className="page-main-heading" style={{ margin: 0 }}>
-          Staging
-        </Title>
-        <SupportSectionTabs />
-      </div>
-      <div className="page-toolbar-row" style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', gap: 16, marginBottom: 16 }}>
-        <PrintExport
-          pageTitle="Staging"
-          dateRangeExport={{
-            columns: exportColumns,
-            filename: 'staging_tickets',
-            scopeHint,
-            fetchRows: fetchExportRowsByDateRange,
-          }}
-        />
+    <div style={{ width: '100%', margin: 0 }}>
+      <div className="page-toolbar-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap', gap: 6, marginBottom: 8, width: '100%' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Title level={2} className="page-main-heading" style={{ margin: 0, fontSize: 15 }}>
+            Staging
+          </Title>
+          <SupportSectionTabs />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
+          <PrintExport
+            pageTitle="Staging"
+            iconOnly
+            dateRangeExport={{
+              columns: exportColumns,
+              filename: 'staging_tickets',
+              scopeHint,
+              fetchRows: fetchExportRowsByDateRange,
+            }}
+          />
+        </div>
       </div>
       <Card>
         <Space style={{ marginBottom: 16 }} wrap>

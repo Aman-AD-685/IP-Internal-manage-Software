@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Card, Typography, Select, Table, message, Modal, Alert, Descriptions, Space } from 'antd'
-import { LineChartOutlined } from '@ant-design/icons'
+import { Card, Typography, Select, Table, message, Modal, Alert, Descriptions } from 'antd'
 import { dashboardApi } from '../../api/dashboard'
 import { sessionApiCacheGet } from '../../utils/sessionApiCache'
 import { sortPerformanceRefOptions } from '../../utils/performanceRefs'
@@ -127,8 +126,55 @@ export const CompPerformPage = () => {
   }
 
   const tableColumns = [
-    { title: 'Reference Number', dataIndex: 'reference_no', key: 'reference_no', width: 120 },
-    { title: 'Company Name', dataIndex: 'company_name', key: 'company_name', width: 160 },
+    {
+      title: (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, whiteSpace: 'normal', minWidth: 0 }}>
+          <span>Reference</span>
+          <Select
+            size="small"
+            placeholder="Filter"
+            value={filterRef || undefined}
+            onChange={(v) => setFilterRef(v ?? '')}
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            options={sortPerformanceRefOptions([...new Set(items.map((i) => i.reference_no).filter(Boolean))] as string[]).map((r) => ({
+              value: r,
+              label: r,
+            }))}
+            style={{ width: '100%' }}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      ),
+      dataIndex: 'reference_no',
+      key: 'reference_no',
+      width: 128,
+      render: (v: string) => <span style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>{v || '-'}</span>,
+    },
+    {
+      title: (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, whiteSpace: 'normal', minWidth: 0 }}>
+          <span>Company</span>
+          <Select
+            size="small"
+            placeholder="Filter"
+            value={filterCompany || undefined}
+            onChange={(v) => setFilterCompany(v ?? '')}
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            options={[...new Set(items.map((i) => i.company_name).filter(Boolean))].sort().map((c) => ({ value: c, label: c }))}
+            style={{ width: '100%' }}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      ),
+      dataIndex: 'company_name',
+      key: 'company_name',
+      width: 180,
+      render: (v: string) => <span style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>{v || '-'}</span>,
+    },
     { title: 'Response', dataIndex: 'response', key: 'response', ellipsis: true, render: (v: string) => (v ? String(v).slice(0, 40) + (String(v).length > 40 ? '...' : '') : '-') },
     { title: 'Contact', dataIndex: 'contact', key: 'contact', width: 120 },
     {
@@ -158,13 +204,12 @@ export const CompPerformPage = () => {
 
   return (
     <div>
-      <Space style={{ marginBottom: 24 }} wrap align="center">
-        <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
-          <LineChartOutlined style={{ marginRight: 8 }} />
+      <div className="page-toolbar-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 8, width: '100%' }}>
+        <Title level={4} className="page-main-heading" style={{ margin: 0, fontSize: 15 }}>
           Comp- Perform
         </Title>
         <OperationsSectionTabs module="success" />
-      </Space>
+      </div>
       <Card style={{ marginBottom: 16 }}>
         <Typography.Text type="secondary">
           Companies where all features are completed. They no longer appear in Performance Monitoring.
@@ -176,33 +221,19 @@ export const CompPerformPage = () => {
       )}
 
       <Card>
-        <div style={{ marginBottom: 16, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-          <Select
-            placeholder="Filter by Reference"
-            value={filterRef || undefined}
-            onChange={(v) => setFilterRef(v ?? '')}
-            style={{ width: 200 }}
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            options={sortPerformanceRefOptions([...new Set(items.map((i) => i.reference_no).filter(Boolean))] as string[]).map((r) => ({
-              value: r,
-              label: r,
-            }))}
-          />
-          <Select
-            placeholder="Filter by Company"
-            value={filterCompany || undefined}
-            onChange={(v) => setFilterCompany(v ?? '')}
-            style={{ width: 240 }}
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            options={[...new Set(items.map((i) => i.company_name).filter(Boolean))].sort().map((c) => ({ value: c, label: c }))}
-          />
-        </div>
+        <style>{`
+          .comp-perform-table .ant-table-thead > tr > th {
+            white-space: normal !important;
+            vertical-align: top;
+          }
+          .comp-perform-table .ant-table-cell {
+            white-space: normal;
+            word-break: break-word;
+          }
+        `}</style>
         <TableWithSkeletonLoading loading={loading} columns={9} rows={12}>
           <Table
+            className="comp-perform-table"
             dataSource={pagedDisplayItems}
             rowKey="id"
             loading={false}

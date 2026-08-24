@@ -25,14 +25,14 @@ export function OperationsSectionTabs({ module }: { module: OperationsModule }) 
     success: [
       {
         key: 'performance',
-        label: 'Performance Monitoring',
+        label: 'Perf.',
         to: ROUTES.SUCCESS_PERFORMANCE,
         visible: canViewSectionByKey('success_performance'),
         active: location.pathname === ROUTES.SUCCESS_PERFORMANCE,
       },
       {
         key: 'comp-perform',
-        label: 'Comp- Perform',
+        label: 'Comp.',
         to: ROUTES.SUCCESS_COMP_PERFORM,
         visible: canViewSectionByKey('success_comp_perform'),
         active: location.pathname === ROUTES.SUCCESS_COMP_PERFORM,
@@ -48,14 +48,14 @@ export function OperationsSectionTabs({ module }: { module: OperationsModule }) 
       },
       {
         key: 'closed-leads',
-        label: 'Closed Leads',
+        label: 'Closed',
         to: ROUTES.LEADS_CLOSED,
         visible: canViewSectionByKey('leads') || canViewSectionByKey('client_to_lead'),
         active: location.pathname === ROUTES.LEADS && searchParams.get('status') === 'Closed',
       },
       {
         key: 'import',
-        label: 'Import from sheet',
+        label: 'Import',
         to: ROUTES.LEADS_IMPORT,
         visible: canViewSectionByKey('leads') || canViewSectionByKey('client_to_lead'),
         active: location.pathname === ROUTES.LEADS_IMPORT,
@@ -64,7 +64,7 @@ export function OperationsSectionTabs({ module }: { module: OperationsModule }) 
     onboarding: [
       {
         key: 'payment-status',
-        label: 'Record of Onboarding',
+        label: 'Onb.',
         to: ROUTES.ONBOARDING_PAYMENT_STATUS,
         visible: canViewSectionByKey('onboarding') || canViewSectionByKey('onboarding_payment_status'),
         active: location.pathname === ROUTES.ONBOARDING_PAYMENT_STATUS,
@@ -73,7 +73,7 @@ export function OperationsSectionTabs({ module }: { module: OperationsModule }) 
     training: [
       {
         key: 'client-training',
-        label: 'Client Training',
+        label: 'Train.',
         to: ROUTES.TRAINING_CLIENT,
         visible: canViewSectionByKey('training'),
         active: location.pathname === ROUTES.TRAINING_CLIENT,
@@ -82,28 +82,28 @@ export function OperationsSectionTabs({ module }: { module: OperationsModule }) 
     'client-payment': [
       {
         key: 'pending-payment',
-        label: 'PENDING PAYMENT DETAILS',
+        label: 'Pend.',
         to: ROUTES.CLIENT_PAYMENT_PENDING_DETAILS,
         visible: canViewPendingPaymentDetails(user?.email),
         active: location.pathname === ROUTES.CLIENT_PAYMENT_PENDING_DETAILS,
       },
       {
         key: 'payment-management',
-        label: 'Payment Management',
+        label: 'Pay.',
         to: ROUTES.CLIENT_PAYMENT,
         visible: canViewSectionByKey('client_payment'),
         active: location.pathname === ROUTES.CLIENT_PAYMENT,
       },
       {
         key: 'payment-ageing',
-        label: 'Payment Ageing Report',
+        label: 'Ageing',
         to: ROUTES.CLIENT_PAYMENT_PAYMENT_AGEING,
         visible: canViewSectionByKey('client_payment'),
         active: location.pathname === ROUTES.CLIENT_PAYMENT_PAYMENT_AGEING,
       },
       {
         key: 'comp-register',
-        label: 'Comp _ Register',
+        label: 'Comp.',
         to: ROUTES.CLIENT_PAYMENT_COMP_REGISTER,
         visible: canViewSectionByKey('client_payment'),
         active: location.pathname === ROUTES.CLIENT_PAYMENT_COMP_REGISTER,
@@ -112,21 +112,21 @@ export function OperationsSectionTabs({ module }: { module: OperationsModule }) 
     'db-client': [
       {
         key: 'db-dash',
-        label: 'DB- Dash',
+        label: 'Dash',
         to: ROUTES.DB_CLIENT_DB_DASH,
         visible: canViewDbClientDbDash(user?.email),
         active: location.pathname === ROUTES.DB_CLIENT_DB_DASH,
       },
       {
         key: 'client-onb',
-        label: 'Client ONB',
+        label: 'ONB',
         to: ROUTES.DB_CLIENT_CLIENT_ONB,
         visible: canViewSectionByKey('db_client'),
         active: location.pathname === ROUTES.DB_CLIENT_CLIENT_ONB,
       },
       {
         key: 'inactive-clients',
-        label: 'Inactive clients',
+        label: 'Inact.',
         to: ROUTES.DB_CLIENT_CLIENT_ONB_INACTIVE,
         visible: canViewSectionByKey('db_client'),
         active: location.pathname === ROUTES.DB_CLIENT_CLIENT_ONB_INACTIVE,
@@ -142,6 +142,7 @@ export function OperationsSectionTabs({ module }: { module: OperationsModule }) 
       {tabs.map((tab) => (
         <Button
           key={tab.key}
+          size="small"
           type={tab.active ? 'primary' : 'default'}
           onClick={() => navigate(tab.to)}
         >

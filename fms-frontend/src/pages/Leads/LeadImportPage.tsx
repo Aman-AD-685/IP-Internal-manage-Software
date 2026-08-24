@@ -1,8 +1,6 @@
 import { useState } from 'react'
 import { Card, Typography, Button, Input, Space, message } from 'antd'
 import { DownloadOutlined, FileTextOutlined } from '@ant-design/icons'
-import { useNavigate } from 'react-router-dom'
-import { ROUTES } from '../../utils/constants'
 import { OperationsSectionTabs } from '../../components/common/OperationsSectionTabs'
 
 const { Title, Text } = Typography
@@ -427,7 +425,6 @@ function downloadSql(sql: string, filename: string) {
 }
 
 export const LeadImportPage = () => {
-  const navigate = useNavigate()
   const [tsv, setTsv] = useState('')
   const [generating, setGenerating] = useState(false)
 
@@ -455,11 +452,8 @@ export const LeadImportPage = () => {
   }
 
   return (
-    <div style={{ padding: 24 }}>
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Button type="text" onClick={() => navigate(ROUTES.LEADS)}>
-          ← Back to Lead
-        </Button>
+    <div>
+      <Space className="page-toolbar-row" style={{ marginBottom: 8 }} wrap={false} align="center">
         <OperationsSectionTabs module="client-to-lead" />
       </Space>
       <Card>

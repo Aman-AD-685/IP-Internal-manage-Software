@@ -3,8 +3,17 @@
   display: none !important;
 }
 
-/* Toolbar row when title is hidden: keep actions aligned to the end */
+/* Toolbar: tabs left, actions / Print / Export right */
 .printable-content.app-content .page-toolbar-row {
-  margin-bottom: 16px;
-  justify-content: flex-end !important;
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px !important;
+  justify-content: space-between !important;
+  gap: 6px;
+  width: 100%;
+  flex-wrap: nowrap;
+}
+
+.printable-content.app-content .ant-card-body {
+  padding: 8px 12px;
 }

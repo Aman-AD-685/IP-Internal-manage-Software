@@ -67,7 +67,7 @@ export function AddCompanyDivisionModal({ open, onClose, onSuccess }: Props) {
 
   return (
     <Modal
-      title="Add Company & Division"
+      title="Add Co. & Div."
       open={open}
       onCancel={handleClose}
       footer={null}

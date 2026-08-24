@@ -448,16 +448,16 @@ export function ClientOnbPage({ mode = 'active' }: { mode?: ClientOnbPageMode })
         />
       )}
       <Card>
-        <Space align="center" style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }} wrap>
-          <Space wrap align="center">
-            <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
+        <Space className="page-toolbar-row" align="center" style={{ marginBottom: 8, width: '100%', justifyContent: 'space-between' }} wrap={false}>
+          <Space wrap={false} align="center" size={6}>
+            <Title level={4} className="page-main-heading" style={{ margin: 0, fontSize: 15 }}>
               {isInactivePage ? 'Inactive clients' : 'Client ONB'}
             </Title>
             <OperationsSectionTabs module="db-client" />
           </Space>
           {canEdit && !isInactivePage && (
-            <Button type="primary" icon={<PlusOutlined />} onClick={openAdd}>
-              Add Client ONB
+            <Button size="small" type="primary" icon={<PlusOutlined />} onClick={openAdd}>
+              Add ONB
             </Button>
           )}
         </Space>

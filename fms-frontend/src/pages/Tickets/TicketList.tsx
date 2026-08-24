@@ -11,7 +11,7 @@ import {
   Button,
   message,
 } from 'antd'
-import { SearchOutlined, PhoneOutlined, MailOutlined, MessageOutlined, LinkOutlined, PauseCircleOutlined, RetweetOutlined, PlusOutlined } from '@ant-design/icons'
+import { PhoneOutlined, MailOutlined, MessageOutlined, LinkOutlined, PauseCircleOutlined, RetweetOutlined, PlusOutlined, AppstoreOutlined } from '@ant-design/icons'
 import { useSearchParams, useLocation, useNavigate } from 'react-router-dom'
 import { ticketsApi, type Ticket } from '../../api/tickets'
 import { apiUserMessage } from '../../utils/apiUserMessage'
@@ -97,6 +97,16 @@ function getRegisterStatusLabel(ticket: Ticket): 'Completed' | 'Rejected' | 'Oth
 
 /** Rows per scroll chunk (API uses page_size; server allows up to 200 per request). */
 const TICKETS_CHUNK = 15
+
+const MOB_APP_ANDROID_MARK = '[Mob-App: Android]'
+const MOB_APP_APPLE_MARK = '[Mob-App: Apple]'
+
+function ticketMobAppPlatform(ticket: Ticket): 'android' | 'apple' | null {
+  const text = `${ticket.description ?? ''} ${ticket.title ?? ''}`
+  if (text.includes(MOB_APP_ANDROID_MARK)) return 'android'
+  if (text.includes(MOB_APP_APPLE_MARK)) return 'apple'
+  return null
+}
 
 /** Ant virtual tables do not render the summary sentinel reliably — breaks infinite scroll (Feature list). */
 const TICKET_LIST_USE_VIRTUAL_TABLE = false
@@ -195,8 +205,9 @@ export const TicketList = () => {
       navigate(ROUTES.DASHBOARD, { replace: true })
     }
   }, [isApprovalSection, canAccessApproval, navigate])
-  const [searchInput, setSearchInput] = useState('')
   const [addCompanyDivisionOpen, setAddCompanyDivisionOpen] = useState(false)
+  const [appTicketsView, setAppTicketsView] = useState(false)
+  const [appPlatformFilter, setAppPlatformFilter] = useState<'android' | 'apple' | ''>('')
   const [companies, setCompanies] = useState<Company[]>([])
   const [pageCompanyOptions, setPageCompanyOptions] = useState<Array<{ value: string; label: string }>>([])
   const [pageReferenceOptions, setPageReferenceOptions] = useState<Array<{ value: string; label: string }>>([])
@@ -1034,10 +1045,6 @@ export const TicketList = () => {
     }
   }, [])
 
-  const handleSearch = () => {
-    setFilters((f) => ({ ...f, search: searchInput }))
-  }
-
   const handleDateRange = (_: unknown, dateStrings: [string, string]) => {
     const from = dateStrings[0] ? `${dateStrings[0]}T00:00:00.000Z` : ''
     const to = dateStrings[1] ? `${dateStrings[1]}T23:59:59.999Z` : ''
@@ -1083,14 +1090,23 @@ export const TicketList = () => {
 
   /** Chores & Bugs: mixed types by created_at so bugs (BU-*) are not buried below all CH-* rows. */
   const ticketsForDisplay = useMemo(() => {
+    let list = baseList
+    if (appTicketsView) {
+      list = list.filter((t) => {
+        const platform = ticketMobAppPlatform(t)
+        if (!platform) return false
+        if (!appPlatformFilter) return true
+        return platform === appPlatformFilter
+      })
+    }
     if (isChoresBugsSection && !typeOfRequestFilter) {
-      return sortTicketsByCreatedDescThenReference(baseList)
+      return sortTicketsByCreatedDescThenReference(list)
     }
     if (isChoresBugsSection || typeFromUrl === 'feature' || sectionFromUrl === 'completed-feature') {
-      return sortTicketsByReferenceDesc(baseList)
+      return sortTicketsByReferenceDesc(list)
     }
-    return baseList
-  }, [baseList, isChoresBugsSection, typeOfRequestFilter, typeFromUrl, sectionFromUrl])
+    return list
+  }, [baseList, appTicketsView, appPlatformFilter, isChoresBugsSection, typeOfRequestFilter, typeFromUrl, sectionFromUrl])
 
   const availableCompanyOptions = useMemo(() => {
     const options = new Map<string, string>()
@@ -1158,6 +1174,14 @@ export const TicketList = () => {
       if (isChoresBugs) {
         allTickets = keepOnlyChoresAndBugs(allTickets)
       }
+      if (appTicketsView) {
+        allTickets = allTickets.filter((t) => {
+          const platform = ticketMobAppPlatform(t)
+          if (!platform) return false
+          if (!appPlatformFilter) return true
+          return platform === appPlatformFilter
+        })
+      }
       if (showStageFilter && stageFilter) {
         allTickets = allTickets.filter((t) => getChoresBugsCurrentStage(t).stageLabel === stageFilter)
       } else if (showStageFilterForFeature && stageFilter) {
@@ -1175,6 +1199,8 @@ export const TicketList = () => {
     [
       fetchAllTicketsWithFilters,
       isChoresBugs,
+      appTicketsView,
+      appPlatformFilter,
       showStageFilter,
       showStageFilterForFeature,
       stageFilter,
@@ -1310,6 +1336,24 @@ export const TicketList = () => {
         )
       },
     },
+    ...(appTicketsView
+      ? [
+          {
+            title: 'App Mark',
+            key: 'app_mark',
+            width: 90,
+            render: (_: unknown, r: Ticket) => {
+              const platform = ticketMobAppPlatform(r)
+              if (!platform) return '-'
+              return (
+                <Tag color={platform === 'android' ? 'green' : 'default'}>
+                  {platform === 'android' ? 'Android' : 'Apple'}
+                </Tag>
+              )
+            },
+          },
+        ]
+      : []),
     {
       title: 'Title',
       dataIndex: 'title',
@@ -1468,7 +1512,7 @@ export const TicketList = () => {
     ...(viewFromUrl
       ? [
           {
-            title: 'Approval Status',
+            title: 'Approval',
             key: 'approval_status',
             width: 120,
             render: (_: unknown, r: Ticket) => {
@@ -1634,7 +1678,7 @@ export const TicketList = () => {
     ...(!isChoresBugs
       ? [
           {
-            title: 'Approval Status',
+            title: 'Approval',
             dataIndex: 'approval_status',
             key: 'approval_status',
             width: 110,
@@ -1680,17 +1724,17 @@ export const TicketList = () => {
 
   const pageTitle =
     isApprovalSection
-      ? 'Approval Status'
+      ? 'Approval'
       : sectionFromUrl === 'chores-bugs'
-        ? 'Chores & Bugs'
+        ? 'Chores & Bug'
         : sectionFromUrl === 'completed-chores-bugs'
-          ? 'Completed Chores & Bugs'
+          ? 'Completed Chores & Bug'
           : sectionFromUrl === 'rejected-tickets'
-            ? 'Rejected Tickets'
+            ? 'Rejected'
             : sectionFromUrl === 'completed-feature'
               ? 'Completed Feature'
               : sectionFromUrl === 'register-of-tickets'
-                ? 'Register of Tickets'
+                ? 'Register'
               : sectionFromUrl === 'solutions'
                 ? 'Solution'
                 : typeFromUrl === 'feature'
@@ -1703,6 +1747,8 @@ export const TicketList = () => {
     () =>
       Boolean(
         filters.search ||
+          appTicketsView ||
+          appPlatformFilter ||
           filters.reference_filters.length ||
           filters.status ||
           filters.company_ids.length ||
@@ -1720,6 +1766,8 @@ export const TicketList = () => {
       ),
     [
       filters,
+      appTicketsView,
+      appPlatformFilter,
       stageFilter,
       status2Filter,
       typeOfRequestFilter,
@@ -1732,7 +1780,6 @@ export const TicketList = () => {
   )
 
   const clearTicketFilters = useCallback(() => {
-    setSearchInput('')
     setFilters((f) => ({
       ...f,
       search: '',
@@ -1746,6 +1793,8 @@ export const TicketList = () => {
     setStageFilter('')
     setStatus2Filter('')
     setTypeOfRequestFilter('')
+    setAppTicketsView(false)
+    setAppPlatformFilter('')
     setApprovalFilter('pending')
     if (isRegisterSection) {
       setRegisterStatusFilter('completed')
@@ -1805,62 +1854,78 @@ export const TicketList = () => {
   const exportColumns = [...TICKET_EXPORT_COLUMNS]
 
   return (
-    <div style={{ maxWidth: 1600, margin: '0 auto' }}>
+    <div style={{ width: '100%', margin: 0 }}>
       {isCompletedChoresBugs && (
         <style>{`.completed-chores-bugs-wrap .ant-table-cell,
 .completed-chores-bugs-wrap .ant-table-thead > tr > th { white-space: normal !important; word-break: break-word !important; }`}</style>
       )}
-      <Space style={{ marginBottom: 10, width: '100%', justifyContent: 'flex-start', flexWrap: 'wrap' }}>
-        <Title
-          level={2}
-          className="page-main-heading"
-          style={{
-            margin: 0,
-            ...(isCompletedChoresBugs ? { whiteSpace: 'normal' as const, wordBreak: 'break-word' as const } : {}),
-          }}
-        >
-          {pageTitle}
-        </Title>
-        {isFeatureListSection && (
-          <Button
-            type={featureHoldView ? 'primary' : 'default'}
-            icon={<PauseCircleOutlined />}
-            onClick={() => setFeatureHoldView((v) => !v)}
-            style={featureHoldView ? undefined : { borderColor: '#faad14', color: '#d48806' }}
+      <div className="page-toolbar-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'nowrap', gap: 6, marginBottom: 8, width: '100%' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap', minWidth: 0 }}>
+          <Title
+            level={2}
+            className="page-main-heading"
+            style={{ margin: 0, fontSize: 15, whiteSpace: 'nowrap', ...(isCompletedChoresBugs ? { whiteSpace: 'normal' as const, wordBreak: 'break-word' as const } : {}) }}
           >
-            {featureHoldView ? 'Back to Feature List' : 'Hold – Approve'}
+            {pageTitle}
+          </Title>
+          <SupportSectionTabs />
+          {isFeatureListSection && (
+            <Button
+              size="small"
+              type={featureHoldView ? 'primary' : 'default'}
+              icon={<PauseCircleOutlined />}
+              onClick={() => setFeatureHoldView((v) => !v)}
+              style={featureHoldView ? undefined : { borderColor: '#faad14', color: '#d48806' }}
+            >
+              {featureHoldView ? 'Back' : 'Hold'}
+            </Button>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 'auto' }}>
+          <Button
+            size="small"
+            type={appTicketsView ? 'primary' : 'default'}
+            icon={<AppstoreOutlined />}
+            onClick={() => {
+              setAppTicketsView((open) => {
+                if (open) setAppPlatformFilter('')
+                return !open
+              })
+            }}
+          >
+            App
           </Button>
-        )}
-        <SupportSectionTabs />
-      </Space>
-      <Space className="page-toolbar-row" style={{ marginBottom: 16, width: '100%', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-        <Button type="default" icon={<PlusOutlined />} onClick={() => setAddCompanyDivisionOpen(true)}>
-          Add Company & Division
-        </Button>
-        <Input
-          placeholder="Global search..."
-          prefix={<SearchOutlined />}
-          style={{ width: 240 }}
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-          onPressEnter={handleSearch}
-          allowClear
-        />
-        <Button type="primary" onClick={handleSearch}>
-          Search
-        </Button>
-        <PrintExport
-          pageTitle={pageTitle}
-          filteredExport={{
-            columns: exportColumns,
-            filename: `tickets_${sectionFromUrl || typeFromUrl || 'all'}`,
-            fetchRows: fetchFilteredExportRows,
-          }}
-        />
-      </Space>
+          <Button size="small" type="default" icon={<PlusOutlined />} onClick={() => setAddCompanyDivisionOpen(true)}>
+            Co.&Div.
+          </Button>
+          <PrintExport
+            pageTitle={pageTitle}
+            iconOnly
+            filteredExport={{
+              columns: exportColumns,
+              filename: `tickets_${sectionFromUrl || typeFromUrl || 'all'}`,
+              fetchRows: fetchFilteredExportRows,
+            }}
+          />
+        </div>
+      </div>
 
-      <Card style={cardStyle} bodyStyle={{ padding: 24 }}>
-        <Space style={{ marginBottom: 16, width: '100%' }} wrap>
+      <Card style={cardStyle} bodyStyle={{ padding: '8px 12px' }}>
+        <Space size={4} style={{ marginBottom: 6, width: '100%' }} wrap>
+          {appTicketsView ? (
+            <Select
+              placeholder="Android & Apple"
+              style={{ width: 160 }}
+              value={appPlatformFilter || undefined}
+              onChange={(v) => setAppPlatformFilter((v as 'android' | 'apple' | undefined) ?? '')}
+              allowClear
+              getPopupContainer={() => document.body}
+              options={[
+                { value: 'android', label: 'Android' },
+                { value: 'apple', label: 'Apple' },
+              ]}
+            />
+          ) : null}
           <Select
             mode="multiple"
             placeholder="Reference Filter"

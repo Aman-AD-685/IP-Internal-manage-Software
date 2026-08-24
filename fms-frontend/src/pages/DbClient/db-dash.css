@@ -10,13 +10,16 @@
 }
 
 .db-dash-title-bar {
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
   background: #ffffff;
   border: 1px solid #e5e7eb;
   border-left: 4px solid #60A5FA;
   border-radius: 10px;
-  padding: 10px 12px;
-  margin-bottom: 12px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
 }
 
 .kpi-tile {

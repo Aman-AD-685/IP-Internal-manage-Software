@@ -15,35 +15,35 @@ export function SupportSectionTabs() {
   const tabs = [
     {
       key: 'chores-bugs',
-      label: 'Chores & Bugs',
+      label: 'Ch & Bug',
       active: sectionFromUrl === 'chores-bugs',
       visible: canViewSectionByKey('chores_bugs'),
       to: `${ROUTES.TICKETS}?section=chores-bugs`,
     },
     {
       key: 'staging',
-      label: 'Staging',
+      label: 'Stag.',
       active: location.pathname === ROUTES.STAGING,
       visible: canViewSectionByKey('staging'),
       to: ROUTES.STAGING,
     },
     {
       key: 'feature',
-      label: 'Feature',
+      label: 'Feat.',
       active: typeFromUrl === 'feature' && !isApprovalSection && sectionFromUrl !== 'completed-feature',
       visible: canViewSectionByKey('feature'),
       to: `${ROUTES.TICKETS}?type=feature`,
     },
     {
       key: 'approval-status',
-      label: 'Approval Status',
+      label: 'Apprv.',
       active: isApprovalSection,
       visible: canAccessApproval && canViewSectionByKey('approval_status'),
       to: `${ROUTES.TICKETS}?type=feature&view=approval`,
     },
     {
       key: 'register-of-tickets',
-      label: 'Register of Tickets',
+      label: 'Reg.',
       active: sectionFromUrl === 'register-of-tickets',
       visible:
         canViewSectionByKey('completed_chores_bugs') ||
@@ -60,6 +60,7 @@ export function SupportSectionTabs() {
       {tabs.map((tab) => (
         <Button
           key={tab.key}
+          size="small"
           type={tab.active ? 'primary' : 'default'}
           onClick={() => navigate(tab.to)}
         >

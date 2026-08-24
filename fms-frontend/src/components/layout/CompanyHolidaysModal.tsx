@@ -1,10 +1,8 @@
-import { Modal, Table, Typography } from 'antd'
+import { Modal, Table } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 import { useEffect, useMemo, useState } from 'react'
 import { checklistApi } from '../../api/checklist'
-
-const { Text } = Typography
 
 type HolidayRow = {
   key: string
@@ -89,9 +87,6 @@ export function CompanyHolidaysModal({ open, onClose }: CompanyHolidaysModalProp
       width={640}
       destroyOnClose
     >
-      <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-        Official holiday list used for Checklist and Delegation (same as Task → Checklist upload).
-      </Text>
       <Table
         size="small"
         rowKey="key"
