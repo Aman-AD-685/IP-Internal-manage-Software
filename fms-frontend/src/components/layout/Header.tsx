@@ -7,6 +7,7 @@ import {
   BellOutlined,
   DashboardOutlined,
   BulbOutlined,
+  CalendarOutlined,
 } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
 import { useNavigate, useLocation } from 'react-router-dom'
@@ -32,6 +33,7 @@ import { DASHBOARD_KPI_NAMES, prefetchDashboardKpiPerson, MONTHS } from '../../a
 import { getDefaultPreviousWeekFilter } from '../../pages/Dashboard/kpiWeekUtils'
 import { canViewDashboardKpiPerson } from '../../utils/dashboardKpiPermissions'
 import { useActiveKpiPersons } from '../../hooks/useActiveKpiPersons'
+import { CompanyHolidaysModal } from './CompanyHolidaysModal'
 
 const { Header: AntHeader } = Layout
 const { Text } = Typography
@@ -55,6 +57,7 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
   const [stage2NotifyCount, setStage2NotifyCount] = useState(0)
   const [improvementOpen, setImprovementOpen] = useState(false)
   const [i1Open, setI1Open] = useState(false)
+  const [holidaysOpen, setHolidaysOpen] = useState(false)
   const searchParams = new URLSearchParams(location.search)
   const section = searchParams.get('section')
   const viewApproval = searchParams.get('view') === 'approval'
@@ -205,6 +208,12 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
       icon: <UserOutlined />,
       label: 'Profile',
       onClick: () => navigate(ROUTES.SETTINGS),
+    },
+    {
+      key: 'holidays',
+      icon: <CalendarOutlined />,
+      label: 'Holidays',
+      onClick: () => setHolidaysOpen(true),
     },
     { type: 'divider' },
     {
@@ -381,6 +390,7 @@ export const Header = ({ onAddNew, onMenuClick, showMenuButton }: HeaderProps) =
       {canImprovementI1 ? (
         <ImprovementI1AdminModal open={i1Open} onClose={() => setI1Open(false)} />
       ) : null}
+      <CompanyHolidaysModal open={holidaysOpen} onClose={() => setHolidaysOpen(false)} />
     </AntHeader>
   )
 }
