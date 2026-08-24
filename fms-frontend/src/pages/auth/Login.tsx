@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Form, Input, Button, message, Alert } from 'antd'
 import { MailOutlined, LockOutlined } from '@ant-design/icons'
 import { useNavigate, Link } from 'react-router-dom'
@@ -68,8 +68,21 @@ export const Login = () => {
   }, [isLoading, isAuthenticated, user, navigate])
 
   const RETRY_DELAYS_MS = [8000, 25000]
+  const RETRY_MESSAGE_KEY = 'login-retry'
+  const retryTimerRef = useRef<number | null>(null)
+
+  const clearLoginRetry = () => {
+    if (retryTimerRef.current != null) {
+      window.clearTimeout(retryTimerRef.current)
+      retryTimerRef.current = null
+    }
+    message.destroy(RETRY_MESSAGE_KEY)
+  }
+
+  useEffect(() => () => clearLoginRetry(), [])
 
   const attemptLogin = async (values: LoginRequest, retryCount = 0) => {
+    if (retryCount === 0) clearLoginRetry()
     setLoading(true)
     if (retryCount === 0) {
       setConnectionError(null)
@@ -91,10 +104,15 @@ export const Login = () => {
           setConnectionError(msg)
           setLoading(false)
           const delay = RETRY_DELAYS_MS[retryCount]
-          message.info(`Retrying in ${delay / 1000}s (attempt ${retryCount + 2}/${RETRY_DELAYS_MS.length + 1})...`, delay / 1000)
-          setTimeout(() => attemptLogin(values, retryCount + 1), delay)
+          message.info({
+            key: RETRY_MESSAGE_KEY,
+            content: `Retrying in ${delay / 1000}s (attempt ${retryCount + 2}/${RETRY_DELAYS_MS.length + 1})...`,
+            duration: delay / 1000,
+          })
+          retryTimerRef.current = window.setTimeout(() => attemptLogin(values, retryCount + 1), delay)
           return
         }
+        clearLoginRetry()
         if (isConnectionError) {
           setConnectionError(msg)
         } else {
@@ -148,10 +166,15 @@ export const Login = () => {
         setConnectionError(errorMessage)
         setLoading(false)
         const delay = RETRY_DELAYS_MS[retryCount]
-        message.info(`Retrying in ${delay / 1000}s (attempt ${retryCount + 2}/${RETRY_DELAYS_MS.length + 1})...`, delay / 1000)
-        setTimeout(() => attemptLogin(values, retryCount + 1), delay)
+        message.info({
+          key: RETRY_MESSAGE_KEY,
+          content: `Retrying in ${delay / 1000}s (attempt ${retryCount + 2}/${RETRY_DELAYS_MS.length + 1})...`,
+          duration: delay / 1000,
+        })
+        retryTimerRef.current = window.setTimeout(() => attemptLogin(values, retryCount + 1), delay)
         return
       }
+      clearLoginRetry()
       if (isConnectionError) {
         setConnectionError(errorMessage)
       } else {
@@ -197,6 +220,7 @@ export const Login = () => {
                     onClick={() => {
                       const values = form.getFieldsValue()
                       if (values?.email && values?.password) {
+                        clearLoginRetry()
                         setConnectionError(null)
                         attemptLogin(
                           withAuthBotFields(

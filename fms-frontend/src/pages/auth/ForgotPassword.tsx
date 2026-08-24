@@ -3,6 +3,7 @@ import { Form, Input, Button, Alert, Typography, message } from 'antd'
 import { MailOutlined } from '@ant-design/icons'
 import { Link } from 'react-router-dom'
 import { authApi } from '../../api/auth'
+import { API_BASE_URL } from '../../api/axios'
 import { validateEmail } from '../../utils/validation'
 import { AuthLayout } from '../../components/auth/AuthLayout'
 import { TurnstileWidget, isTurnstileEnabled } from '../../components/auth/TurnstileWidget'
@@ -17,6 +18,7 @@ export const ForgotPassword = () => {
   const [loading, setLoading] = useState(false)
   const [sent, setSent] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [connectionError, setConnectionError] = useState<string | null>(null)
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
   const formOpenedMs = useAuthFormOpenedMs()
 
@@ -28,6 +30,7 @@ export const ForgotPassword = () => {
     clearStoredRecoveryAccessToken()
     setLoading(true)
     setError(null)
+    setConnectionError(null)
     const bot = withAuthBotFields({ ...values, turnstile_token: turnstileToken || undefined }, formOpenedMs)
     const res = await authApi.forgotPasswordLookup(values.email.trim(), turnstileToken, {
       website: bot.website,
@@ -35,8 +38,16 @@ export const ForgotPassword = () => {
     })
     setLoading(false)
     if (res.error) {
-      setError(res.error.message)
-      message.error(res.error.message)
+      const isConnectionError =
+        res.error.code === 'NETWORK_ERROR' ||
+        res.error.code === '503' ||
+        res.error.message.includes('Cannot reach')
+      if (isConnectionError) {
+        setConnectionError(res.error.message)
+      } else {
+        setError(res.error.message)
+        message.error(res.error.message)
+      }
       return
     }
     setSent(true)
@@ -58,6 +69,25 @@ export const ForgotPassword = () => {
             showIcon
             message="Check your email"
             description="Look for an email from Industryprime with subject “password reset”. Open the link once, then set your new password."
+          />
+        )}
+
+        {connectionError && (
+          <Alert
+            type="error"
+            showIcon
+            message="Connection problem"
+            description={
+              <>
+                <div style={{ marginBottom: 8 }}>{connectionError}</div>
+                <a href={`${API_BASE_URL}/health/supabase`} target="_blank" rel="noopener noreferrer">
+                  Open connection diagnostic (new tab)
+                </a>
+              </>
+            }
+            closable
+            onClose={() => setConnectionError(null)}
+            style={{ marginBottom: 16 }}
           />
         )}
 
