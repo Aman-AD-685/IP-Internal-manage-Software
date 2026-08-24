@@ -18,7 +18,7 @@ import {
   Tag,
 } from 'antd'
 import dayjs from 'dayjs'
-import { PlusOutlined, LineChartOutlined, EditOutlined, FormOutlined, UndoOutlined } from '@ant-design/icons'
+import { PlusOutlined, EditOutlined, FormOutlined, UndoOutlined } from '@ant-design/icons'
 import { API_BASE_URL, getBrowserApiHeaders } from '../../api/axios'
 import { dashboardApi } from '../../api/dashboard'
 import { storage } from '../../utils/storage'
@@ -821,14 +821,68 @@ export const PerformanceMonitoringPage = () => {
     )
   }
 
+  const refFilterOptions = useMemo(
+    () =>
+      sortPerformanceRefOptions([...new Set(items.map((i) => i.reference_no).filter(Boolean))] as string[]).map((r) => ({
+        value: r,
+        label: r,
+      })),
+    [items],
+  )
+  const companyFilterOptions = useMemo(
+    () =>
+      [...new Set(items.map((i) => i.company_name).filter(Boolean))].sort().map((c) => ({ value: c, label: c })),
+    [items],
+  )
+
   const tableColumns = [
-    { title: 'Reference Number', dataIndex: 'reference_no', key: 'reference_no', width: 108, ellipsis: true },
     {
-      title: 'Company Name',
+      title: (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, whiteSpace: 'normal', minWidth: 0 }}>
+          <span>Reference</span>
+          <Select
+            size="small"
+            placeholder="Filter"
+            value={filterRef || undefined}
+            onChange={(v) => setFilterRef(v ?? '')}
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            options={refFilterOptions}
+            style={{ width: '100%' }}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      ),
+      dataIndex: 'reference_no',
+      key: 'reference_no',
+      width: 128,
+      ellipsis: false,
+      render: (v: string) => <span style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>{v || '-'}</span>,
+    },
+    {
+      title: (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, whiteSpace: 'normal', minWidth: 0 }}>
+          <span>Company</span>
+          <Select
+            size="small"
+            placeholder="Filter"
+            value={filterCompany || undefined}
+            onChange={(v) => setFilterCompany(v ?? '')}
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            options={companyFilterOptions}
+            style={{ width: '100%' }}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      ),
       dataIndex: 'company_name',
       key: 'company_name',
-      width: 168,
-      ellipsis: true,
+      width: 180,
+      ellipsis: false,
+      render: (v: string) => <span style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>{v || '-'}</span>,
     },
     {
       title: 'Response',
@@ -917,70 +971,48 @@ export const PerformanceMonitoringPage = () => {
 
   return (
     <div>
-      <Space style={{ marginBottom: 24 }} wrap align="center">
-        <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
-          <LineChartOutlined style={{ marginRight: 8 }} />
-          Performance Monitoring
-        </Title>
-        <OperationsSectionTabs module="success" />
-      </Space>
-
-      <Card style={{ marginBottom: 24 }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setFormModalOpen(true)}>
-            Add POC Details
+      <div className="page-toolbar-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 8, width: '100%' }}>
+        <Space wrap={false} align="center" size={4}>
+          <Title level={4} className="page-main-heading" style={{ margin: 0, fontSize: 15 }}>
+            Performance Monitoring
+          </Title>
+          <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => setFormModalOpen(true)}>
+            Add POC
           </Button>
           <Select
+            size="small"
             value={filterNa}
             onChange={(v) => setFilterNa((v as PerformanceNaFilter) || 'exclude_na')}
-            style={{ minWidth: 160 }}
+            style={{ width: 88 }}
             options={[
               { value: 'exclude_na', label: 'Active' },
               { value: 'only_na', label: 'NA' },
             ]}
           />
-          {!markedNaSupported ? (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              Run <Text code>database/PERFORMANCE_MONITORING_MARKED_NA.sql</Text> in Supabase to enable NA.
-            </Text>
-          ) : null}
-        </div>
-      </Card>
+        </Space>
+        <OperationsSectionTabs module="success" />
+      </div>
 
       {setupError && (
         <Alert type="warning" message="Setup Required" description={setupError} showIcon style={{ marginBottom: 16 }} />
       )}
 
       <Card>
-        <div style={{ marginBottom: 16, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-          <Select
-            placeholder="Filter by Reference"
-            value={filterRef || undefined}
-            onChange={(v) => setFilterRef(v ?? '')}
-            style={{ width: 200 }}
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            options={sortPerformanceRefOptions([...new Set(items.map((i) => i.reference_no).filter(Boolean))] as string[]).map((r) => ({
-              value: r,
-              label: r,
-            }))}
-          />
-          <Select
-            placeholder="Filter by Company"
-            value={filterCompany || undefined}
-            onChange={(v) => setFilterCompany(v ?? '')}
-            style={{ width: 240 }}
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            options={[...new Set(items.map((i) => i.company_name).filter(Boolean))].sort().map((c) => ({ value: c, label: c }))}
-          />
-        </div>
-        <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12, fontSize: 12 }}>
-          Use <strong>Action</strong> for Training, Followup, and NA. Click a row elsewhere for full details.{' '}
-          <strong>Active</strong> / <strong>NA</strong> filter above; Restore moves a company back to Active.
-        </Typography.Text>
+        <style>{`
+          .performance-monitoring-table .ant-table-thead > tr > th {
+            white-space: normal !important;
+            vertical-align: top;
+          }
+          .performance-monitoring-table .ant-table-cell {
+            white-space: normal;
+            word-break: break-word;
+          }
+        `}</style>
+        {!markedNaSupported ? (
+          <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
+            Run <Text code>database/PERFORMANCE_MONITORING_MARKED_NA.sql</Text> in Supabase to enable NA.
+          </Text>
+        ) : null}
         <div>
           <TableWithSkeletonLoading loading={loading} columns={7} rows={12}>
             <Table
@@ -1000,7 +1032,7 @@ export const PerformanceMonitoringPage = () => {
                 emptyText: !loading && !setupError
                   ? filterNa === 'only_na'
                     ? 'No NA tickets. Mark NA on Active tickets when follow-up is not required.'
-                    : 'No active companies. Use "Add POC Details" above to add one, or see Comp-Perform for completed companies.'
+                    : 'No active companies. Use "Add POC" above to add one, or see Comp-Perform for completed companies.'
                   : undefined,
               }}
             />

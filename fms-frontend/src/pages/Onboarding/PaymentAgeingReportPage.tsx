@@ -11,7 +11,7 @@ import {
   message,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { ReloadOutlined } from '@ant-design/icons'
+import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons'
 import { apiClient } from '../../api/axios'
 import { API_ENDPOINTS } from '../../utils/constants'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
@@ -245,23 +245,21 @@ export function PaymentAgeingReportPage() {
   }
 
   return (
-    <div style={{ padding: 16 }}>
-      <Space direction="vertical" size="large" style={{ width: '100%' }}>
-        <Space direction="vertical" size="small" style={{ width: '100%' }}>
-          <OperationsSectionTabs module="client-payment" />
-          <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
+    <div>
+      <div className="page-toolbar-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 8, width: '100%' }}>
+        <Space wrap={false} align="center" size={6}>
+          <Title level={4} className="page-main-heading" style={{ margin: 0, fontSize: 15 }}>
             Payment Ageing Report
           </Title>
+          <OperationsSectionTabs module="client-payment" />
         </Space>
+        <Space size={4} wrap={false}>
+          <Button size="small" icon={<ReloadOutlined />} onClick={load} loading={loading} aria-label="Refresh" title="Refresh" />
+          <Button size="small" icon={<DownloadOutlined />} onClick={openExport} aria-label="Export" title="Export" />
+        </Space>
+      </div>
 
         <PaymentAmountKpiCards kpis={kpis ?? null} />
-
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>
-            Refresh
-          </Button>
-          <Button onClick={openExport}>Export</Button>
-        </Space>
 
         <Card size="small">
           <style>
@@ -350,7 +348,6 @@ export function PaymentAgeingReportPage() {
             },
           ]}
         />
-      </Space>
 
       <Modal
         title="Export Payment Ageing"

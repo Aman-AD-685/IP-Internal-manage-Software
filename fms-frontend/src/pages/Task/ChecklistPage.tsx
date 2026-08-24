@@ -14,7 +14,7 @@ import {
   Space,
   Modal,
 } from 'antd'
-import { CheckSquareOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons'
+import { PlusOutlined, UploadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useAuth } from '../../hooks/useAuth'
 import { useRole } from '../../hooks/useRole'
@@ -388,17 +388,17 @@ export const ChecklistPage = () => {
   return (
     <div style={{ maxWidth: 1600, margin: '0 auto', padding: '0 0 16px' }} {...pageSurfaceMenu}>
       <div
+        className="page-toolbar-row"
         style={{
           display: 'flex',
-          flexWrap: 'wrap',
+          flexWrap: 'nowrap',
           alignItems: 'center',
           justifyContent: 'space-between',
-          gap: 12,
-          marginBottom: 16,
+          gap: 6,
+          marginBottom: 8,
         }}
       >
-        <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
-          <CheckSquareOutlined style={{ marginRight: 8 }} />
+        <Title level={4} className="page-main-heading" style={{ margin: 0, fontSize: 15 }}>
           Checklist
         </Title>
         <Space wrap size="small">

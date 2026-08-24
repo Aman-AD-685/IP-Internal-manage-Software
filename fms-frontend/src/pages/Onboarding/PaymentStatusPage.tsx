@@ -23,6 +23,7 @@ import dayjs from 'dayjs'
 import { onboardingApi, type PaymentStatusRecord } from '../../api/onboarding'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
 import { DEFAULT_INFINITE_CHUNK, useInfiniteScrollChunk } from '../../hooks/useInfiniteScrollChunk'
+import { OperationsSectionTabs } from '../../components/common/OperationsSectionTabs'
 import { useSearchParams } from 'react-router-dom'
 
 const { Title } = Typography
@@ -1212,13 +1213,16 @@ export function PaymentStatusPage() {
   } = useInfiniteScrollChunk({ items: records, chunkSize: DEFAULT_INFINITE_CHUNK, loading })
 
   return (
-    <div style={{ padding: 24 }}>
-      <Space style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} wrap>
-        <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
-          Payment Status
-        </Title>
-        <Button type="primary" icon={<PlusOutlined />} onClick={openAddModal}>
-          Add Payment Status
+    <div>
+      <Space className="page-toolbar-row" style={{ marginBottom: 8, width: '100%', justifyContent: 'space-between' }} wrap={false} align="center">
+        <Space wrap={false} align="center" size={6}>
+          <Title level={4} className="page-main-heading" style={{ margin: 0, fontSize: 15 }}>
+            Payment Status
+          </Title>
+          <OperationsSectionTabs module="onboarding" />
+        </Space>
+        <Button size="small" type="primary" icon={<PlusOutlined />} onClick={openAddModal}>
+          Add
         </Button>
       </Space>
 

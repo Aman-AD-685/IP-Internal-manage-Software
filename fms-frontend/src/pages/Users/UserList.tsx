@@ -420,8 +420,8 @@ export const UserList = () => {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16, marginBottom: 16 }}>
-        <Title level={2} className="page-main-heading" style={{ margin: 0 }}>Users</Title>
+      <div className="page-toolbar-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap', gap: 6, marginBottom: 8 }}>
+        <Title level={2} className="page-main-heading" style={{ margin: 0, fontSize: 15 }}>Users</Title>
         <PrintExport pageTitle="Users" exportData={{ columns: exportColumns, rows: exportRows }} exportFilename="users" />
       </div>
       <Card>

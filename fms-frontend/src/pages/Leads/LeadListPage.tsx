@@ -160,21 +160,22 @@ export const LeadListPage = () => {
       ].map((s) => ({ label: s, value: s }))
 
   return (
-    <div style={{ padding: 24 }}>
+    <div>
       <Space
-        style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }}
-        wrap
+        className="page-toolbar-row"
+        style={{ marginBottom: 8, width: '100%', justifyContent: 'space-between' }}
+        wrap={false}
         align="center"
       >
-        <Space wrap align="center">
-          <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
+        <Space wrap={false} align="center" size={6}>
+          <Title level={4} className="page-main-heading" style={{ margin: 0, fontSize: 15 }}>
             {isClosedLeads ? 'Closed Leads' : 'Lead'}
           </Title>
           <OperationsSectionTabs module="client-to-lead" />
         </Space>
         {!isClosedLeads && (
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddModalOpen(true)}>
-            Add Lead Details
+          <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => setAddModalOpen(true)}>
+            Add Lead
           </Button>
         )}
       </Space>

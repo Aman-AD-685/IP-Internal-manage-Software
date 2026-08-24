@@ -130,8 +130,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
         <Content
           className="printable-content app-content"
           style={{
-            margin: '88px 24px 24px',
-            padding: 24,
+            margin: '88px 8px 16px',
+            padding: 8,
             background: 'transparent',
             minHeight: 280,
             fontSize: 12,

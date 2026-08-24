@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { Button, Card, Checkbox, DatePicker, Descriptions, Divider, Drawer, Form, Input, InputNumber, Modal, Select, Space, Table, Tooltip, Typography, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { CheckCircleOutlined, EditOutlined, FormOutlined, PlusOutlined } from '@ant-design/icons'
+import { CheckCircleOutlined, DownloadOutlined, EditOutlined, FormOutlined, PlusOutlined } from '@ant-design/icons'
 import dayjs, { type Dayjs } from 'dayjs'
 import { API_ENDPOINTS } from '../../utils/constants'
 import { apiClient } from '../../api/axios'
@@ -1277,20 +1277,20 @@ export function ClientPaymentPage() {
     isOpenList && openListTotal > 0 && records.length < openListTotal
 
   return (
-    <div style={{ maxWidth: 1600, margin: '0 auto', padding: '0 0 16px' }}>
+    <div>
       <Space
         className="page-toolbar-row"
-        style={{ marginBottom: 16, width: '100%', alignItems: 'center', justifyContent: 'space-between' }}
-        wrap
-        size="middle"
+        style={{ marginBottom: 8, width: '100%', alignItems: 'center', justifyContent: 'space-between' }}
+        wrap={false}
+        size={6}
       >
-        <Space wrap align="center" size="middle">
-          <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
+        <Space wrap={false} align="center" size={6}>
+          <Title level={4} className="page-main-heading" style={{ margin: 0, fontSize: 15 }}>
             {pageTitle}
           </Title>
           <OperationsSectionTabs module="client-payment" />
         </Space>
-        <Space wrap align="center" size="small">
+        <Space wrap={false} align="center" size={4}>
           {isOpenList ? (
             <Select
               aria-label="Invoice list filter"
@@ -1337,7 +1337,7 @@ export function ClientPaymentPage() {
               </Button>
             </>
           ) : null}
-          <Button onClick={openExport}>Export</Button>
+          <Button icon={<DownloadOutlined />} onClick={openExport} aria-label="Export" title="Export" />
         </Space>
       </Space>
 

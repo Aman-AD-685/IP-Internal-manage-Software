@@ -44,6 +44,8 @@ export interface PrintExportProps {
   dateRangeExport?: DateRangeExportConfig
   /** When set, Export and Print use current page filters without a date modal. */
   filteredExport?: FilteredExportConfig
+  /** Icon-only Print/Export buttons on the same row. */
+  iconOnly?: boolean
 }
 
 function escapeCsvCell(value: unknown): string {
@@ -114,6 +116,7 @@ export function PrintExport({
   onExportClick,
   dateRangeExport,
   filteredExport,
+  iconOnly = true,
 }: PrintExportProps) {
   const location = useLocation()
   const pageHref = location.pathname + location.search
@@ -245,16 +248,30 @@ export function PrintExport({
 
   return (
     <>
-      <Space className="no-print" size="middle" style={{ marginBottom: 16 }}>
+      <Space className="no-print" size={4} style={{ marginBottom: 0, flexWrap: 'nowrap', display: 'inline-flex' }}>
         <ContextMenuTarget openHref={pageHref} openLabel={`Print ${pageTitle}`}>
-          <Button type="default" icon={<PrinterOutlined />} onClick={handlePrint} loading={rangeLoading && !rangeModalOpen}>
-            Print
+          <Button
+            type="default"
+            icon={<PrinterOutlined />}
+            onClick={handlePrint}
+            loading={rangeLoading && !rangeModalOpen}
+            aria-label="Print"
+            title="Print"
+          >
+            {iconOnly ? null : 'Print'}
           </Button>
         </ContextMenuTarget>
         {canExport && (
           <ContextMenuTarget openHref={pageHref} openLabel={`Export ${pageTitle}`}>
-            <Button type="default" icon={<DownloadOutlined />} onClick={() => void handleExport()} loading={rangeLoading && !rangeModalOpen}>
-              Export
+            <Button
+              type="default"
+              icon={<DownloadOutlined />}
+              onClick={() => void handleExport()}
+              loading={rangeLoading && !rangeModalOpen}
+              aria-label="Export"
+              title="Export"
+            >
+              {iconOnly ? null : 'Export'}
             </Button>
           </ContextMenuTarget>
         )}

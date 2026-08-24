@@ -15,7 +15,7 @@ import {
   Upload,
   Popover,
 } from 'antd'
-import { SendOutlined, PlusOutlined, CheckOutlined, CloseOutlined, EditOutlined, InboxOutlined } from '@ant-design/icons'
+import { PlusOutlined, CheckOutlined, CloseOutlined, EditOutlined, InboxOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useAuth } from '../../hooks/useAuth'
 import { useRole } from '../../hooks/useRole'
@@ -682,12 +682,11 @@ export const DelegationPage = () => {
   return (
     <div style={{ padding: 24 }} {...pageSurfaceMenu}>
       <Card>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
-          <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
-            <SendOutlined style={{ marginRight: 8 }} />
+        <div className="page-toolbar-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap', gap: 6, marginBottom: 8 }}>
+          <Title level={4} className="page-main-heading" style={{ margin: 0, fontSize: 15 }}>
             Delegation
           </Title>
-          <Space wrap>
+          <Space wrap={false} size={4}>
             <Select
               placeholder="Status"
               style={{ width: 130 }}
@@ -732,16 +731,13 @@ export const DelegationPage = () => {
                 Add Task
               </Button>
             </ContextMenuTarget>
+            <PrintExport
+              pageTitle="Delegation"
+              exportData={delegationExportData}
+              exportFilename={delegationExportFilename}
+            />
           </Space>
         </div>
-        <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-          Manage delegation tasks. By default pending tasks are shown.
-        </Text>
-        <PrintExport
-          pageTitle="Delegation"
-          exportData={delegationExportData}
-          exportFilename={delegationExportFilename}
-        />
         <TableWithSkeletonLoading loading={loading} columns={7} rows={12}>
           <BulkActionBar
             count={selectedRowKeys.length}

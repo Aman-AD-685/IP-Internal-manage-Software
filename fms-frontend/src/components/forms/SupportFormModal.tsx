@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Modal, Form, Input, Select, DatePicker, Upload, message, Tag } from 'antd'
+import { Modal, Form, Input, Select, DatePicker, Upload, message, Tag, Button, Popover } from 'antd'
 import { InboxOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { ticketsApi, type SimilarTicketsResponse } from '../../api/tickets'
@@ -22,6 +22,69 @@ const { Dragger } = Upload
 const DRAFT_DEBOUNCE_MS = 800
 const SIMILAR_TICKETS_DEBOUNCE_MS = 500
 const SIMILAR_TITLE_MIN_LEN = 3
+
+type MobAppPlatform = 'android' | 'apple'
+
+function mobAppPlatformLabel(platform: MobAppPlatform): string {
+  return platform === 'android' ? 'Android' : 'Apple'
+}
+
+function withMobAppDescription(description: string | undefined, platform: MobAppPlatform | null): string | undefined {
+  if (!platform) return description
+  const tag = `[Mob-App: ${mobAppPlatformLabel(platform)}]`
+  const base = (description ?? '').trim()
+  return base ? `${tag}\n${base}` : tag
+}
+
+function MobAppPlatformOption({
+  platform,
+  selected,
+  onSelect,
+}: {
+  platform: MobAppPlatform
+  selected: boolean
+  onSelect: (platform: MobAppPlatform) => void
+}) {
+  const isAndroid = platform === 'android'
+  const label = mobAppPlatformLabel(platform)
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(platform)}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 6,
+        minWidth: 88,
+        padding: '10px 12px',
+        borderRadius: 8,
+        border: `2px solid ${isAndroid ? '#3DDC84' : '#555'}`,
+        background: selected ? (isAndroid ? '#E8FBF1' : '#F5F5F5') : '#fff',
+        color: isAndroid ? '#1B7D4B' : '#111',
+        cursor: 'pointer',
+        fontWeight: 600,
+      }}
+    >
+      {isAndroid ? (
+        <svg viewBox="0 0 24 24" width={22} height={22} aria-hidden>
+          <path
+            fill="#3DDC84"
+            d="M17.6 9.5c-.1-2.1 1.7-3.1 1.8-3.2-1-.1-2 .6-2.5.6-.5 0-1.3-.6-2.1-.6-1.1 0-2.1.6-2.6 1.6-1.1 1.9-.3 4.7.8 6.2.5.7 1.1 1.5 1.9 1.5.8 0 1.1-.5 2.1-.5 1 0 1.2.5 2.1.5.8 0 1.3-.7 1.8-1.4.6-.8.8-1.6.8-1.7-.1 0-3.3-1.3-3.3-5.1zm-3.1-3.7c.5-.6.8-1.4.7-2.2-.7 0-1.5.5-2 1.1-.4.5-.8 1.3-.7 2.1.8.1 1.5-.4 2-1z"
+          />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 24 24" width={22} height={22} aria-hidden>
+          <path
+            fill="#111"
+            d="M16.7 13.3c-.1-2.8 2.3-4.1 2.4-4.2-1.3-1.9-3.3-2.2-4-2.2-.9-.1-1.9.5-2.4.5s-1.2-.5-2.3-.5c-1.2 0-2.3.7-2.9 1.8-1.2 2.1-1 5.2.9 6.9.6.6 1.3 1.2 2.2 1.2.9 0 1.2-.6 2.3-.6 1.1 0 1.4.6 2.3.6.9 0 1.5-.5 2.1-1.2 1.1-1.3 1.5-2.5 1.5-2.6-.1 0-2.9-1.1-2.9-4.3zm-2.7-4.2c.5-.6.8-1.5.7-2.3-.7.1-1.5.5-2 1.1-.4.5-.8 1.2-.7 1.9.8.1 1.5-.3 2-1.7z"
+          />
+        </svg>
+      )}
+      <span>{label}</span>
+    </button>
+  )
+}
 
 /** Serialize DatePicker value (dayjs or Date) to ISO string for the API */
 function toISODate(val: unknown): string | undefined {
@@ -59,6 +122,7 @@ function extractDraftData(values: Record<string, unknown>, attachmentUrl: string
     'customer_questions',
     'priority',
     'why_feature',
+    'mob_app_platform',
   ]
   for (const k of keys) {
     const v = values[k]
@@ -151,6 +215,8 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
   const [selectedRepeatRef, setSelectedRepeatRef] = useState<string | null>(null)
   const [previewTicketId, setPreviewTicketId] = useState<string | null>(null)
   const [previewTicketType, setPreviewTicketType] = useState<'chore' | 'bug' | 'feature' | null>(null)
+  const [mobAppPlatform, setMobAppPlatform] = useState<MobAppPlatform | null>(null)
+  const [mobAppPopoverOpen, setMobAppPopoverOpen] = useState(false)
   const attachmentUrlRef = useRef<string | null>(null)
   attachmentUrlRef.current = attachmentUrl
   /** Concurrent uploads counter — OK stays disabled until every file finished */
@@ -219,6 +285,8 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
       setSelectedRepeatRef(null)
       setPreviewTicketId(null)
       setPreviewTicketType(null)
+      setMobAppPlatform(null)
+      setMobAppPopoverOpen(false)
       prevCompanyIdRef.current = undefined
       void reloadCompanies()
       void reloadPages()
@@ -283,6 +351,11 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
             )
           }
           form.setFieldsValue(fields)
+          const draftMob =
+            data.mob_app_platform === 'android' || data.mob_app_platform === 'apple'
+              ? (data.mob_app_platform as MobAppPlatform)
+              : null
+          setMobAppPlatform(draftMob)
           // Re-apply after setFieldsValue in case company watcher raced and cleared it.
           if (draftDivisionId) {
             form.setFieldValue('division_id', draftDivisionId)
@@ -446,9 +519,13 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
   ) => {
     const finalAttachmentUrl = attachmentUrl ?? toStr(values.attachment_url) ?? undefined
     const bot = withAuthBotFields(values, formOpenedMs)
+    const mobPlatform =
+      values.mob_app_platform === 'android' || values.mob_app_platform === 'apple'
+        ? (values.mob_app_platform as MobAppPlatform)
+        : mobAppPlatform
     const createRes = (await ticketsApi.create({
       title: toStr(values.title) ?? '',
-      description: toStr(values.description),
+      description: withMobAppDescription(toStr(values.description), mobPlatform),
       type: (toStr(values.type_of_request) ?? 'chore') as 'feature' | 'chore' | 'bug',
       priority: normalizePriorityValue(toStr(values.priority)),
       company_id: toStr(values.company_id),
@@ -483,6 +560,8 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
     setSimilarError(null)
     setSelectedRepeatOfTicketId(null)
     setSelectedRepeatRef(null)
+    setMobAppPlatform(null)
+    setMobAppPopoverOpen(false)
     onSuccess?.(created)
     onClose()
     window.dispatchEvent(new CustomEvent('support-ticket-created'))
@@ -528,7 +607,23 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
     setSelectedRepeatRef(null)
     setPreviewTicketId(null)
     setPreviewTicketType(null)
+    setMobAppPlatform(null)
+    setMobAppPopoverOpen(false)
     onClose()
+  }
+
+  const handleMobAppSelect = (platform: MobAppPlatform) => {
+    setMobAppPlatform(platform)
+    form.setFieldValue('mob_app_platform', platform)
+    setMobAppPopoverOpen(false)
+    scheduleDraftSave()
+  }
+
+  const handleMobAppClear = () => {
+    setMobAppPlatform(null)
+    form.setFieldValue('mob_app_platform', undefined)
+    setMobAppPopoverOpen(false)
+    scheduleDraftSave()
   }
 
   const handleViewSimilarTicket = (item: import('../../api/tickets').SimilarTicketMatch) => {
@@ -561,7 +656,46 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
   return (
     <>
     <Modal
-      title="Add New Support Ticket"
+      title={
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingRight: 28 }}>
+          <span>Add New Support Ticket</span>
+          <Popover
+            open={mobAppPopoverOpen}
+            onOpenChange={setMobAppPopoverOpen}
+            trigger="click"
+            placement="bottomRight"
+            content={
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 4 }}>
+                <div style={{ display: 'flex', gap: 12 }}>
+                  <MobAppPlatformOption
+                    platform="android"
+                    selected={mobAppPlatform === 'android'}
+                    onSelect={handleMobAppSelect}
+                  />
+                  <MobAppPlatformOption
+                    platform="apple"
+                    selected={mobAppPlatform === 'apple'}
+                    onSelect={handleMobAppSelect}
+                  />
+                </div>
+                {mobAppPlatform ? (
+                  <Button size="small" danger onClick={handleMobAppClear}>
+                    Remove Mobile App Filter
+                  </Button>
+                ) : null}
+              </div>
+            }
+          >
+            <Button
+              size="small"
+              type={mobAppPlatform ? 'primary' : 'default'}
+              onClick={() => setMobAppPopoverOpen(true)}
+            >
+              Mob-App{mobAppPlatform ? `: ${mobAppPlatformLabel(mobAppPlatform)}` : ''}
+            </Button>
+          </Popover>
+        </div>
+      }
       open={open}
       onCancel={handleClose}
       onOk={handleSubmit}
@@ -572,6 +706,9 @@ export const SupportFormModal = ({ open, onClose, onSuccess, prefill }: SupportF
     >
       <Form form={form} layout="vertical" style={{ marginTop: 16 }} onValuesChange={scheduleDraftSave}>
         <AuthHoneypotField />
+        <Form.Item name="mob_app_platform" hidden>
+          <Input type="hidden" />
+        </Form.Item>
         <Form.Item name="company_id" label="Company Name" rules={[{ required: true, message: 'Required' }]}>
           <Select
             placeholder={companiesLoading ? 'Loading companies…' : 'Select company'}

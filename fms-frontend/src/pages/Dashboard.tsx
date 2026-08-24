@@ -911,7 +911,7 @@ export const Dashboard = () => {
         overflowWrap: 'break-word',
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+      <div className="page-toolbar-row" style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
         <PrintExport pageTitle="Dashboard" exportData={exportData} exportFilename="dashboard_recent_tickets" />
       </div>
       {error && (

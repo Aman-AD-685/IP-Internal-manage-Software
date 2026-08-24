@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Button, Checkbox, DatePicker, Modal, Select, Space, Table, Typography, message } from 'antd'
+import { DownloadOutlined } from '@ant-design/icons'
 import dayjs, { type Dayjs } from 'dayjs'
 import type { ColumnsType } from 'antd/es/table'
 import { apiClient } from '../../api/axios'
@@ -245,12 +246,10 @@ export function PendingPaymentDetailsPage() {
 
   return (
     <div className="ppd-page">
-      <div className="ppd-title-box">
-        <div className="ppd-title">PENDING PAYMENT DETAILS</div>
-      </div>
-      <Space style={{ margin: '0 0 16px 0' }} wrap>
+      <div className="page-toolbar-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 8, width: '100%' }}>
         <OperationsSectionTabs module="client-payment" />
-      </Space>
+        <Button icon={<DownloadOutlined />} onClick={openExport} aria-label="Export" title="Export" />
+      </div>
 
       <div className="ppd-controls">
         <div className="ppd-control ppd-control--company">
@@ -280,7 +279,6 @@ export function PendingPaymentDetailsPage() {
         </div>
 
         <div className="ppd-top-right">
-          <Button onClick={openExport} style={{ marginBottom: 8 }}>Export</Button>
           <div className="ppd-kpi">
             <div className="ppd-kpi-label">Total Due</div>
             <div className="ppd-kpi-value">₹{fmtINR(totalDue)}</div>
