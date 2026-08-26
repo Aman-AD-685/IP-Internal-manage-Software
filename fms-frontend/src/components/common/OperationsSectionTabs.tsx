@@ -67,7 +67,18 @@ export function OperationsSectionTabs({ module }: { module: OperationsModule }) 
         label: 'Onb.',
         to: ROUTES.ONBOARDING_PAYMENT_STATUS,
         visible: canViewSectionByKey('onboarding') || canViewSectionByKey('onboarding_payment_status'),
-        active: location.pathname === ROUTES.ONBOARDING_PAYMENT_STATUS,
+        active:
+          location.pathname === ROUTES.ONBOARDING_PAYMENT_STATUS &&
+          searchParams.get('section') !== 'comp-onb',
+      },
+      {
+        key: 'comp-onb',
+        label: 'Comp. Onb',
+        to: `${ROUTES.ONBOARDING_PAYMENT_STATUS}?section=comp-onb`,
+        visible: canViewSectionByKey('onboarding') || canViewSectionByKey('onboarding_payment_status'),
+        active:
+          location.pathname === ROUTES.ONBOARDING_PAYMENT_STATUS &&
+          searchParams.get('section') === 'comp-onb',
       },
     ],
     training: [

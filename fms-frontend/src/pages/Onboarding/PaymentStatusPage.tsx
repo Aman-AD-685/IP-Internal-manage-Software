@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
   Card,
   Typography,
@@ -359,6 +359,12 @@ const FINAL_SETUP_FIELDS: { key: string; label: string; type: 'dropdown' | 'rema
 
 export function PaymentStatusPage() {
   const [searchParams] = useSearchParams()
+  const isCompOnb = searchParams.get('section') === 'comp-onb'
+  /** Final Setup submitted = completed onboarding (past + future records). */
+  const isFinalStepDone = (r: PaymentStatusRecord) => {
+    const s = (r.status || '').trim()
+    return s === 'Final Setup' || s === 'Final step Done' || (r.fi_do || '').trim() === 'Done'
+  }
   const [form] = Form.useForm()
   const [preOnboardingForm] = Form.useForm()
   const [preChecklistForm] = Form.useForm()
@@ -428,7 +434,7 @@ export function PaymentStatusPage() {
   const loadRecords = () => {
     setLoading(true)
     onboardingApi
-      .listPaymentStatus()
+      .listPaymentStatus({ bustCache: true })
       .then((r) => setRecords(r.items || []))
       .catch(() => {
         setRecords([])
@@ -439,7 +445,14 @@ export function PaymentStatusPage() {
 
   useEffect(() => {
     loadRecords()
-  }, [])
+  }, [isCompOnb])
+
+  const visibleListRecords = useMemo(() => {
+    if (isCompOnb) {
+      return records.filter(isFinalStepDone)
+    }
+    return records.filter((r) => !isFinalStepDone(r))
+  }, [records, isCompOnb])
 
   useEffect(() => {
     const target = (searchParams.get('open') || searchParams.get('reference') || '').trim()
@@ -1059,7 +1072,7 @@ export function PaymentStatusPage() {
       dataIndex: 'reference_no',
       key: 'reference_no',
       width: 100,
-      filters: [...new Set(records.map((r) => r.reference_no).filter(Boolean))].sort().map((v) => ({ text: v, value: v })),
+      filters: [...new Set(visibleListRecords.map((r) => r.reference_no).filter(Boolean))].sort().map((v) => ({ text: v, value: v })),
       onFilter: (value, record) => record.reference_no === value,
       filterSearch: true,
     },
@@ -1070,7 +1083,7 @@ export function PaymentStatusPage() {
       width: 180,
       ellipsis: false,
       render: (v: string | null) => <span style={{ wordBreak: 'break-word' }}>{v || '—'}</span>,
-      filters: [...new Set(records.map((r) => r.company_name).filter(Boolean))].sort().map((c) => ({ text: c, value: c })),
+      filters: [...new Set(visibleListRecords.map((r) => r.company_name).filter(Boolean))].sort().map((c) => ({ text: c, value: c })),
       onFilter: (value, record) => record.company_name === value,
       filterSearch: true,
     },
@@ -1079,7 +1092,7 @@ export function PaymentStatusPage() {
       dataIndex: 'payment_status',
       key: 'payment_status',
       width: 110,
-      filters: [...new Set(records.map((r) => r.payment_status).filter(Boolean))].sort().map((v) => ({ text: v, value: v })),
+      filters: [...new Set(visibleListRecords.map((r) => r.payment_status).filter(Boolean))].sort().map((v) => ({ text: v, value: v })),
       onFilter: (value, record) => record.payment_status === value,
       filterSearch: true,
     },
@@ -1157,7 +1170,7 @@ export function PaymentStatusPage() {
       width: 140,
       ellipsis: false,
       render: (v: string | null) => <span style={{ wordBreak: 'break-word' }}>{v || '—'}</span>,
-      filters: [...new Set(records.map((r) => r.poc_name || '—').filter((x) => x !== null && x !== undefined))].sort().map((v) => ({ text: v, value: v })),
+      filters: [...new Set(visibleListRecords.map((r) => r.poc_name || '—').filter((x) => x !== null && x !== undefined))].sort().map((v) => ({ text: v, value: v })),
       onFilter: (value, record) => (record.poc_name || '—') === value,
       filterSearch: true,
     },
@@ -1166,7 +1179,7 @@ export function PaymentStatusPage() {
       dataIndex: 'poc_contact',
       key: 'poc_contact',
       width: 120,
-      filters: [...new Set(records.map((r) => r.poc_contact || '—').filter((x) => x !== null && x !== undefined))].sort().map((v) => ({ text: v, value: v })),
+      filters: [...new Set(visibleListRecords.map((r) => r.poc_contact || '—').filter((x) => x !== null && x !== undefined))].sort().map((v) => ({ text: v, value: v })),
       onFilter: (value, record) => (record.poc_contact || '—') === value,
       filterSearch: true,
     },
@@ -1177,7 +1190,7 @@ export function PaymentStatusPage() {
       width: 180,
       ellipsis: false,
       render: (v: string | null) => (v ? <span style={{ wordBreak: 'break-word' }} title={v}>{v}</span> : '—'),
-      filters: [...new Set(records.map((r) => (r.accounts_remarks || '—').toString().trim()).filter((x) => x !== ''))].sort().slice(0, 100).map((v) => ({ text: v.length > 50 ? v.slice(0, 50) + '…' : v, value: v })),
+      filters: [...new Set(visibleListRecords.map((r) => (r.accounts_remarks || '—').toString().trim()).filter((x) => x !== ''))].sort().slice(0, 100).map((v) => ({ text: v.length > 50 ? v.slice(0, 50) + '…' : v, value: v })),
       onFilter: (value, record) => (record.accounts_remarks || '—').toString().trim() === value,
       filterSearch: true,
     },
@@ -1187,7 +1200,7 @@ export function PaymentStatusPage() {
       key: 'status',
       width: 120,
       render: (v: string | null | undefined) => v || '—',
-      filters: [...new Set(records.map((r) => (r.status && r.status !== '—' ? r.status : '—')).filter(Boolean))].sort().map((s) => ({ text: s, value: s })),
+      filters: [...new Set(visibleListRecords.map((r) => (r.status && r.status !== '—' ? r.status : '—')).filter(Boolean))].sort().map((s) => ({ text: s, value: s })),
       onFilter: (value, record) => (record.status || '—') === value,
       filterSearch: true,
     },
@@ -1197,7 +1210,7 @@ export function PaymentStatusPage() {
       key: 'fi_do',
       width: 100,
       render: (v: string | null | undefined) => v || '—',
-      filters: [...new Set(records.map((r) => r.fi_do || '—').filter((x) => x !== null && x !== undefined))].sort().map((v) => ({ text: v, value: v })),
+      filters: [...new Set(visibleListRecords.map((r) => r.fi_do || '—').filter((x) => x !== null && x !== undefined))].sort().map((v) => ({ text: v, value: v })),
       onFilter: (value, record) => (record.fi_do || '—') === value,
       filterSearch: true,
     },
@@ -1210,20 +1223,22 @@ export function PaymentStatusPage() {
     total: totalRecords,
     visibleCount: visibleRecordCount,
     hasMore: recordsHasMore,
-  } = useInfiniteScrollChunk({ items: records, chunkSize: DEFAULT_INFINITE_CHUNK, loading })
+  } = useInfiniteScrollChunk({ items: visibleListRecords, chunkSize: DEFAULT_INFINITE_CHUNK, loading })
 
   return (
     <div>
       <Space className="page-toolbar-row" style={{ marginBottom: 8, width: '100%', justifyContent: 'space-between' }} wrap={false} align="center">
         <Space wrap={false} align="center" size={6}>
           <Title level={4} className="page-main-heading" style={{ margin: 0, fontSize: 15 }}>
-            Payment Status
+            {isCompOnb ? 'Completed Onboarding' : 'Payment Status'}
           </Title>
           <OperationsSectionTabs module="onboarding" />
         </Space>
-        <Button size="small" type="primary" icon={<PlusOutlined />} onClick={openAddModal}>
-          Add
-        </Button>
+        {!isCompOnb && (
+          <Button size="small" type="primary" icon={<PlusOutlined />} onClick={openAddModal}>
+            Add
+          </Button>
+        )}
       </Space>
 
       <Modal
@@ -2226,7 +2241,7 @@ export function PaymentStatusPage() {
         )}
       </Modal>
 
-      <Card title="Payment Status Records">
+      <Card title={isCompOnb ? 'Completed Onboarding Records' : 'Payment Status Records'}>
         <TableWithSkeletonLoading loading={loading} columns={10} rows={12}>
           <div ref={paymentStatusTableContainerRef}>
             <Table

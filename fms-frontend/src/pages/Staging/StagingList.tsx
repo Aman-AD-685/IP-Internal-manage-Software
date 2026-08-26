@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { Table, Card, Typography, Tag, Select, Space, Input } from 'antd'
+import { Table, Card, Typography, Tag, DatePicker } from 'antd'
+import type { FilterValue } from 'antd/es/table/interface'
 import { PhoneOutlined, MailOutlined, MessageOutlined, LinkOutlined } from '@ant-design/icons'
 import { ticketsApi } from '../../api/tickets'
 import {
@@ -15,7 +16,6 @@ import {
 import type { Ticket } from '../../api/tickets'
 import { StagingDetailDrawer } from '../../components/tickets/StagingDetailDrawer'
 import { PriorityColoredReference } from '../../components/tickets/PriorityColoredReference'
-import { TicketPriorityFilter } from '../../components/tickets/TicketPriorityFilter'
 import { PrintExport } from '../../components/common/PrintExport'
 import { TableWithSkeletonLoading } from '../../components/common/skeletons'
 import { TextCellTooltip, tableCellEllipsisStyle } from '../../components/common/TextCellTooltip'
@@ -23,11 +23,12 @@ import { SupportSectionTabs } from '../../components/tickets/SupportSectionTabs'
 import { useRole } from '../../hooks/useRole'
 import { dateRangeToIsoBounds, fetchAllTicketsPages } from '../../utils/ticketExportByDateRange'
 import { TICKET_CHANGED_EVENT } from '../../utils/ticketRealtime'
+import { formatPriorityLabel, getPriorityTagColor, TICKET_PRIORITY_OPTIONS } from '../../utils/ticketPriority'
 
-const { Option } = Select
-
+const { RangePicker } = DatePicker
 const { Title } = Typography
 const STAGING_CHUNK = 15
+const STAGING_STAGE_LABELS = ['Stage 1: Staging Planned', 'Stage 2: Live Planned', 'Stage 3: Review Planned']
 
 const getTypeColor = (type: string) => (type === 'chore' ? 'green' : type === 'bug' ? 'red' : 'blue')
 const getCommIcon = (v: string) => {
@@ -36,253 +37,13 @@ const getCommIcon = (v: string) => {
   if (v === 'whatsapp') return <MessageOutlined title="WhatsApp" />
   return '-'
 }
-const truncate = (text: string | undefined, len = 40) => {
-  if (!text) return '-'
-  return text.length > len ? `${text.slice(0, len)}...` : text
-}
-
 const wrapStyle = { whiteSpace: 'normal' as const, wordBreak: 'break-word' as const }
-
-/** Columns up to and including Reference No (tickets with Stage 2 Status = Staging) */
-const stagingTicketColumns = [
-  {
-    title: 'Reference No',
-    dataIndex: 'reference_no',
-    key: 'reference_no',
-    width: 100,
-    render: (v: string, r: Ticket) => (
-      <PriorityColoredReference referenceNo={v} priority={r.priority} />
-    ),
-  },
-  {
-    title: 'Company Name',
-    dataIndex: 'company_name',
-    key: 'company_name',
-    width: 140,
-    ellipsis: false,
-    render: (v: string) => <span style={wrapStyle}>{v?.trim() ? v : '-'}</span>,
-  },
-  {
-    title: 'User Name',
-    dataIndex: 'user_name',
-    key: 'user_name',
-    width: 100,
-    ellipsis: true,
-    render: (v: string) => v || '-',
-  },
-  {
-    title: 'Page',
-    dataIndex: 'page_name',
-    key: 'page_name',
-    width: 100,
-    ellipsis: true,
-    render: (v: string) => v || '-',
-  },
-  {
-    title: 'Division',
-    dataIndex: 'division_name',
-    key: 'division_name',
-    width: 100,
-    ellipsis: true,
-    render: (v: string) => v || '-',
-  },
-  {
-    title: 'Other Division',
-    dataIndex: 'division_other',
-    key: 'division_other',
-    width: 110,
-    ellipsis: true,
-    render: (_: unknown, r: Ticket) => (r.division_name === 'Other' ? (r.division_other || '-') : ''),
-  },
-  {
-    title: 'Attachment',
-    dataIndex: 'attachment_url',
-    key: 'attachment_url',
-    width: 100,
-    render: (v: string) => {
-      const urls = splitAttachmentUrls(v)
-      if (urls.length === 0) return '-'
-      return (
-        <>
-          {urls.map((url, i) => (
-            <a
-              key={url}
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                window.open(url, '_blank', 'noopener,noreferrer')
-              }}
-              style={i > 0 ? { display: 'block' } : undefined}
-            >
-              <LinkOutlined /> View{urls.length > 1 ? ` ${i + 1}` : ''}
-            </a>
-          ))}
-        </>
-      )
-    },
-  },
-    {
-      title: 'Title',
-      dataIndex: 'title',
-      key: 'title',
-      width: 200,
-      ellipsis: false,
-      render: (v: string) => {
-        const raw = (v && v.trim()) || ''
-        if (!raw) return <span style={wrapStyle}>-</span>
-        return (
-          <TextCellTooltip tooltip={raw}>
-            <span style={{ ...wrapStyle, ...tableCellEllipsisStyle }}>{raw}</span>
-          </TextCellTooltip>
-        )
-      },
-    },
-    {
-      title: 'Description',
-      dataIndex: 'description',
-      key: 'description',
-      width: 220,
-      ellipsis: false,
-      render: (v: string) => {
-        const raw = (v && v.trim()) || ''
-        if (!raw) return <span style={wrapStyle}>-</span>
-        return (
-          <TextCellTooltip tooltip={raw}>
-            <span style={{ ...wrapStyle, ...tableCellEllipsisStyle }}>{raw}</span>
-          </TextCellTooltip>
-        )
-      },
-    },
-  {
-    title: 'Type of Request',
-    dataIndex: 'type',
-    key: 'type',
-    width: 100,
-    render: (v: string) => (
-      <Tag color={getTypeColor(v)}>{v === 'chore' ? 'Chores' : v === 'bug' ? 'Bug' : 'Feature'}</Tag>
-    ),
-  },
-  {
-    title: 'CT',
-    dataIndex: 'communicated_through',
-    key: 'communicated_through',
-    width: 70,
-    render: (v: string) => getCommIcon(v),
-  },
-  {
-    title: 'Submitted By',
-    dataIndex: 'submitted_by',
-    key: 'submitted_by',
-    width: 110,
-    ellipsis: true,
-    render: (v: string) => v || '-',
-  },
-  {
-    title: 'Query Arrival',
-    dataIndex: 'query_arrival_at',
-    key: 'query_arrival_at',
-    width: 140,
-    render: (v: string) => formatDateTable(v),
-  },
-  {
-    title: 'Quality of Response',
-    dataIndex: 'quality_of_response',
-    key: 'quality_of_response',
-    width: 140,
-    ellipsis: false,
-    render: (v: string) => (
-      <span style={wrapStyle} title={v?.trim() ? String(v) : undefined}>
-        {truncateTitleDescCell(v || undefined, TICKET_TABLE_QA_PREVIEW_MAX_CHARS)}
-      </span>
-    ),
-  },
-  {
-    title: 'Customer Questions',
-    dataIndex: 'customer_questions',
-    key: 'customer_questions',
-    width: 140,
-    ellipsis: false,
-    render: (v: string) => (
-      <span style={wrapStyle} title={v?.trim() ? String(v) : undefined}>
-        {truncateTitleDescCell(v || undefined, TICKET_TABLE_QA_PREVIEW_MAX_CHARS)}
-      </span>
-    ),
-  },
-  {
-    title: 'Query Response',
-    dataIndex: 'query_response_at',
-    key: 'query_response_at',
-    width: 140,
-    render: (v: string) => formatDateTable(v),
-  },
-  {
-    title: 'Reply Status',
-    key: 'reply_status',
-    width: 180,
-    ellipsis: false,
-    render: (_: unknown, r: Ticket) => {
-      const sla = formatReplySla(r.query_arrival_at, r.query_response_at)
-      return (
-        <span style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>
-          <Tag color={sla.status === 'on-time' ? 'green' : 'red'}>{sla.text}</Tag>
-        </span>
-      )
-    },
-  },
-  {
-    title: 'Current Stage',
-    key: 'current_stage',
-    width: 140,
-    ellipsis: false,
-    render: (_: unknown, r: Ticket) => {
-      const stage = getStagingCurrentStage(r)
-      return <span style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>{stage.stageLabel}</span>
-    },
-  },
-  {
-    title: 'Planned',
-    key: 'staging_planned',
-    width: 120,
-    ellipsis: false,
-    render: (_: unknown, r: Ticket) => {
-      const stage = getStagingCurrentStage(r)
-      return <span style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>{stage.planned}</span>
-    },
-  },
-  {
-    title: 'Actual',
-    key: 'staging_actual',
-    width: 120,
-    ellipsis: false,
-    render: (_: unknown, r: Ticket) => {
-      const stage = getStagingCurrentStage(r)
-      return <span style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>{stage.actual}</span>
-    },
-  },
-  {
-    title: 'Status',
-    key: 'staging_status',
-    width: 100,
-    ellipsis: false,
-    render: (_: unknown, r: Ticket) => {
-      const stage = getStagingCurrentStage(r)
-      return <span style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>{stage.status}</span>
-    },
-  },
-  {
-    title: 'Time Delay',
-    key: 'staging_time_delay',
-    width: 100,
-    ellipsis: false,
-    render: (_: unknown, r: Ticket) => {
-      const stage = getStagingCurrentStage(r)
-      return <span style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>{stage.timeDelay}</span>
-    },
-  },
-]
+const columnFilterPass = () => true
+function filterValues(tableFilters: Record<string, FilterValue | null> | undefined, key: string): string[] {
+  const raw = tableFilters?.[key]
+  if (raw == null) return []
+  return (Array.isArray(raw) ? raw : [raw]).map(String)
+}
 
 export const StagingList = () => {
   const { isUser, canEditSectionByKey } = useRole()
@@ -294,11 +55,11 @@ export const StagingList = () => {
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [total, setTotal] = useState(0)
   const [drawerTicketId, setDrawerTicketId] = useState<string | null>(null)
-  /** Stage filter: applies to table, Export and Print */
-  const [stageFilter, setStageFilter] = useState<string>('')
-  const [referenceFilter, setReferenceFilter] = useState('')
-  const [referenceFilterInput, setReferenceFilterInput] = useState('')
+  const [stageFilter, setStageFilter] = useState('')
+  const [referenceFilters, setReferenceFilters] = useState<string[]>([])
   const [priorityFilter, setPriorityFilter] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [allStagingTicketsForStageFilter, setAllStagingTicketsForStageFilter] = useState<Ticket[]>([])
   const listFetchGeneration = useRef(0)
   const listPageRef = useRef(0)
@@ -316,6 +77,16 @@ export const StagingList = () => {
     totalRef.current = total
   }, [total])
 
+  const listFilterParams = useMemo(
+    () => ({
+      ...(referenceFilters.length ? { 'reference_filters[]': referenceFilters } : {}),
+      ...(priorityFilter && { priority: priorityFilter }),
+      ...(dateFrom && { date_from: dateFrom }),
+      ...(dateTo && { date_to: dateTo }),
+    }),
+    [referenceFilters, priorityFilter, dateFrom, dateTo],
+  )
+
   const fetchStagingTickets = useCallback(async () => {
     const gen = ++listFetchGeneration.current
     listPageRef.current = 0
@@ -326,8 +97,7 @@ export const StagingList = () => {
         section: 'staging',
         page: 1,
         limit: STAGING_CHUNK,
-        ...(referenceFilter && { reference_filter: referenceFilter }),
-        ...(priorityFilter && { priority: priorityFilter }),
+        ...listFilterParams,
         sort_by: 'created_at',
         sort_order: 'desc',
       })
@@ -341,7 +111,7 @@ export const StagingList = () => {
     } finally {
       if (gen === listFetchGeneration.current) setLoading(false)
     }
-  }, [referenceFilter, priorityFilter])
+  }, [listFilterParams])
 
   const fetchStagingTicketsMore = useCallback(async () => {
     if (loading || loadingMoreRef.current || listExhaustedRef.current) return
@@ -355,8 +125,7 @@ export const StagingList = () => {
         section: 'staging',
         page: nextPage,
         limit: STAGING_CHUNK,
-        ...(referenceFilter && { reference_filter: referenceFilter }),
-        ...(priorityFilter && { priority: priorityFilter }),
+        ...listFilterParams,
         sort_by: 'created_at',
         sort_order: 'desc',
       })
@@ -374,9 +143,8 @@ export const StagingList = () => {
       loadingMoreRef.current = false
       setLoadingMore(false)
     }
-  }, [loading, referenceFilter, priorityFilter])
+  }, [loading, listFilterParams])
 
-  /** Fetches all staging tickets across pages (section: staging, fixed sort). Used for stage filter and export. */
   const fetchAllStagingPages = useCallback(async (): Promise<Ticket[]> => {
     const allTickets: Ticket[] = []
     let currentPage = 1
@@ -387,8 +155,7 @@ export const StagingList = () => {
         section: 'staging',
         page: currentPage,
         limit,
-        ...(referenceFilter && { reference_filter: referenceFilter }),
-        ...(priorityFilter && { priority: priorityFilter }),
+        ...listFilterParams,
         sort_by: 'created_at',
         sort_order: 'desc',
       })
@@ -399,7 +166,7 @@ export const StagingList = () => {
       currentPage++
     }
     return allTickets
-  }, [referenceFilter, priorityFilter])
+  }, [listFilterParams])
 
   const fetchAllStagingTicketsForStageFilter = useCallback(async () => {
     const gen = ++listFetchGeneration.current
@@ -427,7 +194,7 @@ export const StagingList = () => {
     }
     setAllStagingTicketsForStageFilter([])
     void fetchStagingTickets()
-  }, [stageFilter, referenceFilter, priorityFilter, fetchAllStagingTicketsForStageFilter, fetchStagingTickets])
+  }, [stageFilter, listFilterParams, fetchAllStagingTicketsForStageFilter, fetchStagingTickets])
 
   useEffect(() => {
     const onTicketChanged = () => {
@@ -471,17 +238,315 @@ export const StagingList = () => {
     return () => io.disconnect()
   }, [loading, tryLoadMoreTickets, tickets.length, total, stageFilter, allStagingTicketsForStageFilter.length])
 
-  const stagingStageLabels = ['Stage 1: Staging Planned', 'Stage 2: Live Planned', 'Stage 3: Review Planned']
   const ticketsForDisplay = tickets
   const stagedFilteredCount = useMemo(() => {
     if (!stageFilter) return total
     return allStagingTicketsForStageFilter.filter((t) => getStagingCurrentStage(t).stageLabel === stageFilter).length
   }, [allStagingTicketsForStageFilter, stageFilter, total])
-  const getStageForExport = (t: Record<string, unknown>) => getStagingCurrentStage(t as Parameters<typeof getStagingCurrentStage>[0])
+
+  const referenceColumnFilters = useMemo(() => {
+    const opts = new Map<string, string>()
+    const source = stageFilter ? allStagingTicketsForStageFilter : tickets
+    source.forEach((t) => {
+      const ref = String(t.reference_no || '').trim()
+      if (ref) opts.set(ref, ref)
+    })
+    referenceFilters.forEach((ref) => {
+      if (ref) opts.set(ref, ref)
+    })
+    return Array.from(opts.values())
+      .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
+      .map((v) => ({ text: v, value: v }))
+  }, [tickets, allStagingTicketsForStageFilter, stageFilter, referenceFilters])
+
+  const priorityColumnFilters = useMemo(
+    () => TICKET_PRIORITY_OPTIONS.map((o) => ({ text: o.label, value: o.value })),
+    [],
+  )
+  const stageColumnFilters = useMemo(
+    () => STAGING_STAGE_LABELS.map((label) => ({ text: label, value: label })),
+    [],
+  )
+
+  const stagingTicketColumns = useMemo(
+    () => [
+      {
+        title: 'Reference No',
+        dataIndex: 'reference_no',
+        key: 'reference_no',
+        width: 100,
+        filters: referenceColumnFilters,
+        filterSearch: true,
+        filterMultiple: true,
+        filteredValue: referenceFilters.length ? referenceFilters : null,
+        onFilter: columnFilterPass,
+        render: (v: string, r: Ticket) => (
+          <PriorityColoredReference referenceNo={v} priority={r.priority} />
+        ),
+      },
+      {
+        title: 'Company Name',
+        dataIndex: 'company_name',
+        key: 'company_name',
+        width: 140,
+        ellipsis: false,
+        render: (v: string) => <span style={wrapStyle}>{v?.trim() ? v : '-'}</span>,
+      },
+      {
+        title: 'User Name',
+        dataIndex: 'user_name',
+        key: 'user_name',
+        width: 100,
+        ellipsis: true,
+        render: (v: string) => v || '-',
+      },
+      {
+        title: 'Page',
+        dataIndex: 'page_name',
+        key: 'page_name',
+        width: 100,
+        ellipsis: true,
+        render: (v: string) => v || '-',
+      },
+      {
+        title: 'Division',
+        dataIndex: 'division_name',
+        key: 'division_name',
+        width: 100,
+        ellipsis: true,
+        render: (v: string) => v || '-',
+      },
+      {
+        title: 'Other Division',
+        dataIndex: 'division_other',
+        key: 'division_other',
+        width: 110,
+        ellipsis: true,
+        render: (_: unknown, r: Ticket) => (r.division_name === 'Other' ? (r.division_other || '-') : ''),
+      },
+      {
+        title: 'Attachment',
+        dataIndex: 'attachment_url',
+        key: 'attachment_url',
+        width: 100,
+        render: (v: string) => {
+          const urls = splitAttachmentUrls(v)
+          if (urls.length === 0) return '-'
+          return (
+            <>
+              {urls.map((url, i) => (
+                <a
+                  key={url}
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    window.open(url, '_blank', 'noopener,noreferrer')
+                  }}
+                  style={i > 0 ? { display: 'block' } : undefined}
+                >
+                  <LinkOutlined /> View{urls.length > 1 ? ` ${i + 1}` : ''}
+                </a>
+              ))}
+            </>
+          )
+        },
+      },
+      {
+        title: 'Title',
+        dataIndex: 'title',
+        key: 'title',
+        width: 200,
+        ellipsis: false,
+        render: (v: string) => {
+          const raw = (v && v.trim()) || ''
+          if (!raw) return <span style={wrapStyle}>-</span>
+          return (
+            <TextCellTooltip tooltip={raw}>
+              <span style={{ ...wrapStyle, ...tableCellEllipsisStyle }}>{raw}</span>
+            </TextCellTooltip>
+          )
+        },
+      },
+      {
+        title: 'Description',
+        dataIndex: 'description',
+        key: 'description',
+        width: 220,
+        ellipsis: false,
+        render: (v: string) => {
+          const raw = (v && v.trim()) || ''
+          if (!raw) return <span style={wrapStyle}>-</span>
+          return (
+            <TextCellTooltip tooltip={raw}>
+              <span style={{ ...wrapStyle, ...tableCellEllipsisStyle }}>{raw}</span>
+            </TextCellTooltip>
+          )
+        },
+      },
+      {
+        title: 'Type of Request',
+        dataIndex: 'type',
+        key: 'type',
+        width: 100,
+        render: (v: string) => (
+          <Tag color={getTypeColor(v)}>{v === 'chore' ? 'Chores' : v === 'bug' ? 'Bug' : 'Feature'}</Tag>
+        ),
+      },
+      {
+        title: 'CT',
+        dataIndex: 'communicated_through',
+        key: 'communicated_through',
+        width: 70,
+        render: (v: string) => getCommIcon(v),
+      },
+      {
+        title: 'Submitted By',
+        dataIndex: 'submitted_by',
+        key: 'submitted_by',
+        width: 110,
+        ellipsis: true,
+        render: (v: string) => v || '-',
+      },
+      {
+        title: 'Query Arrival',
+        dataIndex: 'query_arrival_at',
+        key: 'query_arrival_at',
+        width: 140,
+        render: (v: string) => formatDateTable(v),
+      },
+      {
+        title: 'Quality of Response',
+        dataIndex: 'quality_of_response',
+        key: 'quality_of_response',
+        width: 140,
+        ellipsis: false,
+        render: (v: string) => (
+          <span style={wrapStyle} title={v?.trim() ? String(v) : undefined}>
+            {truncateTitleDescCell(v || undefined, TICKET_TABLE_QA_PREVIEW_MAX_CHARS)}
+          </span>
+        ),
+      },
+      {
+        title: 'Customer Questions',
+        dataIndex: 'customer_questions',
+        key: 'customer_questions',
+        width: 140,
+        ellipsis: false,
+        render: (v: string) => (
+          <span style={wrapStyle} title={v?.trim() ? String(v) : undefined}>
+            {truncateTitleDescCell(v || undefined, TICKET_TABLE_QA_PREVIEW_MAX_CHARS)}
+          </span>
+        ),
+      },
+      {
+        title: 'Query Response',
+        dataIndex: 'query_response_at',
+        key: 'query_response_at',
+        width: 140,
+        render: (v: string) => formatDateTable(v),
+      },
+      {
+        title: 'Reply Status',
+        key: 'reply_status',
+        width: 180,
+        ellipsis: false,
+        render: (_: unknown, r: Ticket) => {
+          const sla = formatReplySla(r.query_arrival_at, r.query_response_at)
+          return (
+            <span style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>
+              <Tag color={sla.status === 'on-time' ? 'green' : 'red'}>{sla.text}</Tag>
+            </span>
+          )
+        },
+      },
+      {
+        title: 'Priority',
+        dataIndex: 'priority',
+        key: 'priority',
+        width: 90,
+        filters: priorityColumnFilters,
+        filterMultiple: false,
+        filteredValue: priorityFilter ? [priorityFilter] : null,
+        onFilter: columnFilterPass,
+        render: (_: unknown, r: Ticket) => (
+          <Tag color={getPriorityTagColor(r.priority)}>{formatPriorityLabel(r.priority)}</Tag>
+        ),
+      },
+      {
+        title: 'Current Stage',
+        key: 'current_stage',
+        width: 140,
+        ellipsis: false,
+        filters: stageColumnFilters,
+        filterSearch: true,
+        filterMultiple: false,
+        filteredValue: stageFilter ? [stageFilter] : null,
+        onFilter: columnFilterPass,
+        render: (_: unknown, r: Ticket) => {
+          const stage = getStagingCurrentStage(r)
+          return <span style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>{stage.stageLabel}</span>
+        },
+      },
+      {
+        title: 'Planned',
+        key: 'staging_planned',
+        width: 120,
+        ellipsis: false,
+        render: (_: unknown, r: Ticket) => {
+          const stage = getStagingCurrentStage(r)
+          return <span style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>{stage.planned}</span>
+        },
+      },
+      {
+        title: 'Actual',
+        key: 'staging_actual',
+        width: 120,
+        ellipsis: false,
+        render: (_: unknown, r: Ticket) => {
+          const stage = getStagingCurrentStage(r)
+          return <span style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>{stage.actual}</span>
+        },
+      },
+      {
+        title: 'Status',
+        key: 'staging_status',
+        width: 100,
+        ellipsis: false,
+        render: (_: unknown, r: Ticket) => {
+          const stage = getStagingCurrentStage(r)
+          return <span style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>{stage.status}</span>
+        },
+      },
+      {
+        title: 'Time Delay',
+        key: 'staging_time_delay',
+        width: 100,
+        ellipsis: false,
+        render: (_: unknown, r: Ticket) => {
+          const stage = getStagingCurrentStage(r)
+          return <span style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>{stage.timeDelay}</span>
+        },
+      },
+    ],
+    [
+      referenceColumnFilters,
+      referenceFilters,
+      priorityColumnFilters,
+      priorityFilter,
+      stageColumnFilters,
+      stageFilter,
+    ],
+  )
+
+  const getStageForExport = (t: Record<string, unknown>) =>
+    getStagingCurrentStage(t as Parameters<typeof getStagingCurrentStage>[0])
   const exportColumns = [...TICKET_EXPORT_COLUMNS]
   const fetchExportRowsByDateRange = useCallback(
-    async (dateFrom: string, dateTo: string) => {
-      const bounds = dateRangeToIsoBounds(dateFrom, dateTo)
+    async (dateFromArg: string, dateToArg: string) => {
+      const bounds = dateRangeToIsoBounds(dateFromArg, dateToArg)
       const allTickets = await fetchAllTicketsPages({
         section: 'staging',
         sort_by: 'created_at',
@@ -499,7 +564,18 @@ export const StagingList = () => {
 
   return (
     <div style={{ width: '100%', margin: 0 }}>
-      <div className="page-toolbar-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap', gap: 6, marginBottom: 8, width: '100%' }}>
+      <div
+        className="page-toolbar-row"
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'nowrap',
+          gap: 6,
+          marginBottom: 4,
+          width: '100%',
+        }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <Title level={2} className="page-main-heading" style={{ margin: 0, fontSize: 15 }}>
             Staging
@@ -507,6 +583,16 @@ export const StagingList = () => {
           <SupportSectionTabs />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
+          <RangePicker
+            size="small"
+            placeholder={['From', 'To']}
+            style={{ width: 190 }}
+            allowEmpty={[true, true]}
+            onChange={(dates) => {
+              setDateFrom(dates?.[0] ? dates[0].format('YYYY-MM-DD') : '')
+              setDateTo(dates?.[1] ? dates[1].format('YYYY-MM-DD') : '')
+            }}
+          />
           <PrintExport
             pageTitle="Staging"
             iconOnly
@@ -519,37 +605,7 @@ export const StagingList = () => {
           />
         </div>
       </div>
-      <Card>
-        <Space style={{ marginBottom: 16 }} wrap>
-          <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
-            Tickets in Staging workflow (Stage 1–3). All columns up to Reference No. Click a row to open staging details.
-          </Typography.Paragraph>
-          <Input
-            placeholder="Reference Filter"
-            style={{ width: 160 }}
-            value={referenceFilterInput}
-            onChange={(e) => setReferenceFilterInput(e.target.value)}
-            onPressEnter={() => {
-              setReferenceFilter(referenceFilterInput)
-            }}
-            allowClear
-          />
-          <TicketPriorityFilter value={priorityFilter} onChange={setPriorityFilter} />
-          <Select
-            placeholder="Stage"
-            style={{ width: 180 }}
-            value={stageFilter || undefined}
-            onChange={(v) => {
-              setStageFilter(v ?? '')
-            }}
-            allowClear
-            aria-label="Stage filter"
-          >
-            {stagingStageLabels.map((label) => (
-              <Option key={label} value={label}>{label}</Option>
-            ))}
-          </Select>
-        </Space>
+      <Card bodyStyle={{ padding: '4px 8px' }}>
         <TableWithSkeletonLoading loading={loading} columns={10} rows={12}>
           <div ref={tableContainerRef}>
             <Table
@@ -558,7 +614,12 @@ export const StagingList = () => {
               rowKey="id"
               virtual
               loading={false}
-              scroll={{ x: 2600, y: 600 }}
+              scroll={{ x: 2700, y: 600 }}
+              onChange={(_, tableFilters) => {
+                setReferenceFilters(filterValues(tableFilters, 'reference_no'))
+                setPriorityFilter(filterValues(tableFilters, 'priority')[0] || '')
+                setStageFilter(filterValues(tableFilters, 'current_stage')[0] || '')
+              }}
               onRow={(record) => ({
                 onClick: () => {
                   if (!record?.id) return

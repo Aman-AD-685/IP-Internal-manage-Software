@@ -1,9 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react'
 import {
   Table,
-  Input,
-  Select,
-  Space,
   Card,
   Typography,
   Tag,
@@ -11,6 +8,7 @@ import {
   Button,
   message,
 } from 'antd'
+import type { FilterValue } from 'antd/es/table/interface'
 import { PhoneOutlined, MailOutlined, MessageOutlined, LinkOutlined, PauseCircleOutlined, RetweetOutlined, PlusOutlined, AppstoreOutlined } from '@ant-design/icons'
 import { useSearchParams, useLocation, useNavigate } from 'react-router-dom'
 import { ticketsApi, type Ticket } from '../../api/tickets'
@@ -45,14 +43,12 @@ import { ROUTES } from '../../utils/constants'
 import { sessionApiCacheClearLogicalPrefix, sessionApiCacheGet, ticketsListLogicalKey } from '../../utils/sessionApiCache'
 import { TICKET_CHANGED_EVENT } from '../../utils/ticketRealtime'
 import type { ApiResponse, PaginatedResponse } from '../../api/types'
-import { formatPriorityLabel, getPriorityTagColor } from '../../utils/ticketPriority'
+import { formatPriorityLabel, getPriorityTagColor, TICKET_PRIORITY_OPTIONS } from '../../utils/ticketPriority'
 import { getStatusTagColor } from '../../utils/statusColors'
 import { PriorityColoredReference } from '../../components/tickets/PriorityColoredReference'
-import { TicketPriorityFilter } from '../../components/tickets/TicketPriorityFilter'
 import { SupportSectionTabs } from '../../components/tickets/SupportSectionTabs'
 
 const { Title, Text } = Typography
-const { Option } = Select
 const { RangePicker } = DatePicker
 
 const cardStyle = {
@@ -63,6 +59,13 @@ const cardStyle = {
 
 const getTypeColor = (type: string) => (type === 'chore' ? 'green' : type === 'bug' ? 'red' : 'blue')
 const getPriorityColor = getPriorityTagColor
+/** Ant Design column filters — pass-through; filtering is applied via API state. */
+const columnFilterPass = () => true
+function filterValues(tableFilters: Record<string, FilterValue | null> | undefined, key: string): string[] {
+  const raw = tableFilters?.[key]
+  if (raw == null) return []
+  return (Array.isArray(raw) ? raw : [raw]).map(String)
+}
 const getCommIcon = (v: string) => {
   if (v === 'phone') return <PhoneOutlined title="Phone" />
   if (v === 'mail') return <MailOutlined title="Mail" />
@@ -1161,6 +1164,88 @@ export const TicketList = () => {
       .sort((a, b) => b.label.localeCompare(a.label, undefined, { numeric: true }))
   }, [pageReferenceOptions, ticketsForDisplay, filters.reference_filters])
 
+  const referenceColumnFilters = useMemo(
+    () => availableReferenceOptions.map((o) => ({ text: o.label, value: o.value })),
+    [availableReferenceOptions],
+  )
+  const companyColumnFilters = useMemo(
+    () => availableCompanyOptions.map((o) => ({ text: o.label, value: o.value })),
+    [availableCompanyOptions],
+  )
+  const priorityColumnFilters = useMemo(
+    () => TICKET_PRIORITY_OPTIONS.map((o) => ({ text: o.label, value: o.value })),
+    [],
+  )
+  const typeColumnFilters = useMemo(() => {
+    const opts = [
+      { text: 'Chores', value: 'chore' },
+      { text: 'Bug', value: 'bug' },
+    ]
+    if (isRegisterSection) opts.push({ text: 'Feature', value: 'feature' })
+    return opts
+  }, [isRegisterSection])
+  const statusColumnFilters = useMemo(() => {
+    if (isRegisterSection) {
+      return [
+        { text: 'Completed', value: 'completed' },
+        { text: 'Rejected', value: 'rejected' },
+        { text: 'All', value: 'all' },
+      ]
+    }
+    if (showTicketNaStatusFilter) {
+      const opts = [
+        { text: 'Pending', value: 'pending' },
+        { text: 'Completed', value: 'completed' },
+        { text: 'Staging', value: 'staging' },
+        { text: 'Hold', value: 'hold' },
+        { text: 'NA', value: 'na' },
+      ]
+      if (isChoresBugsSection) opts.push({ text: 'Rejected', value: 'rejected' })
+      return opts
+    }
+    return [
+      { text: 'Open', value: 'open' },
+      { text: 'In Progress', value: 'in_progress' },
+      { text: 'Resolved', value: 'resolved' },
+      { text: 'Closed', value: 'closed' },
+      { text: 'Cancelled', value: 'cancelled' },
+      { text: 'On Hold', value: 'on_hold' },
+    ]
+  }, [isRegisterSection, showTicketNaStatusFilter, isChoresBugsSection])
+  const stageColumnFilters = useMemo(() => {
+    if (showStageFilter) {
+      return [
+        { text: 'Stage 1', value: 'Stage 1' },
+        { text: 'Stage 2', value: 'Stage 2' },
+        { text: 'Stage 3', value: 'Stage 3' },
+        { text: 'Stage 4', value: 'Stage 4' },
+      ]
+    }
+    if (showStageFilterForFeature) {
+      return [
+        { text: 'Stage 1', value: 'Stage 1' },
+        { text: 'Stage 2', value: 'Stage 2' },
+        { text: 'Completed', value: 'Completed' },
+      ]
+    }
+    return []
+  }, [showStageFilter, showStageFilterForFeature])
+  const approvalColumnFilters = useMemo(
+    () => [
+      { text: 'Unapprove', value: 'unapproved' },
+      { text: 'Hold', value: 'hold' },
+      { text: 'Pending approval', value: 'pending' },
+    ],
+    [],
+  )
+  const appMarkColumnFilters = useMemo(
+    () => [
+      { text: 'Android', value: 'android' },
+      { text: 'Apple', value: 'apple' },
+    ],
+    [],
+  )
+
   const getStageForExport = isChoresBugs
     ? (t: Record<string, unknown>) => getChoresBugsCurrentStage(t as Parameters<typeof getChoresBugsCurrentStage>[0])
     : typeFromUrl === 'feature'
@@ -1255,6 +1340,11 @@ export const TicketList = () => {
             ? 'ascend'
             : 'descend'
           : undefined,
+      filters: referenceColumnFilters,
+      filterSearch: true,
+      filterMultiple: true,
+      filteredValue: filters.reference_filters.length ? filters.reference_filters : null,
+      onFilter: columnFilterPass,
       render: (v: string, r: Ticket) => (
         <PriorityColoredReference
           referenceNo={v}
@@ -1271,6 +1361,11 @@ export const TicketList = () => {
       width: 140,
       fixed: 'left' as const,
       ellipsis: false,
+      filters: companyColumnFilters,
+      filterSearch: true,
+      filterMultiple: true,
+      filteredValue: filters.company_ids.length ? filters.company_ids : null,
+      onFilter: columnFilterPass,
       render: (v: string) => <span style={wrapStyle}>{v?.trim() ? v : '-'}</span>,
     },
     {
@@ -1342,6 +1437,10 @@ export const TicketList = () => {
             title: 'App Mark',
             key: 'app_mark',
             width: 90,
+            filters: appMarkColumnFilters,
+            filterMultiple: false,
+            filteredValue: appPlatformFilter ? [appPlatformFilter] : null,
+            onFilter: columnFilterPass,
             render: (_: unknown, r: Ticket) => {
               const platform = ticketMobAppPlatform(r)
               if (!platform) return '-'
@@ -1391,6 +1490,19 @@ export const TicketList = () => {
       dataIndex: 'type',
       key: 'type',
       width: 100,
+      ...(isChoresBugsSection || isRegisterSection
+        ? {
+            filters: typeColumnFilters,
+            filterSearch: true,
+            filterMultiple: isRegisterSection,
+            filteredValue: isRegisterSection
+              ? registerTypeFilters
+              : typeOfRequestFilter
+                ? [typeOfRequestFilter]
+                : null,
+            onFilter: columnFilterPass,
+          }
+        : {}),
       render: (v: string) => <Tag color={getTypeColor(v)}>{v === 'chore' ? 'Chores' : v === 'bug' ? 'Bug' : 'Feature'}</Tag>,
     },
     {
@@ -1467,6 +1579,10 @@ export const TicketList = () => {
             dataIndex: 'priority',
             key: 'priority',
             width: 90,
+            filters: priorityColumnFilters,
+            filterMultiple: false,
+            filteredValue: filters.priority ? [filters.priority] : null,
+            onFilter: columnFilterPass,
             render: (_: unknown, r: Ticket) => (
               <Tag color={getPriorityColor(r.priority)}>{formatPriorityLabel(r.priority)}</Tag>
             ),
@@ -1480,6 +1596,15 @@ export const TicketList = () => {
             key: 'current_stage_feature',
             width: 140,
             ellipsis: false,
+            ...(showStageFilterForFeature
+              ? {
+                  filters: stageColumnFilters,
+                  filterSearch: true,
+                  filterMultiple: false,
+                  filteredValue: stageFilter ? [stageFilter] : null,
+                  onFilter: columnFilterPass,
+                }
+              : {}),
             render: (_: unknown, r: Ticket) =>
               r.type === 'feature' ? (
                 <span style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>{getFeatureCurrentStage(r).stageLabel}</span>
@@ -1492,6 +1617,10 @@ export const TicketList = () => {
             dataIndex: 'priority',
             key: 'priority',
             width: 90,
+            filters: priorityColumnFilters,
+            filterMultiple: false,
+            filteredValue: filters.priority ? [filters.priority] : null,
+            onFilter: columnFilterPass,
             render: (_: unknown, r: Ticket) =>
               r.type === 'feature' ? (
                 <Tag color={getPriorityColor(r.priority)}>{formatPriorityLabel(r.priority)}</Tag>
@@ -1499,6 +1628,28 @@ export const TicketList = () => {
                 '-'
               ),
           },
+          ...(showTicketNaStatusFilter && !isChoresBugsSection
+            ? [
+                {
+                  title: isFeatureListSection ? 'Stage 1 Status' : 'Status',
+                  key: 'sla_status',
+                  width: 120,
+                  filters: statusColumnFilters,
+                  filterSearch: true,
+                  filterMultiple: false,
+                  filteredValue: status2Filter ? [status2Filter] : null,
+                  onFilter: columnFilterPass,
+                  render: (_: unknown, r: Ticket) => {
+                    const s = r.status_2 || '-'
+                    return (
+                      <Tag color={getStatusTagColor(s)} style={{ margin: 0 }}>
+                        {s}
+                      </Tag>
+                    )
+                  },
+                },
+              ]
+            : []),
           {
             title: 'Why Feature?',
             dataIndex: 'why_feature',
@@ -1515,6 +1666,11 @@ export const TicketList = () => {
             title: 'Approval',
             key: 'approval_status',
             width: 120,
+            filters: approvalColumnFilters,
+            filterSearch: true,
+            filterMultiple: false,
+            filteredValue: [approvalFilter],
+            onFilter: columnFilterPass,
             render: (_: unknown, r: Ticket) => {
               const s = r.approval_status ?? 'pending'
               const label =
@@ -1563,6 +1719,15 @@ export const TicketList = () => {
           key: 'current_stage',
           width: 100,
           ellipsis: false,
+          ...(showStageFilter
+            ? {
+                filters: stageColumnFilters,
+                filterSearch: true,
+                filterMultiple: false,
+                filteredValue: stageFilter ? [stageFilter] : null,
+                onFilter: columnFilterPass,
+              }
+            : {}),
           render: (_: unknown, r: Ticket) => {
             const stage = getChoresBugsCurrentStage(r)
             return <span style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>{stage.stageLabel}</span>
@@ -1593,6 +1758,19 @@ export const TicketList = () => {
           key: 'sla_status',
           width: 100,
           ellipsis: false,
+          filters: statusColumnFilters,
+          filterSearch: true,
+          filterMultiple: false,
+          filteredValue: isRegisterSection
+            ? [registerStatusFilter]
+            : showTicketNaStatusFilter
+              ? status2Filter
+                ? [status2Filter]
+                : null
+              : filters.status
+                ? [filters.status]
+                : null,
+          onFilter: columnFilterPass,
           render: (_: unknown, r: Ticket) => {
             const stage = getChoresBugsCurrentStage(r)
             const displayStatus = isRegisterSection ? getRegisterStatusLabel(r) : stage.status || '-'
@@ -1637,6 +1815,11 @@ export const TicketList = () => {
       dataIndex: 'reference_no',
       key: 'reference_no',
       width: 110,
+      filters: referenceColumnFilters,
+      filterSearch: true,
+      filterMultiple: true,
+      filteredValue: filters.reference_filters.length ? filters.reference_filters : null,
+      onFilter: columnFilterPass,
       render: (v: string, r: Ticket) => (
         <PriorityColoredReference
           referenceNo={v}
@@ -1651,6 +1834,11 @@ export const TicketList = () => {
       key: 'company_name',
       width: 160,
       ellipsis: false,
+      filters: companyColumnFilters,
+      filterSearch: true,
+      filterMultiple: true,
+      filteredValue: filters.company_ids.length ? filters.company_ids : null,
+      onFilter: columnFilterPass,
       render: (v: string) => <span style={wrapStyle}>{v?.trim() ? v : '-'}</span>,
     },
     {
@@ -1859,7 +2047,7 @@ export const TicketList = () => {
         <style>{`.completed-chores-bugs-wrap .ant-table-cell,
 .completed-chores-bugs-wrap .ant-table-thead > tr > th { white-space: normal !important; word-break: break-word !important; }`}</style>
       )}
-      <div className="page-toolbar-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'nowrap', gap: 6, marginBottom: 8, width: '100%' }}>
+      <div className="page-toolbar-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'nowrap', gap: 6, marginBottom: 4, width: '100%' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap', minWidth: 0 }}>
           <Title
             level={2}
@@ -1895,6 +2083,13 @@ export const TicketList = () => {
           >
             App
           </Button>
+          <RangePicker
+            size="small"
+            placeholder={['From', 'To']}
+            onChange={handleDateRange}
+            style={{ width: 190 }}
+            allowEmpty={[true, true]}
+          />
           <Button size="small" type="default" icon={<PlusOutlined />} onClick={() => setAddCompanyDivisionOpen(true)}>
             Co.&Div.
           </Button>
@@ -1910,196 +2105,7 @@ export const TicketList = () => {
         </div>
       </div>
 
-      <Card style={cardStyle} bodyStyle={{ padding: '8px 12px' }}>
-        <Space size={4} style={{ marginBottom: 6, width: '100%' }} wrap>
-          {appTicketsView ? (
-            <Select
-              placeholder="Android & Apple"
-              style={{ width: 160 }}
-              value={appPlatformFilter || undefined}
-              onChange={(v) => setAppPlatformFilter((v as 'android' | 'apple' | undefined) ?? '')}
-              allowClear
-              getPopupContainer={() => document.body}
-              options={[
-                { value: 'android', label: 'Android' },
-                { value: 'apple', label: 'Apple' },
-              ]}
-            />
-          ) : null}
-          <Select
-            mode="multiple"
-            placeholder="Reference Filter"
-            style={{ minWidth: 180, maxWidth: 320 }}
-            value={filters.reference_filters?.length ? filters.reference_filters : undefined}
-            onChange={(v) => {
-              setFilters((f) => ({
-                ...f,
-                reference_filters: Array.isArray(v) ? v : [],
-              }))
-            }}
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            filterOption={(input, opt) => (opt?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())}
-            getPopupContainer={() => document.body}
-            options={availableReferenceOptions}
-          />
-          {isApprovalSection && (
-            <Select
-              placeholder="Approval"
-              style={{ width: 160 }}
-              value={approvalFilter}
-              onChange={(v) => {
-                setApprovalFilter(v ?? 'pending')
-              }}
-              getPopupContainer={() => document.body}
-              options={[
-                { value: 'unapproved', label: 'Unapprove' },
-                { value: 'hold', label: 'Hold' },
-                { value: 'pending', label: 'Pending approval' },
-              ]}
-            />
-          )}
-          <Select
-            mode="multiple"
-            placeholder="Company"
-            style={{ width: 220 }}
-            value={filters.company_ids?.length ? filters.company_ids : undefined}
-            onChange={(v) => {
-              setFilters((f) => ({ ...f, company_ids: Array.isArray(v) ? v : [] }))
-            }}
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            filterOption={(input, opt) => (opt?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())}
-            getPopupContainer={() => document.body}
-            options={availableCompanyOptions}
-          />
-          {showTicketNaStatusFilter || isRegisterSection ? (
-            <Select
-              placeholder={isFeatureListSection ? 'Stage 1 status' : 'Status'}
-              style={{ width: isFeatureListSection ? 150 : 130 }}
-              value={isRegisterSection ? registerStatusFilter : status2Filter || undefined}
-              onChange={(v) => {
-                if (isRegisterSection) {
-                  setRegisterStatusFilter((v || 'completed') as 'completed' | 'rejected' | 'all')
-                } else {
-                  setStatus2Filter(v ?? '')
-                }
-              }}
-              allowClear={!isRegisterSection}
-              getPopupContainer={() => document.body}
-            >
-              {isRegisterSection ? (
-                <>
-                  <Option value="completed">Completed</Option>
-                  <Option value="rejected">Rejected</Option>
-                  <Option value="all">All</Option>
-                </>
-              ) : isFeatureListSection ? (
-                <>
-                  <Option value="pending">Pending</Option>
-                  <Option value="completed">Completed</Option>
-                  <Option value="staging">Staging</Option>
-                  <Option value="hold">Hold</Option>
-                  <Option value="na">NA</Option>
-                </>
-              ) : (
-                <>
-                  <Option value="pending">Pending</Option>
-                  <Option value="completed">Completed</Option>
-                  <Option value="staging">Staging</Option>
-                  <Option value="hold">Hold</Option>
-                  <Option value="na">NA</Option>
-                  <Option value="rejected">Rejected</Option>
-                </>
-              )}
-            </Select>
-          ) : (
-            <Select
-              placeholder="Status"
-              style={{ width: 130 }}
-              value={filters.status || undefined}
-              onChange={(v) => setFilters((f) => ({ ...f, status: v || '' }))}
-              allowClear
-              getPopupContainer={() => document.body}
-            >
-              <Option value="open">Open</Option>
-              <Option value="in_progress">In Progress</Option>
-              <Option value="resolved">Resolved</Option>
-              <Option value="closed">Closed</Option>
-              <Option value="cancelled">Cancelled</Option>
-              <Option value="on_hold">On Hold</Option>
-            </Select>
-          )}
-          {isChoresBugsSection || isRegisterSection ? (
-            <Select
-              mode={isRegisterSection ? 'multiple' : undefined}
-              placeholder="Type of Request"
-              style={{ width: isRegisterSection ? 240 : 150 }}
-              value={isRegisterSection ? registerTypeFilters : typeOfRequestFilter || undefined}
-              onChange={(v) => {
-                if (isRegisterSection) {
-                  const next = (Array.isArray(v) ? v : []).filter(Boolean)
-                  setRegisterTypeFilters(next.length ? next : ['chore'])
-                } else {
-                  setTypeOfRequestFilter((v as string) ?? '')
-                }
-              }}
-              allowClear={!isRegisterSection}
-              getPopupContainer={() => document.body}
-            >
-              <Option value="chore">Chores</Option>
-              <Option value="bug">Bug</Option>
-              {isRegisterSection && <Option value="feature">Feature</Option>}
-            </Select>
-          ) : null}
-          <TicketPriorityFilter
-            value={filters.priority}
-            onChange={(priority) => setFilters((f) => ({ ...f, priority }))}
-          />
-          {showStageFilter && (
-            <Select
-              placeholder="Stage"
-              style={{ width: 140 }}
-              value={stageFilter || undefined}
-              onChange={(v) => {
-                setStageFilter(v ?? '')
-              }}
-              allowClear
-              aria-label="Filter by stage"
-              getPopupContainer={() => document.body}
-            >
-              <Option value="Stage 1">Stage 1</Option>
-              <Option value="Stage 2">Stage 2</Option>
-              <Option value="Stage 3">Stage 3</Option>
-              <Option value="Stage 4">Stage 4</Option>
-            </Select>
-          )}
-          {showStageFilterForFeature && (
-            <Select
-              placeholder="Stage"
-              style={{ width: 140 }}
-              value={stageFilter || undefined}
-              onChange={(v) => {
-                setStageFilter(v ?? '')
-              }}
-              allowClear
-              aria-label="Filter by stage"
-              getPopupContainer={() => document.body}
-            >
-              <Option value="Stage 1">Stage 1</Option>
-              <Option value="Stage 2">Stage 2</Option>
-              <Option value="Completed">Completed</Option>
-            </Select>
-          )}
-          <RangePicker
-            placeholder={['From', 'To']}
-            onChange={handleDateRange}
-            style={{ width: 240 }}
-          />
-        </Space>
-
+      <Card style={cardStyle} bodyStyle={{ padding: '4px 8px' }}>
         <TableWithSkeletonLoading loading={loading} columns={12} rows={14}>
           <div ref={scrollRootRef}>
             <Table
@@ -2146,14 +2152,58 @@ export const TicketList = () => {
                   </Table.Summary.Row>
                 </Table.Summary>
               )}
-              onChange={(_, __, sorter) => {
-                const s = Array.isArray(sorter) ? sorter[0] : sorter
-                if (s && 'field' in s && s.field) {
-                  setFilters((f) => ({
+              onChange={(_, tableFilters, sorter) => {
+                const refs = filterValues(tableFilters, 'reference_no')
+                const companies = filterValues(tableFilters, 'company_name')
+                const priorities = filterValues(tableFilters, 'priority')
+                const types = filterValues(tableFilters, 'type')
+                const statuses = filterValues(tableFilters, 'sla_status')
+                const stages =
+                  filterValues(tableFilters, 'current_stage').length > 0
+                    ? filterValues(tableFilters, 'current_stage')
+                    : filterValues(tableFilters, 'current_stage_feature')
+                const approvals = filterValues(tableFilters, 'approval_status')
+                const appMarks = filterValues(tableFilters, 'app_mark')
+
+                setFilters((f) => {
+                  const next = {
                     ...f,
-                    sort_by: String(s.field),
-                    sort_order: s.order === 'ascend' ? 'asc' : 'desc',
-                  }))
+                    reference_filters: refs,
+                    company_ids: companies,
+                    priority: priorities[0] || '',
+                  }
+                  if (!showTicketNaStatusFilter && !isRegisterSection) {
+                    next.status = statuses[0] || ''
+                  }
+                  const s = Array.isArray(sorter) ? sorter[0] : sorter
+                  if (s && 'field' in s && s.field) {
+                    next.sort_by = String(s.field)
+                    next.sort_order = s.order === 'ascend' ? 'asc' : 'desc'
+                  }
+                  return next
+                })
+
+                if (isRegisterSection) {
+                  setRegisterStatusFilter((statuses[0] as 'completed' | 'rejected' | 'all') || 'completed')
+                  setRegisterTypeFilters(types.length ? types : ['chore'])
+                } else if (showTicketNaStatusFilter) {
+                  setStatus2Filter(statuses[0] || '')
+                }
+
+                if (isChoresBugsSection) {
+                  setTypeOfRequestFilter(types[0] || '')
+                }
+
+                if (showStageFilter || showStageFilterForFeature) {
+                  setStageFilter(stages[0] || '')
+                }
+
+                if (isApprovalSection) {
+                  setApprovalFilter(approvals[0] || 'pending')
+                }
+
+                if (appTicketsView) {
+                  setAppPlatformFilter((appMarks[0] as 'android' | 'apple' | undefined) || '')
                 }
               }}
               onRow={(record) => ({

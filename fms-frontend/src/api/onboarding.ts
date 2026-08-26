@@ -23,13 +23,26 @@ export interface PaymentStatusRecord {
 }
 
 export const onboardingApi = {
-  listPaymentStatus: async () => {
-    const key = 'onboarding:payment-status:list:v2'
-    const cached = sessionApiCacheGet<{ items: PaymentStatusRecord[]; total?: number }>(key)
-    if (cached?.items) return cached
+  listPaymentStatus: async (opts?: { bustCache?: boolean }) => {
+    const key = 'onboarding:payment-status:list:v4'
+    if (opts?.bustCache) {
+      sessionApiCacheClearLogicalPrefix('onboarding:payment-status:list')
+      // Onb Ref is joined live for training clients — clear so Training page doesn't keep old refs
+      sessionApiCacheClearLogicalPrefix('training:clients:list')
+    } else {
+      const cached = sessionApiCacheGet<{ items: PaymentStatusRecord[]; total?: number }>(key)
+      if (cached?.items) return cached
+    }
     const r = await apiClient.get<{ data?: PaymentStatusRecord[]; items?: PaymentStatusRecord[]; total?: number }>(
       API_ENDPOINTS.ONBOARDING_PAYMENT_STATUS.LIST,
-      { params: { page: 1, page_size: 200 } },
+      {
+        params: {
+          page: 1,
+          page_size: 200,
+          // busts in-process backend @cached when FE requests a fresh list
+          ...(opts?.bustCache ? { _cb: Date.now() } : {}),
+        },
+      },
     )
     const body = r.data ?? {}
     const rows = body.data ?? body.items ?? []
@@ -49,6 +62,9 @@ export const onboardingApi = {
     const r = await apiClient.post<PaymentStatusRecord>(API_ENDPOINTS.ONBOARDING_PAYMENT_STATUS.CREATE, payload)
     sessionApiCacheClearLogicalPrefix('onboarding:payment-status:list')
     sessionApiCacheClearLogicalPrefix('onboarding:payment-status:list:v2')
+    sessionApiCacheClearLogicalPrefix('onboarding:payment-status:list:v3')
+    sessionApiCacheClearLogicalPrefix('onboarding:payment-status:list:v4')
+    sessionApiCacheClearLogicalPrefix('training:clients:list')
     return r.data
   },
 
@@ -196,6 +212,7 @@ export const onboardingApi = {
       API_ENDPOINTS.ONBOARDING_PAYMENT_STATUS.FINAL_SETUP(paymentStatusId),
       { data }
     ).then((r) => {
+      sessionApiCacheClearLogicalPrefix('onboarding:payment-status:list')
       if (String(data.final_status ?? '').trim() === 'Done') {
         sessionApiCacheClearLogicalPrefix('training:clients:list')
       }

@@ -453,12 +453,24 @@ export const LeadImportPage = () => {
 
   return (
     <div>
-      <Space className="page-toolbar-row" style={{ marginBottom: 8 }} wrap={false} align="center">
+      <div
+        className="page-toolbar-row"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          marginBottom: 4,
+          width: '100%',
+        }}
+      >
+        <Title level={4} className="page-main-heading" style={{ margin: 0, fontSize: 15 }}>
+          Import
+        </Title>
         <OperationsSectionTabs module="client-to-lead" />
-      </Space>
-      <Card>
+      </div>
+      <Card bodyStyle={{ padding: '8px 12px' }}>
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          <Title level={4} className="page-main-heading" style={{ margin: 0 }}>
+          <Title level={5} style={{ margin: 0 }}>
             <FileTextOutlined /> Import from sheet – Generate SQL (full columns)
           </Title>
           <Text type="secondary">
