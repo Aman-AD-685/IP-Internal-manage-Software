@@ -76,18 +76,23 @@ export interface TrainingStagesConfigResponse {
 }
 
 export const trainingApi = {
-  listClients: async () => {
-    const key = 'training:clients:list:v2'
-    const cached = sessionApiCacheGet<{ items: TrainingClientRecord[] }>(key)
-    if (cached) return cached
+  listClients: async (opts?: { bustCache?: boolean }) => {
+    const key = 'training:clients:list:v3'
+    if (opts?.bustCache) {
+      sessionApiCacheClearLogicalPrefix('training:clients:list')
+    } else {
+      const cached = sessionApiCacheGet<{ items: TrainingClientRecord[] }>(key)
+      if (cached) return cached
+    }
     const pageSize = 200
     let page = 1
     let total = 0
     const items: TrainingClientRecord[] = []
+    const cb = opts?.bustCache ? Date.now() : undefined
     do {
       const r = await apiClient.get<{ items?: TrainingClientRecord[]; data?: TrainingClientRecord[]; total?: number }>(
         API_ENDPOINTS.TRAINING.CLIENTS,
-        { params: { page, page_size: pageSize } },
+        { params: { page, page_size: pageSize, ...(cb != null ? { _cb: cb } : {}) } },
       )
       const body = r.data
       const batch = body.items ?? body.data ?? []

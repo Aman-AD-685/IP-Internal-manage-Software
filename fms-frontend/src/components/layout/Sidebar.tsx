@@ -122,17 +122,17 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
     </span>
   )
   const supportCoreItems: MenuProps['items'] = [
-    { key: `${ROUTES.TICKETS}?section=chores-bugs`, icon: <FileTextOutlined />, label: prefetchedLabel(`${ROUTES.TICKETS}?section=chores-bugs`, { pathname: ROUTES.TICKETS, search: 'section=chores-bugs' }, 'Ch & Bug'), sectionKey: 'chores_bugs' },
-    { key: ROUTES.STAGING, icon: <RocketOutlined />, label: prefetchedLabel(ROUTES.STAGING, ROUTES.STAGING, 'Stag.'), sectionKey: 'staging' },
-    { key: `${ROUTES.TICKETS}?type=feature`, icon: <FileTextOutlined />, label: prefetchedLabel(`${ROUTES.TICKETS}?type=feature`, `${ROUTES.TICKETS}?type=feature`, 'Feat.'), sectionKey: 'feature' },
-    { key: `${ROUTES.TICKETS}?type=feature&view=approval`, icon: <FileTextOutlined />, label: prefetchedLabel(`${ROUTES.TICKETS}?type=feature&view=approval`, `${ROUTES.TICKETS}?type=feature&view=approval`, 'Apprv.'), sectionKey: 'approval_status' },
+    { key: `${ROUTES.TICKETS}?section=chores-bugs`, icon: <FileTextOutlined />, label: prefetchedLabel(`${ROUTES.TICKETS}?section=chores-bugs`, { pathname: ROUTES.TICKETS, search: 'section=chores-bugs' }, 'Chores & Bugs'), sectionKey: 'chores_bugs' },
+    { key: ROUTES.STAGING, icon: <RocketOutlined />, label: prefetchedLabel(ROUTES.STAGING, ROUTES.STAGING, 'Staging'), sectionKey: 'staging' },
+    { key: `${ROUTES.TICKETS}?type=feature`, icon: <FileTextOutlined />, label: prefetchedLabel(`${ROUTES.TICKETS}?type=feature`, `${ROUTES.TICKETS}?type=feature`, 'Feature'), sectionKey: 'feature' },
+    { key: `${ROUTES.TICKETS}?type=feature&view=approval`, icon: <FileTextOutlined />, label: prefetchedLabel(`${ROUTES.TICKETS}?type=feature&view=approval`, `${ROUTES.TICKETS}?type=feature&view=approval`, 'Approval Status'), sectionKey: 'approval_status' },
     {
       key: `${ROUTES.TICKETS}?section=register-of-tickets`,
       icon: <FileTextOutlined />,
       label: prefetchedLabel(
         `${ROUTES.TICKETS}?section=register-of-tickets`,
         `${ROUTES.TICKETS}?section=register-of-tickets`,
-        'Reg.',
+        'Register of Tickets',
       ),
     },
   ]
@@ -156,13 +156,13 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
   const supportItems = filterSupportItems(supportCoreItems)
 
   const taskItems: MenuProps['items'] = [
-    { key: ROUTES.CHECKLIST, icon: <CheckSquareOutlined />, label: prefetchedLabel(ROUTES.CHECKLIST, ROUTES.CHECKLIST, 'Check.') },
-    { key: ROUTES.DELEGATION, icon: <SendOutlined />, label: prefetchedLabel(ROUTES.DELEGATION, ROUTES.DELEGATION, 'Deleg.') },
+    { key: ROUTES.CHECKLIST, icon: <CheckSquareOutlined />, label: prefetchedLabel(ROUTES.CHECKLIST, ROUTES.CHECKLIST, 'Checklist') },
+    { key: ROUTES.DELEGATION, icon: <SendOutlined />, label: prefetchedLabel(ROUTES.DELEGATION, ROUTES.DELEGATION, 'Delegation') },
   ]
 
   const successItems: MenuProps['items'] = [
-    { key: ROUTES.SUCCESS_PERFORMANCE, icon: <LineChartOutlined />, label: prefetchedLabel(ROUTES.SUCCESS_PERFORMANCE, ROUTES.SUCCESS_PERFORMANCE, 'Perf.'), sectionKey: 'success_performance' },
-    { key: ROUTES.SUCCESS_COMP_PERFORM, icon: <LineChartOutlined />, label: prefetchedLabel(ROUTES.SUCCESS_COMP_PERFORM, ROUTES.SUCCESS_COMP_PERFORM, 'Comp.'), sectionKey: 'success_comp_perform' },
+    { key: ROUTES.SUCCESS_PERFORMANCE, icon: <LineChartOutlined />, label: prefetchedLabel(ROUTES.SUCCESS_PERFORMANCE, ROUTES.SUCCESS_PERFORMANCE, 'Performance Monitoring'), sectionKey: 'success_performance' },
+    { key: ROUTES.SUCCESS_COMP_PERFORM, icon: <LineChartOutlined />, label: prefetchedLabel(ROUTES.SUCCESS_COMP_PERFORM, ROUTES.SUCCESS_COMP_PERFORM, 'Comp- Perform'), sectionKey: 'success_comp_perform' },
   ]
   const filterSuccessItems = (items: MenuProps['items']) => items?.filter((item) => {
     const sectionKey = (item as { sectionKey?: string })?.sectionKey
@@ -172,11 +172,11 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
   const filteredSuccessItems = filterSuccessItems(successItems)
 
   const onboardingItems: MenuProps['items'] = [
-    { key: ROUTES.ONBOARDING_PAYMENT_STATUS, icon: <FileTextOutlined />, label: prefetchedLabel(ROUTES.ONBOARDING_PAYMENT_STATUS, ROUTES.ONBOARDING_PAYMENT_STATUS, 'Onb.') },
+    { key: ROUTES.ONBOARDING_PAYMENT_STATUS, icon: <FileTextOutlined />, label: prefetchedLabel(ROUTES.ONBOARDING_PAYMENT_STATUS, ROUTES.ONBOARDING_PAYMENT_STATUS, 'Record of Onboarding') },
   ]
 
   const trainingItems: MenuProps['items'] = [
-    { key: ROUTES.TRAINING_CLIENT, icon: <ReadOutlined />, label: prefetchedLabel(ROUTES.TRAINING_CLIENT, ROUTES.TRAINING_CLIENT, 'Train.') },
+    { key: ROUTES.TRAINING_CLIENT, icon: <ReadOutlined />, label: prefetchedLabel(ROUTES.TRAINING_CLIENT, ROUTES.TRAINING_CLIENT, 'Client Training') },
   ]
 
   const dbClientItems: MenuProps['items'] = [
@@ -185,15 +185,15 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
           {
             key: ROUTES.DB_CLIENT_DB_DASH,
             icon: <DashboardOutlined />,
-            label: prefetchedLabel(ROUTES.DB_CLIENT_DB_DASH, ROUTES.DB_CLIENT_DB_DASH, 'Dash'),
+            label: prefetchedLabel(ROUTES.DB_CLIENT_DB_DASH, ROUTES.DB_CLIENT_DB_DASH, 'DB- Dash'),
           },
         ]
       : []),
-    { key: ROUTES.DB_CLIENT_CLIENT_ONB, icon: <AuditOutlined />, label: prefetchedLabel(ROUTES.DB_CLIENT_CLIENT_ONB, ROUTES.DB_CLIENT_CLIENT_ONB, 'ONB') },
+    { key: ROUTES.DB_CLIENT_CLIENT_ONB, icon: <AuditOutlined />, label: prefetchedLabel(ROUTES.DB_CLIENT_CLIENT_ONB, ROUTES.DB_CLIENT_CLIENT_ONB, 'Client ONB') },
     {
       key: ROUTES.DB_CLIENT_CLIENT_ONB_INACTIVE,
       icon: <StopOutlined />,
-      label: prefetchedLabel(ROUTES.DB_CLIENT_CLIENT_ONB_INACTIVE, ROUTES.DB_CLIENT_CLIENT_ONB_INACTIVE, 'Inact.'),
+      label: prefetchedLabel(ROUTES.DB_CLIENT_CLIENT_ONB_INACTIVE, ROUTES.DB_CLIENT_CLIENT_ONB_INACTIVE, 'Inactive clients'),
     },
   ]
 
@@ -206,23 +206,23 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
           {
             key: ROUTES.CLIENT_PAYMENT_PENDING_DETAILS,
             icon: <FileTextOutlined />,
-            label: prefetchedLabel(ROUTES.CLIENT_PAYMENT_PENDING_DETAILS, ROUTES.CLIENT_PAYMENT_PENDING_DETAILS, 'Pend.'),
+            label: prefetchedLabel(ROUTES.CLIENT_PAYMENT_PENDING_DETAILS, ROUTES.CLIENT_PAYMENT_PENDING_DETAILS, 'PENDING PAYMENT DETAILS'),
           },
         ]
       : []),
     ...(canViewClientPaymentSection
       ? [
-          { key: ROUTES.CLIENT_PAYMENT, icon: <FileTextOutlined />, label: prefetchedLabel(ROUTES.CLIENT_PAYMENT, ROUTES.CLIENT_PAYMENT, 'Pay.') },
-          { key: ROUTES.CLIENT_PAYMENT_PAYMENT_AGEING, icon: <FileTextOutlined />, label: prefetchedLabel(ROUTES.CLIENT_PAYMENT_PAYMENT_AGEING, ROUTES.CLIENT_PAYMENT_PAYMENT_AGEING, 'Ageing') },
-          { key: ROUTES.CLIENT_PAYMENT_COMP_REGISTER, icon: <FileTextOutlined />, label: prefetchedLabel(ROUTES.CLIENT_PAYMENT_COMP_REGISTER, ROUTES.CLIENT_PAYMENT_COMP_REGISTER, 'Comp.') },
+          { key: ROUTES.CLIENT_PAYMENT, icon: <FileTextOutlined />, label: prefetchedLabel(ROUTES.CLIENT_PAYMENT, ROUTES.CLIENT_PAYMENT, 'Payment Management') },
+          { key: ROUTES.CLIENT_PAYMENT_PAYMENT_AGEING, icon: <FileTextOutlined />, label: prefetchedLabel(ROUTES.CLIENT_PAYMENT_PAYMENT_AGEING, ROUTES.CLIENT_PAYMENT_PAYMENT_AGEING, 'Payment Ageing Report') },
+          { key: ROUTES.CLIENT_PAYMENT_COMP_REGISTER, icon: <FileTextOutlined />, label: prefetchedLabel(ROUTES.CLIENT_PAYMENT_COMP_REGISTER, ROUTES.CLIENT_PAYMENT_COMP_REGISTER, 'Comp _ Register') },
         ]
       : []),
   ]
 
   const leadItems: MenuProps['items'] = [
     { key: ROUTES.LEADS, icon: <UserAddOutlined />, label: prefetchedLabel(ROUTES.LEADS, ROUTES.LEADS, 'Lead') },
-    { key: ROUTES.LEADS_CLOSED, icon: <UserAddOutlined />, label: prefetchedLabel(ROUTES.LEADS_CLOSED, ROUTES.LEADS_CLOSED, 'Closed') },
-    { key: ROUTES.LEADS_IMPORT, icon: <FileTextOutlined />, label: prefetchedLabel(ROUTES.LEADS_IMPORT, ROUTES.LEADS_IMPORT, 'Import') },
+    { key: ROUTES.LEADS_CLOSED, icon: <UserAddOutlined />, label: prefetchedLabel(ROUTES.LEADS_CLOSED, ROUTES.LEADS_CLOSED, 'Closed Leads') },
+    { key: ROUTES.LEADS_IMPORT, icon: <FileTextOutlined />, label: prefetchedLabel(ROUTES.LEADS_IMPORT, ROUTES.LEADS_IMPORT, 'Import from sheet (Generate SQL)') },
   ]
 
   const showDashboard = canViewSectionByKey('dashboard')
@@ -257,35 +257,35 @@ export const Sidebar = ({ className, open, onClose, onOpenSupportForm }: Sidebar
     {
       key: 'client-to-lead',
       icon: <TeamOutlined />,
-      label: 'Lead',
+      label: 'Client to Lead',
       compactKey: clientToLeadDefaultKey,
       show: showClientToLead && Boolean(clientToLeadDefaultKey),
     },
     {
       key: 'onboarding',
       icon: <AuditOutlined />,
-      label: 'Onb.',
+      label: 'Onboarding',
       compactKey: onboardingDefaultKey,
       show: showOnboarding && Boolean(onboardingDefaultKey),
     },
     {
       key: 'training',
       icon: <ReadOutlined />,
-      label: 'Train.',
+      label: 'Training',
       compactKey: trainingDefaultKey,
       show: showTraining && Boolean(trainingDefaultKey),
     },
     {
       key: 'client-payment',
       icon: <FileTextOutlined />,
-      label: 'Pay.',
+      label: 'Client Payment',
       compactKey: clientPaymentDefaultKey,
       show: showClientPayment && Boolean(clientPaymentDefaultKey),
     },
     {
       key: 'db-client',
       icon: <ReadOutlined />,
-      label: 'DB',
+      label: 'DB Client',
       compactKey: dbClientDefaultKey,
       show: showDbClient && Boolean(dbClientDefaultKey),
     },

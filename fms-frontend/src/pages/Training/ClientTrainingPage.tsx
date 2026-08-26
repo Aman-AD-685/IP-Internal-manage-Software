@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { Typography, Card, Table, message, Button, Modal, Form, Select, Space, Drawer, Descriptions, Input } from 'antd'
-import { SearchOutlined } from '@ant-design/icons'
+import { Typography, Card, Table, message, Button, Modal, Form, Select, Space, Drawer, Descriptions } from 'antd'
 import { CheckCircleOutlined, FormOutlined, EditOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import {
@@ -18,6 +17,13 @@ import { useSearchParams } from 'react-router-dom'
 const { Title } = Typography
 
 const YES_NO_NA = [{ value: 'Yes' }, { value: 'No' }, { value: 'NA' }]
+
+function buildColumnFilters(values: Array<string | null | undefined>) {
+  const uniq = Array.from(
+    new Set(values.map((v) => (v == null || String(v).trim() === '' ? '—' : String(v).trim())).filter(Boolean)),
+  )
+  return uniq.sort((a, b) => a.localeCompare(b)).map((v) => ({ text: v, value: v }))
+}
 
 const DAY0_FIELDS: { key: string; label: string }[] = [
   { key: 'confirm_share_live_credentials', label: 'Confirm to share live ID, Password.' },
@@ -69,18 +75,12 @@ export function ClientTrainingPage() {
   const [stageForm] = Form.useForm()
   const [stageLoading, setStageLoading] = useState(false)
   const [day0Users, setDay0Users] = useState<TrainingUser[]>([])
-  const [searchText, setSearchText] = useState('')
-  const [filterRef, setFilterRef] = useState<string | undefined>(undefined)
-  const [filterCompany, setFilterCompany] = useState<string | undefined>(undefined)
-  const [filterOnbRef, setFilterOnbRef] = useState<string | undefined>(undefined)
-  const [filterPoc, setFilterPoc] = useState<string | undefined>(undefined)
-  const [filterTrainer, setFilterTrainer] = useState<string | undefined>(undefined)
   const openedDeepLinkRef = useRef('')
 
   const refreshClients = (paymentStatusId?: string) => {
     setLoading(true)
     return trainingApi
-      .listClients()
+      .listClients({ bustCache: true })
       .then((r) => {
         const nextItems = r.items || []
         setItems(nextItems)
@@ -113,7 +113,7 @@ export function ClientTrainingPage() {
   useEffect(() => {
     setLoading(true)
     trainingApi
-      .listClients()
+      .listClients({ bustCache: true })
       .then((r) => setItems(r.items || []))
       .catch(() => {
         setItems([])
@@ -282,7 +282,7 @@ export function ClientTrainingPage() {
         setStageModalKey(null)
         trainingApi.getTrainingStatus(selectedClient.payment_status_id).then(setTrainingStatus)
         setLoading(true)
-        trainingApi.listClients().then((r) => setItems(r.items || [])).finally(() => setLoading(false))
+        trainingApi.listClients({ bustCache: true }).then((r) => setItems(r.items || [])).finally(() => setLoading(false))
       })
       .catch((err) => message.error(err?.response?.data?.detail || 'Could not save.'))
       .finally(() => setStageLoading(false))
@@ -303,7 +303,7 @@ export function ClientTrainingPage() {
             setStageModalKey(null)
             trainingApi.getTrainingStatus(selectedClient.payment_status_id).then(setTrainingStatus)
             setLoading(true)
-            trainingApi.listClients().then((r) => setItems(r.items || [])).finally(() => setLoading(false))
+            trainingApi.listClients({ bustCache: true }).then((r) => setItems(r.items || [])).finally(() => setLoading(false))
           })
           .catch((err) => message.error(err?.response?.data?.detail || 'Could not save.'))
           .finally(() => setStageLoading(false))
@@ -311,77 +311,107 @@ export function ClientTrainingPage() {
       .catch(() => {})
   }
 
-  const columns = [
-    { title: 'Reference No', dataIndex: 'client_reference_no', key: 'client_reference_no', width: 100, fixed: 'left' as const },
-    { title: 'Company Name', dataIndex: 'company_name', key: 'company_name', width: 140, fixed: 'left' as const, render: (v: string) => v || '—' },
-    { title: 'Point of Contact', dataIndex: 'poc_name', key: 'poc_name', width: 120, render: (v: string) => v || '—' },
-    { title: 'Onb Ref', dataIndex: 'onboarding_reference_no', key: 'onb_ref', width: 100, render: (v: string) => v || '—' },
-    { title: 'Expected Day 0', dataIndex: 'expected_day0', key: 'expected_day0', width: 140, render: (v: string) => (v ? dayjs(v).format('DD-MMM-YYYY HH:mm') : '—') },
-    { title: 'Trainer', dataIndex: 'trainer_name', key: 'trainer_name', width: 100, render: (v: string) => v || '—' },
-    { title: "Day '0' Checklist", key: 'day0_checklist', width: 110, render: (_: unknown, r: TrainingClientRecord) => r.day0_skipped ? 'Skip' : r.day0_submitted_at ? 'Done' : '—' },
-    { title: "Status Day '0'", key: 'status_day0', width: 120, render: (_: unknown, r: TrainingClientRecord) => r.day0_skipped ? 'Skip' : (r.day0_status === 'pending' ? 'Pending' : r.day0_status === 'delayed' ? `Done, ${r.day0_delay_text || ''}` : r.day0_completed_in_text ? `Done in ${r.day0_completed_in_text}` : 'Done') },
-    { title: "Day '0' Completed", key: 'day0_completed', width: 120, render: (_: unknown, r: TrainingClientRecord) => r.day0_skipped ? 'Skip' : (r.day0_submitted_at ? dayjs(r.day0_submitted_at).format('DD-MMM-YYYY HH:mm') : '—') },
-    { title: "Day '0' delay", key: 'day0_delay', width: 100, render: (_: unknown, r: TrainingClientRecord) => r.day0_skipped ? 'Skip' : (r.day0_status === 'delayed' ? (r.day0_delay_text || '—') : '—') },
-    { title: "DAY 1(-2 hour) Checklist", key: 'day1_minus2', width: 150, render: (_: unknown, r: TrainingClientRecord) => r.day1_minus2_skipped ? 'Skip' : r.day1_minus2_submitted_at ? 'Done' : '—' },
-    { title: "Day '1' Planed", key: 'day1_planed', width: 120, render: (_: unknown, r: TrainingClientRecord) => r.day1_skipped ? 'Skip' : (r.day1_planed_iso || r.day0_submitted_at ? dayjs(r.day1_planed_iso || r.day0_submitted_at).format('DD-MMM-YYYY HH:mm') : '—') },
-    { title: "Day '1' Completed", key: 'day1_completed', width: 120, render: (_: unknown, r: TrainingClientRecord) => r.day1_skipped ? 'Skip' : (r.day1_submitted_at ? dayjs(r.day1_submitted_at).format('DD-MMM-YYYY HH:mm') : '—') },
-    { title: "Status Day '1'", key: 'status_day1', width: 100, render: (_: unknown, r: TrainingClientRecord) => r.day1_skipped ? 'Skip' : r.day1_submitted_at ? 'Done' : 'Pending' },
-    { title: "Day '1' delay", key: 'day1_delay', width: 100, render: (_: unknown, r: TrainingClientRecord) => r.day1_skipped ? 'Skip' : (r.day1_delay_text || '—') },
-    { title: "Day '1' Checklist", key: 'day1_checklist', width: 110, render: (_: unknown, r: TrainingClientRecord) => r.day1_skipped ? 'Skip' : r.day1_submitted_at ? 'Done' : '—' },
-    { title: "DAY 1 (+1day) Checklist", key: 'day1_plus1', width: 150, render: (_: unknown, r: TrainingClientRecord) => r.day1_plus1_skipped ? 'Skip' : r.day1_plus1_submitted_at ? 'Done' : '—' },
-    { title: "Day '2' Planed", key: 'day2_planed', width: 120, render: (_: unknown, r: TrainingClientRecord) => r.day2_skipped ? 'Skip' : (r.day2_planed_iso ? dayjs(r.day2_planed_iso).format('DD-MMM-YYYY HH:mm') : '—') },
-    { title: "Day '2' Completed", key: 'day2_completed', width: 120, render: (_: unknown, r: TrainingClientRecord) => r.day2_skipped ? 'Skip' : (r.day2_submitted_at ? dayjs(r.day2_submitted_at).format('DD-MMM-YYYY HH:mm') : '—') },
-    { title: "Status Day '2'", key: 'status_day2', width: 100, render: (_: unknown, r: TrainingClientRecord) => r.day2_skipped ? 'Skip' : r.day2_submitted_at ? 'Done' : 'Pending' },
-    { title: "Day '2' delay", key: 'day2_delay', width: 100, render: (_: unknown, r: TrainingClientRecord) => r.day2_skipped ? 'Skip' : (r.day2_delay_text || '—') },
-    { title: "Day '2' Checklist", key: 'day2_checklist', width: 110, render: (_: unknown, r: TrainingClientRecord) => r.day2_skipped ? 'Skip' : r.day2_submitted_at ? 'Done' : '—' },
-    { title: "Day '3' Planed", key: 'day3_planed', width: 120, render: (_: unknown, r: TrainingClientRecord) => r.day3_skipped ? 'Skip' : (r.day3_planed_iso ? dayjs(r.day3_planed_iso).format('DD-MMM-YYYY HH:mm') : '—') },
-    { title: "Day '3' Completed", key: 'day3_completed', width: 120, render: (_: unknown, r: TrainingClientRecord) => r.day3_skipped ? 'Skip' : (r.day3_submitted_at ? dayjs(r.day3_submitted_at).format('DD-MMM-YYYY') : '—') },
-    { title: "Status Day '3'", key: 'status_day3', width: 100, render: (_: unknown, r: TrainingClientRecord) => r.day3_skipped ? 'Skip' : r.day3_submitted_at ? 'Done' : 'Pending' },
-    { title: "Day '3' delay", key: 'day3_delay', width: 90, render: (_: unknown, r: TrainingClientRecord) => r.day3_skipped ? 'Skip' : '—' },
-    { title: "Day '3' Checklist", key: 'day3_checklist', width: 110, render: (_: unknown, r: TrainingClientRecord) => r.day3_skipped ? 'Skip' : r.day3_submitted_at ? 'Done' : '—' },
-    { title: "Training Completion Day '1'", key: 'completion_day1', width: 150, render: () => '—' },
-    { title: "Training Completion Day '2'", key: 'completion_day2', width: 150, render: () => '—' },
-    { title: "Training Completion Day '3'", key: 'completion_day3', width: 150, render: () => '—' },
-    { title: "Task Update Status (After 7 Days)", key: 'task_7days_1', width: 180, render: () => '—' },
-    { title: "Task Update Status (After 7 Days)", key: 'task_7days_2', width: 180, render: () => '—' },
-    { title: "Task Update Status (After 7 Days)", key: 'task_7days_3', width: 180, render: () => '—' },
-    { title: 'Training Feedback', key: 'feedback', width: 120, render: (_: unknown, r: TrainingClientRecord) => r.feedback_skipped ? 'Skip' : r.feedback_submitted_at ? 'Done' : '—' },
-  ]
-
-  const displayItems = useMemo(() => {
-    return items.filter((r) => {
-      if (searchText.trim()) {
-        const q = searchText.trim().toLowerCase()
-        const ref = (r.client_reference_no || '').toLowerCase()
-        const company = (r.company_name || '').toLowerCase()
-        const onb = (r.onboarding_reference_no || '').toLowerCase()
-        const poc = (r.poc_name || '').toLowerCase()
-        const trainer = (r.trainer_name || '').toLowerCase()
-        if (!ref.includes(q) && !company.includes(q) && !onb.includes(q) && !poc.includes(q) && !trainer.includes(q)) return false
-      }
-      if (filterRef && (r.client_reference_no || '').toLowerCase() !== filterRef.toLowerCase()) return false
-      if (filterCompany && (r.company_name || '').toLowerCase() !== filterCompany.toLowerCase()) return false
-      if (filterOnbRef && (r.onboarding_reference_no || '').toLowerCase() !== filterOnbRef.toLowerCase()) return false
-      if (filterPoc && (r.poc_name || '').toLowerCase() !== filterPoc.toLowerCase()) return false
-      if (filterTrainer && (r.trainer_name || '').toLowerCase() !== filterTrainer.toLowerCase()) return false
-      return true
-    })
-  }, [items, searchText, filterRef, filterCompany, filterOnbRef, filterPoc, filterTrainer])
-
-  const refOptions = useMemo(() => [...new Set(items.map((r) => r.client_reference_no).filter(Boolean))].sort().map((v) => ({ value: v!, label: v! })), [items])
-  const companyOptions = useMemo(() => [...new Set(items.map((r) => r.company_name).filter(Boolean))].sort().map((v) => ({ value: v!, label: v! })), [items])
-  const onbRefOptions = useMemo(() => [...new Set(items.map((r) => r.onboarding_reference_no).filter(Boolean))].sort().map((v) => ({ value: v!, label: v! })), [items])
-  const pocOptions = useMemo(() => [...new Set(items.map((r) => r.poc_name).filter(Boolean))].sort().map((v) => ({ value: v!, label: v! })), [items])
-  const trainerOptions = useMemo(() => [...new Set(items.map((r) => r.trainer_name).filter(Boolean))].sort().map((v) => ({ value: v!, label: v! })), [items])
-
-  const clearFilters = () => {
-    setSearchText('')
-    setFilterRef(undefined)
-    setFilterCompany(undefined)
-    setFilterOnbRef(undefined)
-    setFilterPoc(undefined)
-    setFilterTrainer(undefined)
-  }
+  const columns = useMemo(
+    () => [
+      {
+        title: 'Reference No',
+        dataIndex: 'client_reference_no',
+        key: 'client_reference_no',
+        width: 100,
+        fixed: 'left' as const,
+        filters: buildColumnFilters(items.map((r) => r.client_reference_no)),
+        filterSearch: true,
+        filterMultiple: true,
+        onFilter: (value: string | number | boolean, record: TrainingClientRecord) =>
+          (record.client_reference_no || '—') === String(value),
+      },
+      {
+        title: 'Company Name',
+        dataIndex: 'company_name',
+        key: 'company_name',
+        width: 140,
+        fixed: 'left' as const,
+        render: (v: string) => v || '—',
+        filters: buildColumnFilters(items.map((r) => r.company_name)),
+        filterSearch: true,
+        filterMultiple: true,
+        onFilter: (value: string | number | boolean, record: TrainingClientRecord) =>
+          (record.company_name || '—') === String(value),
+      },
+      {
+        title: 'Point of Contact',
+        dataIndex: 'poc_name',
+        key: 'poc_name',
+        width: 120,
+        render: (v: string) => v || '—',
+        filters: buildColumnFilters(items.map((r) => r.poc_name)),
+        filterSearch: true,
+        filterMultiple: true,
+        onFilter: (value: string | number | boolean, record: TrainingClientRecord) =>
+          (record.poc_name || '—') === String(value),
+      },
+      {
+        title: 'Onb Ref',
+        dataIndex: 'onboarding_reference_no',
+        key: 'onb_ref',
+        width: 100,
+        render: (v: string) => v || '—',
+        filters: buildColumnFilters(items.map((r) => r.onboarding_reference_no)),
+        filterSearch: true,
+        filterMultiple: true,
+        onFilter: (value: string | number | boolean, record: TrainingClientRecord) =>
+          (record.onboarding_reference_no || '—') === String(value),
+      },
+      {
+        title: 'Expected Day 0',
+        dataIndex: 'expected_day0',
+        key: 'expected_day0',
+        width: 140,
+        render: (v: string) => (v ? dayjs(v).format('DD-MMM-YYYY HH:mm') : '—'),
+      },
+      {
+        title: 'Trainer',
+        dataIndex: 'trainer_name',
+        key: 'trainer_name',
+        width: 100,
+        render: (v: string) => v || '—',
+        filters: buildColumnFilters(items.map((r) => r.trainer_name)),
+        filterSearch: true,
+        filterMultiple: true,
+        onFilter: (value: string | number | boolean, record: TrainingClientRecord) =>
+          (record.trainer_name || '—') === String(value),
+      },
+      { title: "Day '0' Checklist", key: 'day0_checklist', width: 110, render: (_: unknown, r: TrainingClientRecord) => r.day0_skipped ? 'Skip' : r.day0_submitted_at ? 'Done' : '—' },
+      { title: "Status Day '0'", key: 'status_day0', width: 120, render: (_: unknown, r: TrainingClientRecord) => r.day0_skipped ? 'Skip' : (r.day0_status === 'pending' ? 'Pending' : r.day0_status === 'delayed' ? `Done, ${r.day0_delay_text || ''}` : r.day0_completed_in_text ? `Done in ${r.day0_completed_in_text}` : 'Done') },
+      { title: "Day '0' Completed", key: 'day0_completed', width: 120, render: (_: unknown, r: TrainingClientRecord) => r.day0_skipped ? 'Skip' : (r.day0_submitted_at ? dayjs(r.day0_submitted_at).format('DD-MMM-YYYY HH:mm') : '—') },
+      { title: "Day '0' delay", key: 'day0_delay', width: 100, render: (_: unknown, r: TrainingClientRecord) => r.day0_skipped ? 'Skip' : (r.day0_status === 'delayed' ? (r.day0_delay_text || '—') : '—') },
+      { title: "DAY 1(-2 hour) Checklist", key: 'day1_minus2', width: 150, render: (_: unknown, r: TrainingClientRecord) => r.day1_minus2_skipped ? 'Skip' : r.day1_minus2_submitted_at ? 'Done' : '—' },
+      { title: "Day '1' Planed", key: 'day1_planed', width: 120, render: (_: unknown, r: TrainingClientRecord) => r.day1_skipped ? 'Skip' : (r.day1_planed_iso || r.day0_submitted_at ? dayjs(r.day1_planed_iso || r.day0_submitted_at).format('DD-MMM-YYYY HH:mm') : '—') },
+      { title: "Day '1' Completed", key: 'day1_completed', width: 120, render: (_: unknown, r: TrainingClientRecord) => r.day1_skipped ? 'Skip' : (r.day1_submitted_at ? dayjs(r.day1_submitted_at).format('DD-MMM-YYYY HH:mm') : '—') },
+      { title: "Status Day '1'", key: 'status_day1', width: 100, render: (_: unknown, r: TrainingClientRecord) => r.day1_skipped ? 'Skip' : r.day1_submitted_at ? 'Done' : 'Pending' },
+      { title: "Day '1' delay", key: 'day1_delay', width: 100, render: (_: unknown, r: TrainingClientRecord) => r.day1_skipped ? 'Skip' : (r.day1_delay_text || '—') },
+      { title: "Day '1' Checklist", key: 'day1_checklist', width: 110, render: (_: unknown, r: TrainingClientRecord) => r.day1_skipped ? 'Skip' : r.day1_submitted_at ? 'Done' : '—' },
+      { title: "DAY 1 (+1day) Checklist", key: 'day1_plus1', width: 150, render: (_: unknown, r: TrainingClientRecord) => r.day1_plus1_skipped ? 'Skip' : r.day1_plus1_submitted_at ? 'Done' : '—' },
+      { title: "Day '2' Planed", key: 'day2_planed', width: 120, render: (_: unknown, r: TrainingClientRecord) => r.day2_skipped ? 'Skip' : (r.day2_planed_iso ? dayjs(r.day2_planed_iso).format('DD-MMM-YYYY HH:mm') : '—') },
+      { title: "Day '2' Completed", key: 'day2_completed', width: 120, render: (_: unknown, r: TrainingClientRecord) => r.day2_skipped ? 'Skip' : (r.day2_submitted_at ? dayjs(r.day2_submitted_at).format('DD-MMM-YYYY HH:mm') : '—') },
+      { title: "Status Day '2'", key: 'status_day2', width: 100, render: (_: unknown, r: TrainingClientRecord) => r.day2_skipped ? 'Skip' : r.day2_submitted_at ? 'Done' : 'Pending' },
+      { title: "Day '2' delay", key: 'day2_delay', width: 100, render: (_: unknown, r: TrainingClientRecord) => r.day2_skipped ? 'Skip' : (r.day2_delay_text || '—') },
+      { title: "Day '2' Checklist", key: 'day2_checklist', width: 110, render: (_: unknown, r: TrainingClientRecord) => r.day2_skipped ? 'Skip' : r.day2_submitted_at ? 'Done' : '—' },
+      { title: "Day '3' Planed", key: 'day3_planed', width: 120, render: (_: unknown, r: TrainingClientRecord) => r.day3_skipped ? 'Skip' : (r.day3_planed_iso ? dayjs(r.day3_planed_iso).format('DD-MMM-YYYY HH:mm') : '—') },
+      { title: "Day '3' Completed", key: 'day3_completed', width: 120, render: (_: unknown, r: TrainingClientRecord) => r.day3_skipped ? 'Skip' : (r.day3_submitted_at ? dayjs(r.day3_submitted_at).format('DD-MMM-YYYY') : '—') },
+      { title: "Status Day '3'", key: 'status_day3', width: 100, render: (_: unknown, r: TrainingClientRecord) => r.day3_skipped ? 'Skip' : r.day3_submitted_at ? 'Done' : 'Pending' },
+      { title: "Day '3' delay", key: 'day3_delay', width: 90, render: (_: unknown, r: TrainingClientRecord) => r.day3_skipped ? 'Skip' : '—' },
+      { title: "Day '3' Checklist", key: 'day3_checklist', width: 110, render: (_: unknown, r: TrainingClientRecord) => r.day3_skipped ? 'Skip' : r.day3_submitted_at ? 'Done' : '—' },
+      { title: "Training Completion Day '1'", key: 'completion_day1', width: 150, render: () => '—' },
+      { title: "Training Completion Day '2'", key: 'completion_day2', width: 150, render: () => '—' },
+      { title: "Training Completion Day '3'", key: 'completion_day3', width: 150, render: () => '—' },
+      { title: "Task Update Status (After 7 Days)", key: 'task_7days_1', width: 180, render: () => '—' },
+      { title: "Task Update Status (After 7 Days)", key: 'task_7days_2', width: 180, render: () => '—' },
+      { title: "Task Update Status (After 7 Days)", key: 'task_7days_3', width: 180, render: () => '—' },
+      { title: 'Training Feedback', key: 'feedback', width: 120, render: (_: unknown, r: TrainingClientRecord) => r.feedback_skipped ? 'Skip' : r.feedback_submitted_at ? 'Done' : '—' },
+    ],
+    [items],
+  )
 
   const {
     visibleItems: visibleDisplayItems,
@@ -390,78 +420,26 @@ export function ClientTrainingPage() {
     total: totalDisplayItems,
     visibleCount: visibleDisplayCount,
     hasMore: displayItemsHasMore,
-  } = useInfiniteScrollChunk({ items: displayItems, chunkSize: DEFAULT_INFINITE_CHUNK, loading })
+  } = useInfiniteScrollChunk({ items, chunkSize: DEFAULT_INFINITE_CHUNK, loading })
 
   return (
     <div>
-      <Space className="page-toolbar-row" style={{ marginBottom: 8 }} wrap={false} align="center">
+      <div
+        className="page-toolbar-row"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          marginBottom: 4,
+          width: '100%',
+        }}
+      >
         <Title level={4} className="page-main-heading" style={{ margin: 0, fontSize: 15 }}>
           Client Training
         </Title>
         <OperationsSectionTabs module="training" />
-      </Space>
-      <Card title="Clients">
-        <div style={{ marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-          <Input
-            placeholder="Search (Ref, Company, Onb Ref, POC, Trainer)"
-            prefix={<SearchOutlined />}
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            allowClear
-            style={{ width: 280 }}
-          />
-          <Select
-            placeholder="Filter by Reference No"
-            value={filterRef}
-            onChange={(v) => setFilterRef(v)}
-            style={{ width: 160 }}
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            options={refOptions}
-          />
-          <Select
-            placeholder="Filter by Company"
-            value={filterCompany}
-            onChange={(v) => setFilterCompany(v)}
-            style={{ width: 180 }}
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            options={companyOptions}
-          />
-          <Select
-            placeholder="Filter by Onb Ref"
-            value={filterOnbRef}
-            onChange={(v) => setFilterOnbRef(v)}
-            style={{ width: 140 }}
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            options={onbRefOptions}
-          />
-          <Select
-            placeholder="Filter by POC"
-            value={filterPoc}
-            onChange={(v) => setFilterPoc(v)}
-            style={{ width: 140 }}
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            options={pocOptions}
-          />
-          <Select
-            placeholder="Filter by Trainer"
-            value={filterTrainer}
-            onChange={(v) => setFilterTrainer(v)}
-            style={{ width: 140 }}
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            options={trainerOptions}
-          />
-          <Button onClick={clearFilters}>Clear filters</Button>
-        </div>
+      </div>
+      <Card bodyStyle={{ padding: '4px 8px' }}>
         <TableWithSkeletonLoading loading={loading} columns={12} rows={12}>
           <div ref={trainingTableContainerRef}>
             <Table

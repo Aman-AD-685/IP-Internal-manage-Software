@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Card, Typography, Button, Table, Space, Modal, Form, Input, Select, message, DatePicker } from 'antd'
+import type { FilterValue } from 'antd/es/table/interface'
 import type { Dayjs } from 'dayjs'
 import { PlusOutlined } from '@ant-design/icons'
 import { useNavigate, useSearchParams } from 'react-router-dom'
@@ -18,6 +19,13 @@ const wrapRender = (v: string | undefined) => (
   <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', display: 'block' }}>{v || '—'}</span>
 )
 
+const columnFilterPass = () => true
+function filterValues(tableFilters: Record<string, FilterValue | null> | undefined, key: string): string[] {
+  const raw = tableFilters?.[key]
+  if (raw == null) return []
+  return (Array.isArray(raw) ? raw : [raw]).map(String)
+}
+
 export const LeadListPage = () => {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -31,9 +39,9 @@ export const LeadListPage = () => {
   const [stages, setStages] = useState<string[]>([])
   const [users, setUsers] = useState<{ id: string; full_name: string }[]>([])
   const [form] = Form.useForm()
-  const [filterCompany, setFilterCompany] = useState<string | undefined>(undefined)
-  const [filterStage, setFilterStage] = useState<string | undefined>(undefined)
-  const [filterReferenceNo, setFilterReferenceNo] = useState<string | undefined>(undefined)
+  const [filterCompanies, setFilterCompanies] = useState<string[]>([])
+  const [filterStages, setFilterStages] = useState<string[]>([])
+  const [filterReferenceNos, setFilterReferenceNos] = useState<string[]>([])
   const [filterDateRange, setFilterDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
 
   const loadLeads = () => {
@@ -52,29 +60,43 @@ export const LeadListPage = () => {
     leadsApi.getUsers().then((res) => setUsers(res.users || []))
   }, [statusFilter])
 
-  const companyOptions = useMemo(() => {
+  const companyColumnFilters = useMemo(() => {
     const names = Array.from(new Set(leads.map((l) => l.company_name).filter(Boolean))) as string[]
-    return names.sort().map((c) => ({ label: c, value: c }))
+    return names.sort().map((c) => ({ text: c, value: c }))
   }, [leads])
 
-  const referenceOptions = useMemo(() => {
+  const referenceColumnFilters = useMemo(() => {
     const refs = Array.from(new Set(leads.map((l) => l.reference_no).filter(Boolean))) as string[]
     refs.sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
-    return refs.map((r) => ({ label: r, value: r }))
+    return refs.map((r) => ({ text: r, value: r }))
   }, [leads])
+
+  const stageOptions = stages.length > 0
+    ? stages.map((s) => ({ label: s, value: s }))
+    : [
+        'Lead', 'Contacted', 'Brochure', 'Demo Schedule', 'Demo Completed',
+        'Quotation', 'PO', 'Implementation Invoice', 'Account Setup', 'Item Setup',
+        'Training', 'First Invoice', 'First Invoice Payment',
+      ].map((s) => ({ label: s, value: s }))
+
+  const stageColumnFilters = useMemo(
+    () => stageOptions.map((o) => ({ text: o.label, value: o.value })),
+    [stageOptions],
+  )
 
   const filteredLeads = useMemo(() => {
     let result = leads
-    if (filterCompany && filterCompany.trim()) {
-      const search = filterCompany.trim().toLowerCase()
-      result = result.filter((l) => (l.company_name || '').toLowerCase().includes(search))
+    if (filterCompanies.length) {
+      const set = new Set(filterCompanies.map((c) => c.toLowerCase()))
+      result = result.filter((l) => set.has((l.company_name || '').toLowerCase()))
     }
-    if (filterStage && filterStage.trim()) {
-      result = result.filter((l) => (l.stage || '').trim() === filterStage.trim())
+    if (filterStages.length) {
+      const set = new Set(filterStages.map((s) => s.trim()))
+      result = result.filter((l) => set.has((l.stage || '').trim()))
     }
-    if (filterReferenceNo && filterReferenceNo.trim()) {
-      const search = filterReferenceNo.trim().toLowerCase()
-      result = result.filter((l) => (l.reference_no || '').toLowerCase().includes(search))
+    if (filterReferenceNos.length) {
+      const set = new Set(filterReferenceNos.map((r) => r.toLowerCase()))
+      result = result.filter((l) => set.has((l.reference_no || '').toLowerCase()))
     }
     if (filterDateRange?.[0] || filterDateRange?.[1]) {
       result = result.filter((l) => {
@@ -86,16 +108,20 @@ export const LeadListPage = () => {
       })
     }
     return result
-  }, [leads, filterCompany, filterStage, filterReferenceNo, filterDateRange])
+  }, [leads, filterCompanies, filterStages, filterReferenceNos, filterDateRange])
 
   const hasLeadFilters = Boolean(
-    filterCompany || filterStage || filterReferenceNo || filterDateRange?.[0] || filterDateRange?.[1],
+    filterCompanies.length ||
+      filterStages.length ||
+      filterReferenceNos.length ||
+      filterDateRange?.[0] ||
+      filterDateRange?.[1],
   )
 
   const clearLeadFilters = () => {
-    setFilterCompany(undefined)
-    setFilterStage(undefined)
-    setFilterReferenceNo(undefined)
+    setFilterCompanies([])
+    setFilterStages([])
+    setFilterReferenceNos([])
     setFilterDateRange(null)
   }
 
@@ -151,21 +177,79 @@ export const LeadListPage = () => {
     })
   }
 
-  const stageOptions = stages.length > 0
-    ? stages.map((s) => ({ label: s, value: s }))
-    : [
-        'Lead', 'Contacted', 'Brochure', 'Demo Schedule', 'Demo Completed',
-        'Quotation', 'PO', 'Implementation Invoice', 'Account Setup', 'Item Setup',
-        'Training', 'First Invoice', 'First Invoice Payment',
-      ].map((s) => ({ label: s, value: s }))
+  const columns = useMemo(
+    () => [
+      {
+        title: 'Reference No',
+        dataIndex: 'reference_no',
+        key: 'reference_no',
+        width: 120,
+        ellipsis: false,
+        filters: referenceColumnFilters,
+        filterSearch: true,
+        filterMultiple: true,
+        filteredValue: filterReferenceNos.length ? filterReferenceNos : null,
+        onFilter: columnFilterPass,
+        render: (v: string) => wrapRender(v),
+      },
+      {
+        title: 'Company',
+        dataIndex: 'company_name',
+        key: 'company_name',
+        width: 180,
+        ellipsis: false,
+        filters: companyColumnFilters,
+        filterSearch: true,
+        filterMultiple: true,
+        filteredValue: filterCompanies.length ? filterCompanies : null,
+        onFilter: columnFilterPass,
+        render: (v: string) => wrapRender(v),
+      },
+      {
+        title: 'Stage',
+        dataIndex: 'stage',
+        key: 'stage',
+        width: 140,
+        ellipsis: false,
+        filters: stageColumnFilters,
+        filterSearch: true,
+        filterMultiple: true,
+        filteredValue: filterStages.length ? filterStages : null,
+        onFilter: columnFilterPass,
+        render: (v: string) => wrapRender(v),
+      },
+      {
+        title: 'Assigned POC',
+        dataIndex: 'assigned_poc_name',
+        key: 'assigned_poc',
+        width: 140,
+        ellipsis: false,
+        render: (v: string) => wrapRender(v),
+      },
+    ],
+    [
+      referenceColumnFilters,
+      filterReferenceNos,
+      companyColumnFilters,
+      filterCompanies,
+      stageColumnFilters,
+      filterStages,
+    ],
+  )
 
   return (
     <div>
-      <Space
+      <div
         className="page-toolbar-row"
-        style={{ marginBottom: 8, width: '100%', justifyContent: 'space-between' }}
-        wrap={false}
-        align="center"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'nowrap',
+          gap: 6,
+          marginBottom: 4,
+          width: '100%',
+        }}
       >
         <Space wrap={false} align="center" size={6}>
           <Title level={4} className="page-main-heading" style={{ margin: 0, fontSize: 15 }}>
@@ -173,114 +257,56 @@ export const LeadListPage = () => {
           </Title>
           <OperationsSectionTabs module="client-to-lead" />
         </Space>
-        {!isClosedLeads && (
-          <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => setAddModalOpen(true)}>
-            Add Lead
-          </Button>
-        )}
-      </Space>
-
-      <Card>
-        <Space wrap size="middle" style={{ marginBottom: 16 }}>
-          <Select
-            placeholder="Company"
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            options={companyOptions}
-            value={filterCompany}
-            onChange={setFilterCompany}
-            style={{ minWidth: 180 }}
-          />
-          <Select
-            placeholder="Stage"
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            options={stageOptions}
-            value={filterStage}
-            onChange={setFilterStage}
-            style={{ minWidth: 180 }}
-          />
-          <Select
-            placeholder="Reference No"
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            options={referenceOptions}
-            value={filterReferenceNo}
-            onChange={setFilterReferenceNo}
-            style={{ minWidth: 140 }}
-          />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 'auto' }}>
           <RangePicker
+            size="small"
+            placeholder={['From', 'To']}
+            style={{ width: 190 }}
+            allowEmpty={[true, true]}
             value={filterDateRange}
             onChange={(dates) => setFilterDateRange(dates as [Dayjs | null, Dayjs | null] | null)}
             allowClear
           />
-          <Button onClick={clearLeadFilters}>
-            Clear filters
-          </Button>
-        </Space>
+          {!isClosedLeads && (
+            <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => setAddModalOpen(true)}>
+              Add Lead
+            </Button>
+          )}
+        </div>
+      </div>
 
+      <Card bodyStyle={{ padding: '4px 8px' }}>
         <TableWithSkeletonLoading loading={loading} columns={5} rows={12}>
           <div ref={leadTableContainerRef}>
             <Table
-            loading={false}
-            locale={{ emptyText: leadEmptyContent }}
-            dataSource={visibleLeads}
-            rowKey="id"
-            onRow={(record) => ({
-              onClick: () => navigate(ROUTES.LEAD_DETAIL.replace(':id', record.reference_no)),
-              style: { cursor: 'pointer' },
-            })}
-            columns={[
-              {
-                title: 'Reference No',
-                dataIndex: 'reference_no',
-                key: 'reference_no',
-                width: 120,
-                ellipsis: false,
-                render: (v: string) => wrapRender(v),
-              },
-              {
-                title: 'Company',
-                dataIndex: 'company_name',
-                key: 'company_name',
-                width: 180,
-                ellipsis: false,
-                render: (v: string) => wrapRender(v),
-              },
-              {
-                title: 'Stage',
-                dataIndex: 'stage',
-                key: 'stage',
-                width: 140,
-                ellipsis: false,
-                render: (v: string) => wrapRender(v),
-              },
-              {
-                title: 'Assigned POC',
-                dataIndex: 'assigned_poc_name',
-                key: 'assigned_poc',
-                width: 140,
-                ellipsis: false,
-                render: (v: string) => wrapRender(v),
-              },
-            ]}
-            pagination={false}
-            summary={() => (
-              <Table.Summary>
-                <Table.Summary.Row>
-                  <Table.Summary.Cell index={0} colSpan={5}>
-                    <div ref={leadTableSentinelRef} style={{ height: 8, minHeight: 8 }} aria-hidden />
-                    <Text type="secondary">
-                      Showing {visibleLeadCount} of {totalLeads} leads{leadHasMore ? ' · scroll to load more' : ''}
-                    </Text>
-                  </Table.Summary.Cell>
-                </Table.Summary.Row>
-              </Table.Summary>
-            )}
-            size="small"
+              loading={false}
+              locale={{ emptyText: leadEmptyContent }}
+              dataSource={visibleLeads}
+              rowKey="id"
+              onRow={(record) => ({
+                onClick: () => navigate(ROUTES.LEAD_DETAIL.replace(':id', record.reference_no)),
+                style: { cursor: 'pointer' },
+              })}
+              columns={columns}
+              onChange={(_, tableFilters) => {
+                setFilterReferenceNos(filterValues(tableFilters, 'reference_no'))
+                setFilterCompanies(filterValues(tableFilters, 'company_name'))
+                setFilterStages(filterValues(tableFilters, 'stage'))
+              }}
+              pagination={false}
+              summary={() => (
+                <Table.Summary>
+                  <Table.Summary.Row>
+                    <Table.Summary.Cell index={0} colSpan={columns.length}>
+                      <div ref={leadTableSentinelRef} style={{ height: 8, minHeight: 8 }} aria-hidden />
+                      <Text type="secondary">
+                        Showing {visibleLeadCount} of {totalLeads} leads{leadHasMore ? ' · scroll to load more' : ''}
+                      </Text>
+                    </Table.Summary.Cell>
+                  </Table.Summary.Row>
+                </Table.Summary>
+              )}
+              size="small"
             />
           </div>
         </TableWithSkeletonLoading>

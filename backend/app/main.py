@@ -8896,18 +8896,21 @@ class OnboardingPaymentStatusCreate(BaseModel):
     accounts_remarks: str | None = None
 
 
-def _generate_payment_reference(company_name: str) -> str:
-    """Reference: first 4 alpha chars of company name (uppercase) + -0001/0002..."""
-    prefix = "".join(c for c in (company_name or "").upper() if c.isalpha())[:4] or "XXXX"
+def _generate_payment_reference(company_name: str = "") -> str:
+    """Global sequential ONB-0001, ONB-0002, … (last numeric suffix across all refs + 1)."""
+    _ = company_name  # legacy arg; refs are no longer per-company
+    prefix = "ONB"
     try:
         r = supabase.table("onboarding_payment_status").select("reference_no").execute()
-        nums = []
-        for row in (r.data or []):
-            ref = (row or {}).get("reference_no", "")
-            if ref.startswith(prefix + "-") and len(ref) > len(prefix) + 1:
-                suffix = ref[len(prefix) + 1:]
-                if suffix.isdigit():
-                    nums.append(int(suffix))
+        nums: list[int] = []
+        for row in r.data or []:
+            ref = str((row or {}).get("reference_no") or "").strip()
+            if not ref:
+                continue
+            # ONB-0002 or legacy HIND-0001 → take digits after last hyphen
+            suffix = ref.rsplit("-", 1)[-1]
+            if suffix.isdigit():
+                nums.append(int(suffix))
         next_num = max(nums, default=0) + 1
         return f"{prefix}-{next_num:04d}"
     except Exception as e:
@@ -8957,6 +8960,7 @@ def _get_onboarding_stage_status(payment_status_ids: list) -> dict:
 def list_onboarding_payment_status(
     page: int = 1,
     page_size: int = Query(50, le=200),
+    _cb: int | None = Query(None, description="Cache-bust token from client; changes cache key"),
     auth: dict = Depends(get_current_user),
 ):
     """List all onboarding payment status records, newest first. Each item includes 'status' = last completed stage and 'fi_do' = Done if Final step submitted else Not Done."""
@@ -8977,7 +8981,7 @@ def list_onboarding_payment_status(
         rows = r.data or []
         ids = [row.get("id") for row in rows if row.get("id")]
         status_map = _get_onboarding_stage_status(ids)
-        # Fi-DO: Done if Final step (Final Setup) data submitted, else Not Done
+        # Fi-DO: Done if Final Setup submitted (Status becomes "Final Setup" via stage map)
         final_setup_ids = set()
         try:
             fs = supabase.table("onboarding_final_setup").select("payment_status_id").execute()
@@ -8988,8 +8992,9 @@ def list_onboarding_payment_status(
         except Exception:
             pass
         for row in rows:
-            row["status"] = status_map.get(row.get("id")) or "—"
-            row["fi_do"] = "Done" if row.get("id") in final_setup_ids else "Not Done"
+            pid = row.get("id")
+            row["status"] = status_map.get(pid) or "—"
+            row["fi_do"] = "Done" if pid in final_setup_ids else "Not Done"
         return {"data": rows, "total": r.count or 0, "page": page, "page_size": page_size}
     except Exception as e:
         _log(f"onboarding payment status list: {e}")
@@ -9028,6 +9033,7 @@ def create_onboarding_payment_status(payload: OnboardingPaymentStatusCreate, aut
         r = supabase.table("onboarding_payment_status").insert(row).execute()
         created = (r.data or [{}])[0]
         created["timestamp"] = now
+        _invalidate_ttl_cache_key_prefix("onboarding:payment-status:")
         return created
     except HTTPException:
         raise
@@ -12680,6 +12686,7 @@ def _format_duration_short(seconds: float) -> str:
 def list_training_clients(
     page: int = 1,
     page_size: int = Query(50, le=200),
+    _cb: int | None = Query(None, description="Cache-bust token from client"),
     auth: dict = Depends(get_current_user),
 ):
     """List clients: only companies where Onboarding Final Setup has final_status = Done.
@@ -14176,9 +14183,11 @@ def save_final_setup(payment_status_id: str, payload: dict, auth: dict = Depends
             if not _is_within_48h_edit(row_data.get("submitted_at")):
                 raise HTTPException(403, "Final Setup is no longer editable (48h passed)")
             supabase.table("onboarding_final_setup").update({"data": out, "updated_at": now}).eq("payment_status_id", payment_status_id).execute()
+            _invalidate_ttl_cache_key_prefix("onboarding:payment-status:")
             return {"data": out, "submitted_at": row_data.get("submitted_at"), "editable_until": _get_editable_until(row_data.get("submitted_at")), "editable_48h": True}
         else:
             supabase.table("onboarding_final_setup").insert({"payment_status_id": payment_status_id, "data": out, "submitted_at": now, "updated_at": now}).execute()
+            _invalidate_ttl_cache_key_prefix("onboarding:payment-status:")
             return {"data": out, "submitted_at": now, "editable_until": _get_editable_until(now), "editable_48h": True}
     except HTTPException:
         raise
