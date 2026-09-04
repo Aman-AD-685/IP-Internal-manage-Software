@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run lint)",
+      "Bash(npm run test)",
+      "Bash(npm run format:check)",
+      "Bash(npm run build)",
+      "Bash(pytest *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
+    ],
+    "ask": [
+      "Bash(git push *)",
+      "Bash(npm install *)",
+      "Bash(pip install *)"
+    ],
+    "deny": [
+      "Read(./**/.env)",
+      "Read(./**/.env.production)",
+      "Read(./**/.env.share)",
+      "Read(./supabase_backup*)",
+      "Bash(git push --force *)"
+    ]
+  }
+}
