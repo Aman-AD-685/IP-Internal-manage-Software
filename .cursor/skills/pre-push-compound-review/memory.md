@@ -38,6 +38,7 @@ Do not remove entries; add dated bullets.
 - 2026-05-30: **Similar tickets production** — Vercel→Render→Supabase path needs `getSimilar` timeout ≥20s (1.2s silently failed); fix loading-state gen race on abort; backend title-only ILIKE first then description fallback; enrich company names only for top N matches.
 - 2026-07-17: **Repeat Feature cascade** — Feature `live_status`/`live_review_status=completed` closes linked Chore/Bug Stage 2–4, sets Form `quality_solution=Done`, resolves the ticket, invalidates caches, and broadcasts updates. Cross-type children must not receive the legacy same-field mirror; reference-filter context may add only the linked Feature parent.
 - 2026-07-18: **D2 status colours** — use `fms-frontend/src/utils/statusColors.ts` `getStatusTagColor` (same pattern as `ticketPriority.ts`); do not reintroduce local status→Tag colour maps in list/drawer/dashboard pages.
+- 2026-09-07: **Production Sign Up** — keep login Sign Up visible; `VITE_ALLOW_PUBLIC_REGISTER=1` in `.env.production`; backend `ALLOW_PUBLIC_REGISTER` on unless explicitly `0`. Do not commit local `backend/Dockerfile` port 8020. Signup confirmation mail: Postmark + `generate_link` (same as password reset), not GoTrue built-in `resend`.
 
 ## Pre-push scorecard (target 100/100 — block push if failed)
 

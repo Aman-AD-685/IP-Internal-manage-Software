@@ -1,11 +1,11 @@
-"""Send password reset via Postmark + Supabase admin generate_link (better deliverability)."""
+"""Send auth links via Postmark + Supabase admin generate_link (better deliverability)."""
 from __future__ import annotations
 
 import asyncio
 import os
 from typing import Any
 
-from app.auth_email_templates import build_password_reset_email
+from app.auth_email_templates import build_password_reset_email, build_signup_confirmation_email
 from app.supabase_client import SUPABASE_SERVICE_ROLE_KEY, supabase, supabase_auth
 from app.utils.email import get_email_delivery_status, send_email_detail
 
@@ -89,4 +89,73 @@ def send_password_reset_email(email: str, redirect_to: str) -> bool:
 
     supabase_auth.auth.reset_password_for_email(email, {"redirect_to": redirect_to})
     _log(f"Supabase reset_password_for_email redirect_to={redirect_to}")
+    return True
+
+
+def _generate_signup_action_link(email: str, redirect_to: str, password: str | None) -> str | None:
+    """Admin generate_link: signup (needs password) then magiclink if that fails."""
+    attempts: list[dict[str, Any]] = []
+    if password:
+        attempts.append(
+            {
+                "type": "signup",
+                "email": email,
+                "password": password,
+                "options": {"redirect_to": redirect_to},
+            }
+        )
+    attempts.append(
+        {
+            "type": "magiclink",
+            "email": email,
+            "options": {"redirect_to": redirect_to},
+        }
+    )
+    for params in attempts:
+        try:
+            resp = supabase.auth.admin.generate_link(params)
+            action_link = _extract_action_link(resp)
+            if action_link:
+                return action_link
+        except Exception as ex:
+            _log(f"generate_link type={params.get('type')} failed ({type(ex).__name__})")
+    return None
+
+
+def send_signup_confirmation_email(
+    email: str, redirect_to: str, password: str | None = None
+) -> bool:
+    """
+    Send signup confirmation. Prefers Postmark + generate_link (same as password reset).
+    Falls back to GoTrue resend with email_redirect_to.
+    """
+    email = email.strip().lower()
+    redirect_to = (redirect_to or "").strip()
+
+    if _custom_reset_enabled():
+        try:
+            action_link = _generate_signup_action_link(email, redirect_to, password)
+            if action_link:
+                subject, html_body, plain = build_signup_confirmation_email(
+                    recipient_email=email,
+                    confirm_url=action_link,
+                )
+                ok, err = asyncio.run(
+                    send_email_detail(email, subject, html_body, plain_fallback=plain)
+                )
+                if ok:
+                    _log(f"custom signup confirm email sent redirect_to={redirect_to}")
+                    return True
+                _log(f"custom signup email failed ({err}); using Supabase resend fallback")
+        except Exception as ex:
+            _log(f"custom signup path failed ({type(ex).__name__}); using Supabase resend fallback")
+
+    supabase_auth.auth.resend(
+        {
+            "type": "signup",
+            "email": email,
+            "options": {"email_redirect_to": redirect_to},
+        }
+    )
+    _log(f"Supabase resend signup email_redirect_to={redirect_to}")
     return True

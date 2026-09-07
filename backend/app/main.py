@@ -887,10 +887,6 @@ def _do_register(payload: RegisterRequest):
             if result and getattr(result, "user", None):
                 user_id = str(result.user.id)
                 user_email = getattr(result.user, "email", None) or payload.email
-
-            # Send confirmation email (requires Supabase email/SMTP configuration).
-            supabase_auth.auth.resend({"type": "signup", "email": payload.email.strip().lower()})
-            confirmation_sent = True
             _log(f"create_user OK: {user_id}")
         except Exception as e1:
             _log(f"create_user failed: {type(e1).__name__}")
@@ -899,7 +895,7 @@ def _do_register(payload: RegisterRequest):
                 raise HTTPException(400, "This email is already registered. Please log in.")
             raise HTTPException(
                 status_code=503,
-                detail="Registration failed. Email verification is required; check Supabase Auth email/SMTP configuration and retry.",
+                detail="Registration failed. Could not create the account. Try again later.",
             )
 
         if not user_id:
@@ -922,11 +918,26 @@ def _do_register(payload: RegisterRequest):
         except Exception as pe:
             _log(f"Profile backup: {pe}")
 
+        from app.public_urls import get_frontend_base
+        from app.password_reset_email import send_signup_confirmation_email
+
+        redirect_to = f"{get_frontend_base()}/confirmation-success"
+        try:
+            confirmation_sent = send_signup_confirmation_email(
+                payload.email.strip().lower(),
+                redirect_to,
+                password=payload.password,
+            )
+            _log(f"signup confirm email sent={confirmation_sent} redirect_to={redirect_to}")
+        except Exception as mail_err:
+            confirmation_sent = False
+            _log(f"signup confirm email failed: {type(mail_err).__name__}")
+
         _log(f"REGISTER SUCCESS: {user_id}")
         if confirmation_sent:
             msg = "Registration successful. Check your email for a confirmation link. Click it to activate your account, then log in."
         else:
-            msg = "Registration successful. You can log in now."
+            msg = "Registration successful. Confirmation email could not be sent — use Resend on the next screen, or check spam."
         return {
             "user_id": user_id,
             "email": str(user_email or payload.email),
@@ -1514,7 +1525,7 @@ class ResendConfirmRequest(BaseModel):
 
 @api_router.post("/auth/resend-confirmation")
 def resend_confirmation(payload: ResendConfirmRequest, request: Request):
-    """Resend confirmation email to user who didn't receive it. Uses Supabase auth.resend."""
+    """Resend confirmation email (Postmark generate_link, same as password reset)."""
     email = payload.email.strip().lower()
     if not email:
         raise HTTPException(400, "Email is required")
@@ -1530,7 +1541,11 @@ def resend_confirmation(payload: ResendConfirmRequest, request: Request):
     enforce_account_backoff(f"resend:{email}")
     record_account_attempt(f"resend:{email}")
     try:
-        supabase_auth.auth.resend({"type": "signup", "email": email})
+        from app.public_urls import get_frontend_base
+        from app.password_reset_email import send_signup_confirmation_email
+
+        redirect_to = f"{get_frontend_base()}/confirmation-success"
+        send_signup_confirmation_email(email, redirect_to)
         return {"success": True, "message": "Confirmation email resent. Check your inbox (and spam folder)."}
     except Exception as e:
         err = str(e).lower()
