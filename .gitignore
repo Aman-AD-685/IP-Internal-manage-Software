@@ -35,3 +35,6 @@ Thumbs.db
 *.dump
 supabase_backup*.sql
 supabase/
+
+# Claude Code (personal, not shared)
+.claude/settings.local.json

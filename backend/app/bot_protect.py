@@ -7,7 +7,7 @@ Layers:
   - Suspicious User-Agent throttling / reject on auth + sensitive writes
   - In-app honeypot + form timing (login, support, delegation)
   - Bot-strike counter → deactivate account after N failures (default 3)
-  - Public registration gate (invite-only)
+  - Public registration gate (ALLOW_PUBLIC_REGISTER)
 
 Cloudflare edge Bot Fight / WAF is configured in the Cloudflare dashboard (not code).
 """
@@ -54,13 +54,9 @@ def openapi_disabled() -> bool:
 
 
 def public_register_allowed() -> bool:
-    """Invite-only by default in production; allow locally unless locked down."""
-    raw = os.getenv("ALLOW_PUBLIC_REGISTER", "").strip().lower()
-    if raw in ("1", "true", "yes", "on"):
-        return True
-    if raw in ("0", "false", "no", "off"):
-        return False
-    return not is_production()
+    """Public Sign Up allowed unless ALLOW_PUBLIC_REGISTER is explicitly off."""
+    raw = os.getenv("ALLOW_PUBLIC_REGISTER", "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
 
 
 def turnstile_required() -> bool:
