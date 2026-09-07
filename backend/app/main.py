@@ -588,6 +588,7 @@ class RecoveryPasswordRequest(BaseModel):
 class RecoverySessionRequest(BaseModel):
     code: Optional[str] = Field(None, max_length=2048)
     token: Optional[str] = Field(None, max_length=2048)
+    type: Optional[str] = Field(None, max_length=32)
 
 
 class RecoveryResetRequest(BaseModel):
@@ -870,29 +871,35 @@ def _do_register(payload: RegisterRequest):
                 detail="Database not set up. Run database/FRESH_SETUP.sql in Supabase SQL Editor.",
             )
         
-        result = None
         user_id = None
         user_email = payload.email
         confirmation_sent = False
+        confirm_url = ""
 
+        from app.public_urls import get_frontend_base
+        from app.password_reset_email import (
+            SignupEmailTaken,
+            send_signup_mail,
+            signup_create_user_and_confirm_url,
+        )
+
+        redirect_to = f"{get_frontend_base()}/confirmation-success"
         try:
-            # Security: always create user as unconfirmed so email verification is mandatory.
-            _log("Trying create_user (unconfirmed)...")
-            result = supabase.auth.admin.create_user({
-                "email": payload.email.strip().lower(),
-                "password": payload.password,
-                "email_confirm": False,
-                "user_metadata": {"full_name": payload.full_name},
-            })
-            if result and getattr(result, "user", None):
-                user_id = str(result.user.id)
-                user_email = getattr(result.user, "email", None) or payload.email
-            _log(f"create_user OK: {user_id}")
+            # generate_link type=signup creates the unconfirmed user AND the confirm token.
+            # create_user first then generate_link signup fails with "already registered",
+            # so Postmark never ran and we lied with confirmation_sent=True from GoTrue resend.
+            _log("Trying generate_link signup (unconfirmed + confirm url)...")
+            user_id, user_email, confirm_url = signup_create_user_and_confirm_url(
+                email=payload.email.strip().lower(),
+                password=payload.password,
+                full_name=payload.full_name,
+                redirect_to=redirect_to,
+            )
+            _log(f"signup user OK: {user_id}")
+        except SignupEmailTaken:
+            raise HTTPException(400, "This email is already registered. Please log in.")
         except Exception as e1:
-            _log(f"create_user failed: {type(e1).__name__}")
-            err = str(e1).lower()
-            if "already" in err or "exists" in err or "registered" in err:
-                raise HTTPException(400, "This email is already registered. Please log in.")
+            _log(f"signup create failed: {type(e1).__name__}: {e1}")
             raise HTTPException(
                 status_code=503,
                 detail="Registration failed. Could not create the account. Try again later.",
@@ -918,20 +925,12 @@ def _do_register(payload: RegisterRequest):
         except Exception as pe:
             _log(f"Profile backup: {pe}")
 
-        from app.public_urls import get_frontend_base
-        from app.password_reset_email import send_signup_confirmation_email
-
-        redirect_to = f"{get_frontend_base()}/confirmation-success"
         try:
-            confirmation_sent = send_signup_confirmation_email(
-                payload.email.strip().lower(),
-                redirect_to,
-                password=payload.password,
-            )
+            confirmation_sent = send_signup_mail(str(user_email or payload.email), confirm_url)
             _log(f"signup confirm email sent={confirmation_sent} redirect_to={redirect_to}")
         except Exception as mail_err:
             confirmation_sent = False
-            _log(f"signup confirm email failed: {type(mail_err).__name__}")
+            _log(f"signup confirm email failed: {type(mail_err).__name__}: {mail_err}")
 
         _log(f"REGISTER SUCCESS: {user_id}")
         if confirmation_sent:
@@ -1296,9 +1295,18 @@ def _recovery_access_token_from_supabase_response(data: dict) -> Optional[str]:
 
 @api_router.post("/auth/recovery-password/session")
 def recovery_password_session(payload: RecoverySessionRequest):
-    """Exchange recovery ?code= or ?token= from the email redirect into an access_token."""
+    """Exchange email-link ?code= or ?token= into an access_token (recovery or signup confirm)."""
     code = (payload.code or "").strip()
     token = (payload.token or "").strip()
+    verify_type = (payload.type or "recovery").strip().lower()
+    if verify_type not in ("recovery", "signup", "magiclink", "email", "invite"):
+        verify_type = "recovery"
+    confirm_types = ("signup", "magiclink", "email", "invite")
+    bad_link = (
+        "Invalid or expired confirmation link. Request a new email from the sign-up page."
+        if verify_type in confirm_types
+        else "Invalid or expired reset link. Request a new password reset from the login page."
+    )
     if not code and not token:
         raise HTTPException(400, "Missing recovery code or token. Open the link from your email again.")
     apikey = (SUPABASE_ANON_KEY or "").strip()
@@ -1325,26 +1333,30 @@ def recovery_password_session(payload: RecoverySessionRequest):
             r = httpx.post(
                 f"{base}/auth/v1/verify",
                 headers=headers,
-                json={"type": "recovery", "token": token},
+                json={"type": verify_type, "token_hash": token},
                 timeout=45.0,
             )
+            if r.status_code >= 400:
+                r = httpx.post(
+                    f"{base}/auth/v1/verify",
+                    headers=headers,
+                    json={"type": verify_type, "token": token},
+                    timeout=45.0,
+                )
     except Exception as e:
         _log(f"recovery-password/session httpx error: {type(e).__name__}")
         raise HTTPException(503, "Could not reach authentication service. Try again later.")
     if r.status_code >= 400:
         _log(f"recovery-password/session: {r.status_code} {(r.text or '')[:400]}")
-        raise HTTPException(
-            400,
-            "Invalid or expired reset link. Request a new password reset from the login page.",
-        )
+        raise HTTPException(400, bad_link)
     try:
         data = r.json()
     except Exception:
-        raise HTTPException(400, "Invalid or expired reset link. Request a new password reset from the login page.")
-    access_token = _recovery_access_token_from_supabase_response(data)
-    if not access_token:
-        raise HTTPException(400, "Invalid or expired reset link. Request a new password reset from the login page.")
+        raise HTTPException(400, bad_link)
+    access_token = _recovery_access_token_from_supabase_response(data) or ""
     refresh_token = _recovery_refresh_token_from_supabase_response(data)
+    if not access_token and verify_type not in confirm_types:
+        raise HTTPException(400, bad_link)
     return {"access_token": access_token, "refresh_token": refresh_token}
 
 
@@ -1545,7 +1557,9 @@ def resend_confirmation(payload: ResendConfirmRequest, request: Request):
         from app.password_reset_email import send_signup_confirmation_email
 
         redirect_to = f"{get_frontend_base()}/confirmation-success"
-        send_signup_confirmation_email(email, redirect_to)
+        sent = send_signup_confirmation_email(email, redirect_to)
+        if not sent:
+            raise HTTPException(400, "Could not resend confirmation email. Please try again later.")
         return {"success": True, "message": "Confirmation email resent. Check your inbox (and spam folder)."}
     except Exception as e:
         err = str(e).lower()

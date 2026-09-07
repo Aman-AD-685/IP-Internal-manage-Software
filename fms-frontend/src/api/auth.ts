@@ -203,6 +203,7 @@ export const authApi = {
   recoverySession: async (payload: {
     code?: string
     token?: string
+    type?: string
   }): Promise<ApiResponse<{ access_token: string; refresh_token?: string | null }>> => {
     try {
       const response = await apiClient.post<{ access_token: string; refresh_token?: string | null }>(
