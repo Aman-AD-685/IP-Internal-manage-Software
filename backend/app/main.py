@@ -879,6 +879,7 @@ def _do_register(payload: RegisterRequest):
         from app.public_urls import get_frontend_base
         from app.password_reset_email import (
             SignupEmailTaken,
+            delete_auth_user,
             send_signup_mail,
             signup_create_user_and_confirm_url,
         )
@@ -897,7 +898,11 @@ def _do_register(payload: RegisterRequest):
             )
             _log(f"signup user OK: {user_id}")
         except SignupEmailTaken:
-            raise HTTPException(400, "This email is already registered. Please log in.")
+            raise HTTPException(
+                400,
+                "This email is already registered. Log in, or use Resend on the sign-up "
+                "screen if you never got the confirmation email.",
+            )
         except Exception as e1:
             _log(f"signup create failed: {type(e1).__name__}: {e1}")
             raise HTTPException(
@@ -932,16 +937,32 @@ def _do_register(payload: RegisterRequest):
             confirmation_sent = False
             _log(f"signup confirm email failed: {type(mail_err).__name__}: {mail_err}")
 
+        if not confirmation_sent:
+            # No mail = unreachable account, and generate_link type=signup then fails
+            # "already registered" on every retry. Roll it back so the user isn't stuck.
+            from app.utils.email import get_last_email_error
+
+            _log(
+                f"REGISTER ROLLBACK {user_id}: confirmation email not sent: "
+                f"{get_last_email_error() or 'Postmark/custom email not enabled'}"
+            )
+            try:
+                supabase.table("user_profiles").delete().eq("id", user_id).execute()
+            except Exception as pe:
+                _log(f"rollback profile delete failed: {pe}")
+            delete_auth_user(str(user_id))
+            raise HTTPException(
+                status_code=503,
+                detail="We could not send the confirmation email, so the account was not "
+                "created. Please try again in a few minutes.",
+            )
+
         _log(f"REGISTER SUCCESS: {user_id}")
-        if confirmation_sent:
-            msg = "Registration successful. Check your email for a confirmation link. Click it to activate your account, then log in."
-        else:
-            msg = "Registration successful. Confirmation email could not be sent — use Resend on the next screen, or check spam."
         return {
             "user_id": user_id,
             "email": str(user_email or payload.email),
-            "confirmation_sent": confirmation_sent,
-            "message": msg,
+            "confirmation_sent": True,
+            "message": "Registration successful. Check your email for a confirmation link. Click it to activate your account, then log in.",
         }
 
     except HTTPException as he:

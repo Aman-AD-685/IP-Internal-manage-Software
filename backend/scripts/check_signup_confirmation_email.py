@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from app.auth_email_templates import build_signup_confirmation_email
 from app.password_reset_email import (
     _confirm_url_from_response,
+    delete_auth_user,
     _extract_action_link,
     frontend_recovery_url,
     frontend_verify_url,
@@ -74,5 +75,13 @@ assert "send_signup_mail" in main_src
 assert 'supabase_auth.auth.resend({"type": "signup"' not in main_src
 assert '"token_hash": token' in main_src
 assert "verify_type" in main_src
+# Unmailable signups must be rolled back, else generate_link signup returns
+# "already registered" forever and the user can never sign up again.
+reg = main_src.split("def _do_register")[1].split("@api_router")[0]
+assert "REGISTER ROLLBACK" in reg
+assert "delete_auth_user" in reg
+assert reg.index("if not confirmation_sent") < reg.index("REGISTER SUCCESS")
+del_src = inspect.getsource(delete_auth_user)
+assert "email_confirmed_at" in del_src  # never roll back a confirmed account
 
 print("OK: signup confirmation email self-check passed")
