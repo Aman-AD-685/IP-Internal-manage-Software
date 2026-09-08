@@ -209,8 +209,11 @@ export const TicketList = () => {
     }
   }, [isApprovalSection, canAccessApproval, navigate])
   const [addCompanyDivisionOpen, setAddCompanyDivisionOpen] = useState(false)
-  const [appTicketsView, setAppTicketsView] = useState(false)
-  const [appPlatformFilter, setAppPlatformFilter] = useState<'android' | 'apple' | ''>('')
+  const [appTicketsView, setAppTicketsView] = useState(() => searchParams.get('app') === '1')
+  const [appPlatformFilter, setAppPlatformFilter] = useState<'android' | 'apple' | ''>(() => {
+    const v = searchParams.get('appPlatform') || ''
+    return v === 'android' || v === 'apple' ? v : ''
+  })
   const [companies, setCompanies] = useState<Company[]>([])
   const [pageCompanyOptions, setPageCompanyOptions] = useState<Array<{ value: string; label: string }>>([])
   const [pageReferenceOptions, setPageReferenceOptions] = useState<Array<{ value: string; label: string }>>([])
@@ -1101,6 +1104,8 @@ export const TicketList = () => {
         if (!appPlatformFilter) return true
         return platform === appPlatformFilter
       })
+    } else {
+      list = list.filter((t) => !ticketMobAppPlatform(t))
     }
     if (isChoresBugsSection && !typeOfRequestFilter) {
       return sortTicketsByCreatedDescThenReference(list)
@@ -1266,6 +1271,8 @@ export const TicketList = () => {
           if (!appPlatformFilter) return true
           return platform === appPlatformFilter
         })
+      } else {
+        allTickets = allTickets.filter((t) => !ticketMobAppPlatform(t))
       }
       if (showStageFilter && stageFilter) {
         allTickets = allTickets.filter((t) => getChoresBugsCurrentStage(t).stageLabel === stageFilter)
@@ -1984,11 +1991,15 @@ export const TicketList = () => {
     setAppTicketsView(false)
     setAppPlatformFilter('')
     setApprovalFilter('pending')
+    const sp = new URLSearchParams(location.search)
+    sp.delete('app')
+    sp.delete('appPlatform')
+    navigate(location.pathname + '?' + sp.toString(), { replace: true })
     if (isRegisterSection) {
       setRegisterStatusFilter('completed')
       setRegisterTypeFilters(['chore'])
     }
-  }, [isRegisterSection])
+  }, [isRegisterSection, location.search, location.pathname, navigate])
 
   const ticketEmptyContent = useMemo(() => {
     if (loading) return undefined
@@ -2075,9 +2086,14 @@ export const TicketList = () => {
             type={appTicketsView ? 'primary' : 'default'}
             icon={<AppstoreOutlined />}
             onClick={() => {
-              setAppTicketsView((open) => {
-                if (open) setAppPlatformFilter('')
-                return !open
+              setAppTicketsView((prev) => {
+                const next = !prev
+                if (!next) setAppPlatformFilter('')
+                const sp = new URLSearchParams(location.search)
+                if (next) sp.set('app', '1')
+                else { sp.delete('app'); sp.delete('appPlatform') }
+                navigate(location.pathname + '?' + sp.toString(), { replace: true })
+                return next
               })
             }}
           >
@@ -2203,7 +2219,11 @@ export const TicketList = () => {
                 }
 
                 if (appTicketsView) {
-                  setAppPlatformFilter((appMarks[0] as 'android' | 'apple' | undefined) || '')
+                  const pf = (appMarks[0] as 'android' | 'apple' | undefined) || ''
+                  setAppPlatformFilter(pf)
+                  const sp = new URLSearchParams(location.search)
+                  if (pf) sp.set('appPlatform', pf); else sp.delete('appPlatform')
+                  navigate(location.pathname + '?' + sp.toString(), { replace: true })
                 }
               }}
               onRow={(record) => ({
