@@ -267,3 +267,23 @@ def send_signup_confirmation_email(email: str, redirect_to: str) -> bool:
     except Exception as ex:
         _log(f"custom signup path failed ({type(ex).__name__}: {str(ex)[:180]})")
     return False
+
+
+def delete_auth_user(user_id: str) -> bool:
+    """Roll back an auth user we created but could not email. Never deletes a confirmed one."""
+    try:
+        existing = supabase.auth.admin.get_user_by_id(user_id)
+        user = getattr(existing, "user", None)
+        if getattr(user, "email_confirmed_at", None):
+            _log(f"refusing to delete confirmed user {user_id}")
+            return False
+    except Exception as ex:
+        _log(f"rollback lookup {user_id} failed ({type(ex).__name__}); not deleting")
+        return False
+    try:
+        supabase.auth.admin.delete_user(user_id)
+        _log(f"deleted unmailable auth user {user_id}")
+        return True
+    except Exception as ex:
+        _log(f"delete_user {user_id} failed ({type(ex).__name__}: {str(ex)[:180]})")
+        return False
