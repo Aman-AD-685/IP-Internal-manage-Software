@@ -189,6 +189,9 @@ def _signup_via_create_user(
         raise RuntimeError("create_user returned no user id")
     confirm_url = _generate_signup_action_link(email, redirect_to)
     if not confirm_url:
+        # Created but unusable: no link means no mail, and the next attempt would
+        # hit "already registered". Never strand it.
+        delete_auth_user(str(uid))
         raise RuntimeError("could not generate confirmation url after create_user")
     return str(uid), email, confirm_url
 
@@ -236,6 +239,7 @@ def signup_create_user_and_confirm_url(
         return user_id, email, confirm_url
     if not user_id:
         raise RuntimeError("generate_link signup returned no user id")
+    delete_auth_user(user_id)
     raise RuntimeError("generate_link signup returned no confirm url")
 
 
