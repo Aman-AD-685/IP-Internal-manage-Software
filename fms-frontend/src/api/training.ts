@@ -61,6 +61,7 @@ export interface TrainingStageStatus {
   submitted_at: string | null
   editable_48h: boolean
   editable_until?: string | null
+  skipped?: boolean
 }
 
 export interface TrainingStatusResponse {

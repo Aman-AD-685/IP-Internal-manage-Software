@@ -555,7 +555,9 @@ export function ClientTrainingPage() {
                                 <span style={{ color: '#888', fontSize: 12 }}>{dayjs(st.submitted_at).format('DD-MMM-YYYY HH:mm')}</span>
                               )}
                             </Space>
-                            {!stageSkipped && (st.editable_48h ? (
+                            {stageSkipped ? (
+                              <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openStageModal(sk)}>Back</Button>
+                            ) : (st.editable_48h ? (
                               <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openStageModal(sk)}>Edit</Button>
                             ) : (
                               <Button type="link" size="small" onClick={() => openStageModal(sk)}>View</Button>
