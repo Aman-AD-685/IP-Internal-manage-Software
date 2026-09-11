@@ -13396,14 +13396,17 @@ def get_training_status(payment_status_id: str, auth: dict = Depends(get_current
             for row in r_stages.data:
                 sk = row.get("stage_key")
                 submitted_at = row.get("submitted_at")
+                data = row.get("data") or {}
+                all_na = bool(data and isinstance(data, dict) and all(str(v).strip().upper() == "NA" for v in data.values()))
                 stages_map[sk] = {
-                    "data": row.get("data") or {},
+                    "data": data,
                     "submitted_at": submitted_at,
                     "editable_48h": _is_within_48h_edit(submitted_at),
                     "editable_until": _get_editable_until(submitted_at),
+                    "skipped": all_na,
                 }
         for sk in TRAINING_STAGE_ORDER:
-            default = {"data": {}, "submitted_at": None, "editable_48h": False, "editable_until": None}
+            default = {"data": {}, "submitted_at": None, "editable_48h": False, "editable_until": None, "skipped": False}
             result["stages"][sk] = stages_map.get(sk, default)
         if not result["day0_submitted"]:
             result["next_stage"] = None
@@ -13476,11 +13479,13 @@ def save_training_stage(payment_status_id: str, stage_key: str, payload: Trainin
         raise HTTPException(400, "Complete the previous stage first.")
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     try:
-        existing = supabase.table("training_checklist_stages").select("id, submitted_at").eq("payment_status_id", payment_status_id).eq("stage_key", stage_key).limit(1).execute()
+        existing = supabase.table("training_checklist_stages").select("id, submitted_at, data").eq("payment_status_id", payment_status_id).eq("stage_key", stage_key).limit(1).execute()
         has_row = bool(existing.data and len(existing.data) > 0)
         if has_row:
             row_data = existing.data[0]
-            if not _is_within_48h_edit(row_data.get("submitted_at")):
+            old_data = row_data.get("data") or {}
+            was_skipped = bool(old_data and isinstance(old_data, dict) and all(str(v).strip().upper() == "NA" for v in old_data.values()))
+            if not was_skipped and not _is_within_48h_edit(row_data.get("submitted_at")):
                 raise HTTPException(403, "Edit window (48 hours) has expired for this stage.")
             supabase.table("training_checklist_stages").update({"data": data, "submitted_at": now, "updated_at": now}).eq("payment_status_id", payment_status_id).eq("stage_key", stage_key).execute()
         else:
