@@ -66,6 +66,7 @@ function filterValues(tableFilters: Record<string, FilterValue | null> | undefin
   if (raw == null) return []
   return (Array.isArray(raw) ? raw : [raw]).map(String)
 }
+const COMM_LABELS: Record<string, string> = { phone: 'Phone', mail: 'Mail', whatsapp: 'WhatsApp', mom: 'MOM' }
 const getCommIcon = (v: string) => {
   if (v === 'phone') return <PhoneOutlined title="Phone" />
   if (v === 'mail') return <MailOutlined title="Mail" />
@@ -77,6 +78,41 @@ const getCommIcon = (v: string) => {
 const truncate = (text: string | undefined, len = 40) => {
   if (!text) return '-'
   return text.length > len ? `${text.slice(0, len)}...` : text
+}
+
+/** Columns filtered client-side over loaded rows; value = the cell's displayed text. Table and Export apply the same filters. */
+const LOCAL_FILTER_GETTERS: Record<string, (r: Ticket) => string> = {
+  user_name: (r) => r.user_name || '-',
+  page_name: (r) => r.page_name || '-',
+  division_name: (r) => r.division_name || '-',
+  division_other: (r) => (r.division_name === 'Other' ? r.division_other || '-' : ''),
+  title: (r) => r.title?.trim() || '-',
+  description: (r) => r.description?.trim() || '-',
+  communicated_through: (r) => COMM_LABELS[r.communicated_through ?? ''] || '-',
+  submitted_by: (r) => r.submitted_by || '-',
+  query_arrival_at: (r) => formatDateTable(r.query_arrival_at),
+  quality_of_response: (r) => r.quality_of_response?.trim() || '-',
+  customer_questions: (r) => r.customer_questions?.trim() || '-',
+  query_response_at: (r) => formatDateTable(r.query_response_at),
+  reply_status: (r) => formatReplySla(r.query_arrival_at, r.query_response_at).text,
+  why_feature: (r) => (r.type === 'feature' ? truncate(r.why_feature, 20) : ''),
+  approved_by_name: (r) => r.approved_by_name || '-',
+  approval_actual_at: (r) => formatDateTable(r.approval_actual_at || r.unapproval_actual_at),
+  approval_source: (r) => (r.approval_source ? r.approval_source.toUpperCase() : '-'),
+  planned: (r) => getChoresBugsCurrentStage(r).planned,
+  actual: (r) => getChoresBugsCurrentStage(r).actual,
+  time_delay: (r) => getTicketTimeDelayDisplay(r),
+  quality_solution: (r) => r.quality_solution?.trim() || '-',
+  quality_solution_submitted_by: (r) => r.quality_solution_submitted_by || '-',
+  feature_approval: (r) =>
+    r.type === 'feature' ? (r.approval_status === 'approved' ? 'Approved' : 'Unapproved') : '-',
+  feature_actual_time: (r) => (r.type === 'feature' ? formatDuration(r.actual_time_seconds) : '-'),
+  feature_remarks: (r) => (r.type === 'feature' ? truncate(r.remarks, 20) : '-'),
+  feature_time_delay: (r) => (r.type === 'feature' ? getTicketTimeDelayDisplay(r) : '-'),
+}
+const applyLocalFilters = (rows: Ticket[], active: Record<string, string[]>): Ticket[] => {
+  const on = Object.entries(active).filter(([, v]) => v.length)
+  return on.length ? rows.filter((r) => on.every(([k, v]) => v.includes(LOCAL_FILTER_GETTERS[k](r)))) : rows
 }
 
 function getRegisterStatusLabel(ticket: Ticket): 'Completed' | 'Rejected' | 'Other' {
@@ -236,6 +272,8 @@ export const TicketList = () => {
   })
   /** Stage filter: applies to table, Export and Print (filters current result set) */
   const [stageFilter, setStageFilter] = useState<string>('')
+  /** Client-side column filters (LOCAL_FILTER_GETTERS keys -> selected values); apply to table and Export. */
+  const [localFilters, setLocalFilters] = useState<Record<string, string[]>>({})
   /** Approval Status view: pending | unapproved (includes rejected) | hold */
   const [approvalFilter, setApprovalFilter] = useState<string>('pending')
   /** Chores & Bugs only: filter by Stage 2 status (pending | completed | staging | hold) */
@@ -277,6 +315,7 @@ export const TicketList = () => {
 
   useEffect(() => {
     if (!showTicketNaStatusFilter) setStatus2Filter('')
+    setLocalFilters({})
   }, [sectionFromUrl, typeFromUrl, showTicketNaStatusFilter])
   useEffect(() => {
     if (approvalFilter === 'rejected') setApprovalFilter('unapproved')
@@ -1177,6 +1216,23 @@ export const TicketList = () => {
     () => availableCompanyOptions.map((o) => ({ text: o.label, value: o.value })),
     [availableCompanyOptions],
   )
+  /** Column filter whose options are the values present in the loaded rows (same as the Reference filter). */
+  const localColumnFilter = (key: string) => {
+    const values = [...new Set(ticketsForDisplay.map(LOCAL_FILTER_GETTERS[key]).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true }),
+    )
+    return {
+      filters: values.map((v) => ({ text: v, value: v })),
+      filterSearch: true,
+      filterMultiple: true,
+      filteredValue: localFilters[key]?.length ? localFilters[key] : null,
+      onFilter: columnFilterPass,
+    }
+  }
+  const visibleTickets = useMemo(
+    () => applyLocalFilters(ticketsForDisplay, localFilters),
+    [ticketsForDisplay, localFilters],
+  )
   const priorityColumnFilters = useMemo(
     () => TICKET_PRIORITY_OPTIONS.map((o) => ({ text: o.label, value: o.value })),
     [],
@@ -1279,6 +1335,7 @@ export const TicketList = () => {
       } else if (showStageFilterForFeature && stageFilter) {
         allTickets = allTickets.filter((t) => getFeatureCurrentStage(t).stageLabel === stageFilter)
       }
+      allTickets = applyLocalFilters(allTickets, localFilters)
       if (isChoresBugsSection && !typeOfRequestFilter) {
         allTickets = sortTicketsByCreatedDescThenReference(allTickets)
       } else if (isChoresBugsSection || typeFromUrl === 'feature' || sectionFromUrl === 'completed-feature') {
@@ -1296,6 +1353,7 @@ export const TicketList = () => {
       showStageFilter,
       showStageFilterForFeature,
       stageFilter,
+      localFilters,
       isChoresBugsSection,
       typeOfRequestFilter,
       typeFromUrl,
@@ -1380,6 +1438,7 @@ export const TicketList = () => {
       dataIndex: 'user_name',
       key: 'user_name',
       width: 100,
+      ...localColumnFilter('user_name'),
       ellipsis: true,
       render: (v: string) => v || '-',
     },
@@ -1388,6 +1447,7 @@ export const TicketList = () => {
       dataIndex: 'page_name',
       key: 'page_name',
       width: 100,
+      ...localColumnFilter('page_name'),
       ellipsis: true,
       render: (v: string) => v || '-',
     },
@@ -1396,6 +1456,7 @@ export const TicketList = () => {
       dataIndex: 'division_name',
       key: 'division_name',
       width: 100,
+      ...localColumnFilter('division_name'),
       ellipsis: true,
       render: (v: string) => v || '-',
     },
@@ -1404,6 +1465,7 @@ export const TicketList = () => {
       dataIndex: 'division_other',
       key: 'division_other',
       width: 110,
+      ...localColumnFilter('division_other'),
       ellipsis: true,
       render: (_: unknown, r: Ticket) => (r.division_name === 'Other' ? (r.division_other || '-') : ''),
     },
@@ -1465,6 +1527,7 @@ export const TicketList = () => {
       dataIndex: 'title',
       key: 'title',
       width: 200,
+      ...localColumnFilter('title'),
       ellipsis: false,
       render: (v: string) => {
         const raw = (v && v.trim()) || ''
@@ -1481,6 +1544,7 @@ export const TicketList = () => {
       dataIndex: 'description',
       key: 'description',
       width: 220,
+      ...localColumnFilter('description'),
       ellipsis: false,
       render: (v: string) => {
         const raw = (v && v.trim()) || ''
@@ -1517,6 +1581,7 @@ export const TicketList = () => {
       dataIndex: 'communicated_through',
       key: 'communicated_through',
       width: 70,
+      ...localColumnFilter('communicated_through'),
       render: (v: string) => getCommIcon(v),
     },
     {
@@ -1524,6 +1589,7 @@ export const TicketList = () => {
       dataIndex: 'submitted_by',
       key: 'submitted_by',
       width: 110,
+      ...localColumnFilter('submitted_by'),
       ellipsis: true,
       render: (v: string) => v || '-',
     },
@@ -1532,6 +1598,7 @@ export const TicketList = () => {
       dataIndex: 'query_arrival_at',
       key: 'query_arrival_at',
       width: 140,
+      ...localColumnFilter('query_arrival_at'),
       render: (v: string) => formatDateTable(v),
     },
     {
@@ -1539,6 +1606,7 @@ export const TicketList = () => {
       dataIndex: 'quality_of_response',
       key: 'quality_of_response',
       width: 140,
+      ...localColumnFilter('quality_of_response'),
       ellipsis: false,
       render: (v: string) => (
         <span style={wrapStyle} title={v?.trim() ? String(v) : undefined}>
@@ -1551,6 +1619,7 @@ export const TicketList = () => {
       dataIndex: 'customer_questions',
       key: 'customer_questions',
       width: 140,
+      ...localColumnFilter('customer_questions'),
       ellipsis: false,
       render: (v: string) => (
         <span style={wrapStyle} title={v?.trim() ? String(v) : undefined}>
@@ -1563,6 +1632,7 @@ export const TicketList = () => {
       dataIndex: 'query_response_at',
       key: 'query_response_at',
       width: 140,
+      ...localColumnFilter('query_response_at'),
       render: (v: string) => formatDateTable(v),
     },
     ...(isChoresBugs
@@ -1571,6 +1641,7 @@ export const TicketList = () => {
             title: 'Reply Status',
             key: 'reply_status',
             width: 180,
+            ...localColumnFilter('reply_status'),
             ellipsis: false,
             render: (_: unknown, r: Ticket) => {
               const sla = formatReplySla(r.query_arrival_at, r.query_response_at)
@@ -1662,6 +1733,7 @@ export const TicketList = () => {
             dataIndex: 'why_feature',
             key: 'why_feature',
             width: 100,
+            ...localColumnFilter('why_feature'),
             ellipsis: true,
             render: (_: unknown, r: Ticket) => (r.type === 'feature' ? truncate(r.why_feature, 20) : ''),
           },
@@ -1698,6 +1770,7 @@ export const TicketList = () => {
             dataIndex: 'approved_by_name',
             key: 'approved_by_name',
             width: 120,
+            ...localColumnFilter('approved_by_name'),
             render: (v: string) => v || '-',
           },
           {
@@ -1705,6 +1778,7 @@ export const TicketList = () => {
             dataIndex: 'approval_actual_at',
             key: 'approval_actual_at',
             width: 140,
+            ...localColumnFilter('approval_actual_at'),
             render: (_: unknown, r: Ticket) =>
               formatDateTable(r.approval_actual_at || r.unapproval_actual_at) || '-',
           },
@@ -1713,6 +1787,7 @@ export const TicketList = () => {
             dataIndex: 'approval_source',
             key: 'approval_source',
             width: 80,
+            ...localColumnFilter('approval_source'),
             render: (v: string) => (v ? v.toUpperCase() : '-'),
           },
         ]
@@ -1744,6 +1819,7 @@ export const TicketList = () => {
           title: 'Planned',
           key: 'planned',
           width: 120,
+          ...localColumnFilter('planned'),
           ellipsis: false,
           render: (_: unknown, r: Ticket) => {
             const stage = getChoresBugsCurrentStage(r)
@@ -1754,6 +1830,7 @@ export const TicketList = () => {
           title: 'Actual',
           key: 'actual',
           width: 120,
+          ...localColumnFilter('actual'),
           ellipsis: false,
           render: (_: unknown, r: Ticket) => {
             const stage = getChoresBugsCurrentStage(r)
@@ -1793,6 +1870,7 @@ export const TicketList = () => {
           key: 'time_delay',
           width: 100,
           ellipsis: false,
+          ...localColumnFilter('time_delay'),
           render: (_: unknown, r: Ticket) => {
             const display = getTicketTimeDelayDisplay(r)
             return <span style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>{display}</span>
@@ -1808,6 +1886,7 @@ export const TicketList = () => {
           dataIndex: 'quality_solution',
           key: 'quality_solution',
           width: 180,
+          ...localColumnFilter('quality_solution'),
           ellipsis: false,
           render: (v: string) => (
             <span style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>{v || '-'}</span>
@@ -1853,6 +1932,7 @@ export const TicketList = () => {
       dataIndex: 'quality_solution',
       key: 'quality_solution',
       width: 200,
+      ...localColumnFilter('quality_solution'),
       ellipsis: true,
       render: (v: string) => truncate(v, 60),
     },
@@ -1861,6 +1941,7 @@ export const TicketList = () => {
       dataIndex: 'quality_solution_submitted_by',
       key: 'quality_solution_submitted_by',
       width: 130,
+      ...localColumnFilter('quality_solution_submitted_by'),
       ellipsis: true,
       render: (v: string) => v || '-',
     },
@@ -1875,8 +1956,9 @@ export const TicketList = () => {
           {
             title: 'Approval',
             dataIndex: 'approval_status',
-            key: 'approval_status',
+            key: 'feature_approval',
             width: 110,
+            ...localColumnFilter('feature_approval'),
             render: (_: unknown, r: Ticket) =>
               r.type === 'feature' ? (
                 <Tag color={getStatusTagColor(r.approval_status === 'approved' ? 'approved' : 'unapproved')}>
@@ -1889,23 +1971,26 @@ export const TicketList = () => {
           {
             title: 'Actual Time',
             dataIndex: 'actual_time_seconds',
-            key: 'actual_time_seconds',
+            key: 'feature_actual_time',
             width: 100,
+            ...localColumnFilter('feature_actual_time'),
             render: (_: unknown, r: Ticket) => (r.type === 'feature' ? formatDuration(r.actual_time_seconds) : '-'),
           },
           {
             title: 'Remarks',
             dataIndex: 'remarks',
-            key: 'remarks',
+            key: 'feature_remarks',
             width: 100,
+            ...localColumnFilter('feature_remarks'),
             ellipsis: true,
             render: (_: unknown, r: Ticket) => (r.type === 'feature' ? truncate(r.remarks, 20) : '-'),
           },
           {
             title: 'Time Delay',
-            key: 'time_delay',
+            key: 'feature_time_delay',
             width: 100,
             ellipsis: false,
+            ...localColumnFilter('feature_time_delay'),
             render: (_: unknown, r: Ticket) =>
               r.type === 'feature' ? (
                 <span style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>{getTicketTimeDelayDisplay(r)}</span>
@@ -1951,6 +2036,7 @@ export const TicketList = () => {
           filters.date_from ||
           filters.date_to ||
           stageFilter ||
+          Object.values(localFilters).some((v) => v.length) ||
           status2Filter ||
           typeOfRequestFilter ||
           (isApprovalSection && approvalFilter !== 'pending') ||
@@ -1964,6 +2050,7 @@ export const TicketList = () => {
       appTicketsView,
       appPlatformFilter,
       stageFilter,
+      localFilters,
       status2Filter,
       typeOfRequestFilter,
       isApprovalSection,
@@ -1986,6 +2073,7 @@ export const TicketList = () => {
       date_to: '',
     }))
     setStageFilter('')
+    setLocalFilters({})
     setStatus2Filter('')
     setTypeOfRequestFilter('')
     setAppTicketsView(false)
@@ -2127,7 +2215,7 @@ export const TicketList = () => {
             <Table
               className={isCompletedChoresBugs ? 'completed-chores-bugs-wrap' : undefined}
               columns={columns}
-              dataSource={ticketsForDisplay}
+              dataSource={visibleTickets}
               rowKey="id"
               virtual={TICKET_LIST_USE_VIRTUAL_TABLE}
               loading={false}
@@ -2155,9 +2243,9 @@ export const TicketList = () => {
                         }}
                       >
                         <Text type="secondary">
-                          Showing {ticketsForDisplay.length} of{' '}
+                          Showing {visibleTickets.length} of{' '}
                           {stageClientInfinite ? allTicketsForStageFilter.length : total} tickets
-                          {ticketsForDisplay.length <
+                          {visibleTickets.length <
                           (stageClientInfinite ? allTicketsForStageFilter.length : total)
                             ? ' · scroll to load more'
                             : ''}
@@ -2180,6 +2268,9 @@ export const TicketList = () => {
                     : filterValues(tableFilters, 'current_stage_feature')
                 const approvals = filterValues(tableFilters, 'approval_status')
                 const appMarks = filterValues(tableFilters, 'app_mark')
+                setLocalFilters(
+                  Object.fromEntries(Object.keys(LOCAL_FILTER_GETTERS).map((k) => [k, filterValues(tableFilters, k)])),
+                )
 
                 setFilters((f) => {
                   const next = {
