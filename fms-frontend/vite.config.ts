@@ -109,11 +109,11 @@ export default defineConfig(({ mode }) => {
           ],
         },
         workbox: {
-          navigateFallback: '/index.html',
-          // Keep release.json always fresh so deploy refresh prompts still work.
-          navigateFallbackDenylist: [/^\/api/, /^\/release\.json$/],
+          // ponytail: no offline app shell. index.html is never precached and navigations always go to
+          // the network, so a deploy can't leave the SW serving a stale shell that points at deleted chunks.
+          navigateFallback: null,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,webmanifest}'],
-          globIgnores: ['**/stats.html', '**/stats-*.html'],
+          globIgnores: ['**/stats.html', '**/stats-*.html', '**/index.html'],
           // antd chunk can exceed default 2 MiB; still fine for app-shell offline.
           maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
           runtimeCaching: [

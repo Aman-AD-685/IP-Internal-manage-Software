@@ -21,7 +21,7 @@
   ],
   "rewrites": [
     { "source": "/release.json", "destination": "/release.json" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/((?!assets/).*)", "destination": "/index.html" }
   ],
   "headers": [
     {
