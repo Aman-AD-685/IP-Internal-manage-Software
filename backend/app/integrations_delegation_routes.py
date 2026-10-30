@@ -292,12 +292,13 @@ _TASK_COLS = (
     "id, reference_no, title, assignee_id, submitted_by, status, due_date, delegation_on, "
     "submission_date, has_document, document_url, created_at, completed_at"
 )
-_LIST_STATUSES = ("pending", "in_progress", "completed", "cancelled")
+# Only open tasks are exposed to integration clients — never completed or cancelled.
+_LIST_STATUSES = ("pending", "in_progress")
 
 
 @integrations_delegation_router.get("/tasks", dependencies=[Depends(require_integration_key)])
 def list_integration_delegation_tasks(
-    status: str = Query("pending", description="pending | in_progress | completed | cancelled | all"),
+    status: str = Query("pending", description="pending | in_progress | all (all = pending + in_progress)"),
     assignee_email: str | None = Query(None),
     created_since: str | None = Query(None, description="YYYY-MM-DD; only tasks created on/after"),
     limit: int = Query(200, ge=1, le=500),
@@ -307,8 +308,7 @@ def list_integration_delegation_tasks(
     if st != "all" and st not in _LIST_STATUSES:
         raise HTTPException(400, f"status must be one of {', '.join(_LIST_STATUSES)} or all.")
     q = supabase.table("delegation_tasks").select(_TASK_COLS)
-    if st != "all":
-        q = q.eq("status", st)
+    q = q.in_("status", list(_LIST_STATUSES)) if st == "all" else q.eq("status", st)
     if assignee_email:
         q = q.eq("assignee_id", str(_active_user_by_email(assignee_email)["id"]))
     since = _ymd(created_since)
