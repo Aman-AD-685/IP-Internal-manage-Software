@@ -7,10 +7,11 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import date
+import uuid
+from datetime import date, datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 
 from app.delegation_write import insert_delegation_task
@@ -285,3 +286,124 @@ def create_integration_delegation_task(payload: IntegrationCreateDelegationReque
         },
         "external_ref": (payload.external_ref or "").strip() or None,
     }
+
+
+_TASK_COLS = (
+    "id, reference_no, title, assignee_id, submitted_by, status, due_date, delegation_on, "
+    "submission_date, has_document, document_url, created_at, completed_at"
+)
+_LIST_STATUSES = ("pending", "in_progress", "completed", "cancelled")
+
+
+@integrations_delegation_router.get("/tasks", dependencies=[Depends(require_integration_key)])
+def list_integration_delegation_tasks(
+    status: str = Query("pending", description="pending | in_progress | completed | cancelled | all"),
+    assignee_email: str | None = Query(None),
+    created_since: str | None = Query(None, description="YYYY-MM-DD; only tasks created on/after"),
+    limit: int = Query(200, ge=1, le=500),
+):
+    """Pull delegation tasks (default: pending) for an external system."""
+    st = (status or "").strip().lower()
+    if st != "all" and st not in _LIST_STATUSES:
+        raise HTTPException(400, f"status must be one of {', '.join(_LIST_STATUSES)} or all.")
+    q = supabase.table("delegation_tasks").select(_TASK_COLS)
+    if st != "all":
+        q = q.eq("status", st)
+    if assignee_email:
+        q = q.eq("assignee_id", str(_active_user_by_email(assignee_email)["id"]))
+    since = _ymd(created_since)
+    if since:
+        q = q.gte("created_at", since)
+    try:
+        r = q.order("due_date", desc=False).limit(limit).execute()
+    except Exception as e:
+        _log.exception("integration list tasks failed: %s", e)
+        raise HTTPException(503, "Could not list tasks.") from e
+    tasks = r.data or []
+    ids = {t[k] for t in tasks for k in ("assignee_id", "submitted_by") if t.get(k)}
+    users: dict[str, dict] = {}
+    if ids:
+        try:
+            pr = supabase.table("user_profiles").select("id, full_name, email").in_("id", list(ids)).execute()
+            users = {str(p["id"]): p for p in pr.data or []}
+        except Exception as e:
+            _log.warning("integration list tasks: user lookup failed: %s", e)
+    for t in tasks:
+        a = users.get(str(t.get("assignee_id")), {})
+        s = users.get(str(t.get("submitted_by")), {})
+        t["assignee_email"] = (a.get("email") or "").strip()
+        t["assignee_name"] = (a.get("full_name") or "").strip()
+        t["submitted_by_email"] = (s.get("email") or "").strip()
+    return {"count": len(tasks), "tasks": tasks}
+
+
+class IntegrationUpdateDelegationRequest(BaseModel):
+    status: str = Field(..., description="completed | cancelled")
+    document_url: str | None = Field(
+        None,
+        max_length=2000,
+        validation_alias=AliasChoices("document_url", "documentUrl"),
+    )
+
+
+@integrations_delegation_router.patch(
+    "/tasks/{task_ref}", dependencies=[Depends(require_integration_key)]
+)
+def update_integration_delegation_task(task_ref: str, payload: IntegrationUpdateDelegationRequest):
+    """Complete or cancel a task by id or reference_no. Same rules as the SPA PUT for non-admins."""
+    status = (payload.status or "").strip().lower()
+    if status not in ("completed", "cancelled"):
+        raise HTTPException(400, "status must be completed or cancelled.")
+    ref = (task_ref or "").strip()
+    col = "id" if _looks_like_uuid(ref) else "reference_no"
+    try:
+        found = (
+            supabase.table("delegation_tasks")
+            .select("id, status, has_document")
+            .eq(col, ref)
+            .limit(1)
+            .execute()
+        )
+    except Exception as e:
+        _log.exception("integration task lookup failed: %s", e)
+        raise HTTPException(503, "Could not look up task.") from e
+    if not found.data:
+        raise HTTPException(404, "Task not found.")
+    task = found.data[0]
+    if task.get("status") not in ("pending", "in_progress"):
+        raise HTTPException(409, f"Task is already {task.get('status')}.")
+    doc = (payload.document_url or "").strip() or None
+    if status == "completed" and task.get("has_document") == "yes" and not doc:
+        raise HTTPException(400, "document_url is required to complete this task.")
+
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    data: dict[str, Any] = {"status": status, f"{status}_at": now}
+    if doc:
+        data["document_url"] = doc
+    try:
+        # Status guard in the UPDATE itself so two concurrent calls can't both close the task.
+        r = (
+            supabase.table("delegation_tasks")
+            .update(data)
+            .eq("id", task["id"])
+            .in_("status", ["pending", "in_progress"])
+            .execute()
+        )
+    except Exception as e:
+        _log.exception("integration task update failed: %s", e)
+        raise HTTPException(503, "Could not update task.") from e
+    if not r.data:
+        raise HTTPException(409, "Task was closed by another request.")
+    from app.main import invalidate_dashboard_read_caches  # lazy: main imports this module
+
+    invalidate_dashboard_read_caches()
+    _log.info("integration task %s -> %s", ref, status)
+    return {"ok": True, "task": r.data[0]}
+
+
+def _looks_like_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+        return True
+    except ValueError:
+        return False

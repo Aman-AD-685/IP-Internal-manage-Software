@@ -98,4 +98,19 @@ assert parsed.assignee_email == "a@b.com"
 assert _ymd(None) is None
 assert _ymd("2026-07-25T12:00:00Z") == "2026-07-25"
 
+# PATCH: id vs reference_no routing + status validation
+from app.integrations_delegation_routes import (  # noqa: E402
+    _looks_like_uuid,
+    update_integration_delegation_task,
+    IntegrationUpdateDelegationRequest,
+)
+
+assert _looks_like_uuid("3f2504e0-4f89-11d3-9a0c-0305e82c3301")
+assert not _looks_like_uuid("DEL-0042")
+try:
+    update_integration_delegation_task("DEL-1", IntegrationUpdateDelegationRequest(status="pending"))
+    raise SystemExit("bad status should 400")
+except HTTPException as e:
+    assert e.status_code == 400
+
 print("check_delegation_integration_api: OK")
