@@ -113,4 +113,18 @@ try:
 except HTTPException as e:
     assert e.status_code == 400
 
+# GET only exposes open tasks — completed/cancelled rejected before any DB call
+from app.integrations_delegation_routes import (  # noqa: E402
+    _LIST_STATUSES,
+    list_integration_delegation_tasks,
+)
+
+assert _LIST_STATUSES == ("pending", "in_progress")
+for closed in ("completed", "cancelled"):
+    try:
+        list_integration_delegation_tasks(status=closed, assignee_email=None, created_since=None, limit=10)
+        raise SystemExit(f"status={closed} should 400")
+    except HTTPException as e:
+        assert e.status_code == 400
+
 print("check_delegation_integration_api: OK")
